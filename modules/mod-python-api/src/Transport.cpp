@@ -1,7 +1,8 @@
-#include "Transport.h"
+#include "PythonAPITransport.h"
 #include "Log.h"
 #include <utility>
 #include <boost/asio.hpp>
+#include <boost/bind/placeholders.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <atomic>
 #include <charconv>
@@ -106,7 +107,7 @@ struct Transport::Impl
         {
             boost::system::error_code ignored;
             socket.close(ignored);
-            deadline.cancel(ignored);
+            deadline.cancel();
             if (owner.active.load() == id)
                 owner.active.store(0);
         }

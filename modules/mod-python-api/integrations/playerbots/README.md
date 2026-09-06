@@ -5,13 +5,14 @@ revision `b949b50bfcdd4fab937781bac2d7765e39330e4b`. Playerbots remains responsi
 The wrapper discovers configured online bots automatically, yields their normal AI to Python on claim, and restores
 it on release or controller disconnect. It never registers a real player or a Playerbots selfbot.
 
-Playerbots requires its own AzerothCore `Playerbot` branch. Apply this handoff to that existing server checkout;
-the stock client-side preparation checkout is not being converted to a Playerbots server.
+Playerbots requires its own AzerothCore `Playerbot` branch. This fork's pinned submodule already includes the
+integration, adapted to preserve Observatory instrumentation and native-client POV behavior.
 
 ## Prepare on the server side
 
-Copy `mod-python-api` beside your existing `mod-playerbots` directory, retaining those exact directory names.
-From the server checkout root:
+For this fork, initialize the pinned submodule on a clean checkout and build both modules. Do not reapply the patch.
+For another compatible checkout, copy `mod-python-api` beside its existing `mod-playerbots` directory, retaining
+those exact directory names. From that server checkout root:
 
 ```sh
 python3 modules/mod-python-api/integrations/playerbots/apply_patch.py modules/mod-playerbots
@@ -72,9 +73,9 @@ removes stale registrations and can register a later headless incarnation as a n
 
 ## Validation boundary
 
-The patch is checked/applied against the pinned Playerbots source in an isolated local checkout, and Python
-transport tests exercise the wrapper contract. No Playerbots or worldserver executable is built or run on the client
-machine. Server verification must cover claim/release, dead reset, far/near teleports, disconnect during reset,
+The integrated pin builds with the core and passes CTest; Python transport tests exercise the wrapper contract.
+Enabled API gameplay validation remains pending. Server verification must cover claim/release, dead reset,
+far/near teleports, disconnect during reset,
 logout/relogin with the same GUID, and restoration of ordinary Playerbots behavior with the intended map workers.
 
 Upstream source: https://github.com/mod-playerbots/mod-playerbots/tree/b949b50bfcdd4fab937781bac2d7765e39330e4b

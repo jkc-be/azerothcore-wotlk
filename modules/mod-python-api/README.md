@@ -12,12 +12,12 @@ the server. See [PROTOCOL.md](PROTOCOL.md) for timing and failure semantics.
 
 ## Server integration
 
-This checkout is a client-side preparation workspace. The following integration and gameplay checks belong on the
-separate server. The C++ sources have not been compiled or exercised against a running server here.
+The pinned Playerbots submodule includes the external-control integration. Initialize it with
+`git submodule update --init --recursive` on a clean checkout before building.
 
 1. Copy this directory beside the server's existing `modules/mod-playerbots/`.
-2. Apply the supplied [Playerbots integration patch](integrations/playerbots/README.md). The adapter is implemented;
-   no custom registration callbacks need to be written. Playerbots keeps its existing login/session lifecycle.
+2. For a different Playerbots checkout, follow the [integration patch instructions](integrations/playerbots/README.md).
+   Do not reapply the patch to this fork's pin. Playerbots keeps its existing login/session lifecycle.
 3. On the server, build both modules statically using its usual Playerbots-core build procedure. The standard module
    discovery collects these sources and `Addmod_python_apiScripts`; this handoff does not modify core code or SQL.
 4. Add to the effective server configuration and log the named bots in using your usual Playerbots commands:
@@ -102,11 +102,9 @@ cd modules/mod-python-api/python
 python3 -m unittest discover -s tests -v
 ```
 
-Handoff validation: all 18 Python tests, the module C++ style check and file-format checks passed.
-The repository C++ style check passed on the original preparation branch. On the PR's `main` base it reports
-existing violations in unchanged core files. The SQL style command could not fetch `origin/master` because that
-remote branch is absent; this change contains no SQL files. No C++ compilation or live gameplay validation was
-performed.
+Integration validation: the full static server/module build, CTest, all 18 Python tests, the module C++ style check
+and file-format checks passed. The SQL style check uses `origin/main` and passed. The full core C++ style check
+reports existing violations. Enabled Python-control gameplay scenarios below still need validation.
 
 On the separate server, validate these integration scenarios before using training results:
 

@@ -6,8 +6,8 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
 
 ## Agent update procedure
 
-1. Establish the authorized machine and scope. The default workstation role is client-only. Preparing a PR does not
-   authorize deployment. A session instruction explicitly authorizing local/server updates takes precedence. Do not
+1. Establish the authorized machine and scope. Preparing a PR does not authorize deployment.
+   A session instruction explicitly authorizing local/server updates takes precedence. Do not
    request authorization again for work already covered by that instruction. Record the checkout, install/config/data
    paths, service/container names, source revisions and whether `Observatory.Enable` is set. Never print credentials.
 2. Inspect `git status --short`, `git submodule status` and module status. Preserve dirty work, remotes, local config,
