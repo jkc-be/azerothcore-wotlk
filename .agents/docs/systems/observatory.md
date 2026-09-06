@@ -54,6 +54,29 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    compatible previous binaries/configuration plus the appropriate pre-update DB state. A rollback never reuses virtual
    future timestamps as though a run were resumable. Never claim 100 bots at 10× without benchmark evidence.
 
+## Diagnosing a dashboard stuck "reconnecting"
+
+The bridge can be fully healthy while the dashboard never advances. `/api/snapshot` returning
+`{"error": "Waiting for worldserver telemetry"}` means the bridge process itself is fine and worldserver simply
+hasn't reported in — not a bridge problem. Before touching the bridge, check whether worldserver and authserver
+are actually running (e.g. `pgrep -a worldserver authserver` in the process's actual host/container) and tail
+their startup logs.
+
+A common cause when the running binaries were built against a different worktree than the one the deployment
+environment can see: `SourceDirectory` (the DBUpdater's SQL source) is set independently in `worldserver.conf`
+and `authserver.conf` — the authserver config is often hand-maintained, not rendered through the shared template
+— and can still point at the build worktree. If that path isn't visible where the servers actually run, both
+processes fail during their automatic DB-update step ("DBUpdater: the given source directory does not exist,
+… Shutting down") and exit cleanly before ever opening a listener; authserver's failure looks identical to
+worldserver's. Fix by pointing `SourceDirectory` in both configs at a checkout the runtime can actually reach,
+then relaunch.
+
+Separately, `Observatory::Initialize()` refuses to reuse an existing `Observatory.Directory` (it treats
+`create_directory` returning false — path already exists — as a hard refusal, logged as "Observatory
+initialization refused"). A run directory left behind by an aborted launch means the next worldserver attempt
+needs a brand-new run directory, with the bridge's `--spool` argument (and its service unit) updated to match
+before restarting it — the same sequence a full restart performs.
+
 ## Making a pinned cohort actually play
 
 `Observatory.BotGuids` only filters admission (`Observatory::AllowsBot`); whether an admitted bot
