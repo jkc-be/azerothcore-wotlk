@@ -67,7 +67,9 @@ level distribution and accumulated kill/death/level deltas.
   reconnecting the game controller; server registration identities and counters are process-local.
 - `action_acknowledged` describes the reported action request and optional spell result, not guaranteed arrival,
   damage, successful spell completion or a full combat log. Only explicitly published actions enter the journal.
-- Pause, speed and population controls are disabled, and the bridge rejects control requests for Python feeds.
+- Pause, speed and population controls are hidden, and the bridge rejects control requests for Python feeds. The
+  clock shows publisher elapsed time and the speed gauge stays empty; tiles, leaderboards and the timeline use the
+  observation fields only (kills, deaths, level gains, health, alive and combat flags).
   Viewing or disconnecting the browser does not affect bot ownership or AI.
 
 On connect/reconnect, the bridge returns up to 1,000 recent complete snapshots from a bounded 4 MiB journal tail.

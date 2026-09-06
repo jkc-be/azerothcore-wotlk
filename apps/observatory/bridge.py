@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
-"""Local observatory HTTP/SSE adapter. Run on the separate server beside the spool."""
+"""Local observatory HTTP/SSE adapter. Run beside the worldserver spool."""
 import argparse
 import hmac
 import json
+import math
 import os
 import re
 from pathlib import Path
 import secrets
 import threading
 import time
+from collections import Counter, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 WEB = Path(__file__).with_name('web')
 EXPORTS = {'manifest.json', 'initial.json', 'snapshots.ndjson', 'events.ndjson'}
+SPEEDS = (1, 2, 5, 10)
+# Trace-only journal kinds (Observatory.Trace = 1). Keep in sync with TRACE_KINDS in web/model.js.
+TRACE_KINDS = frozenset({
+    'position', 'melee_swing', 'aura_tick', 'damage_input', 'damage', 'periodic_damage', 'cast_start',
+    'cast_finish', 'cast_cancel', 'cooldown', 'regeneration', 'health_set', 'power_set', 'creature_death',
+    'creature_respawn',
+})
 
 
 def journal_tail(path, limit, byte_limit):
@@ -40,24 +49,258 @@ def journal_tail(path, limit, byte_limit):
         return []
 
 
+class EventTail:
+    """Follow the appended journal from its current tail; retain recent records and per-kind counts.
+
+    With tracing enabled the journal is dominated by per-step trace records, so the bounded file tail alone
+    hides progression. The follower reads only newly appended bytes and never rescans the file.
+    """
+
+    def __init__(self, path, recent=500, progression=2000, start_at_end=True):
+        self.path = Path(path)
+        self.lock = threading.Lock()
+        self.recent = deque(maxlen=recent)
+        self.progression = deque(maxlen=progression)
+        self.kinds = Counter()
+        self.minute = deque()
+        self.since = int(time.time() * 1000)
+        self.identity = None
+        self.offset = 0
+        self.partial = b''
+        self.start_at_end = start_at_end
+        self.seeding = False
+
+    def poll(self):
+        try:
+            with self.path.open('rb') as source:
+                stat = os.fstat(source.fileno())
+                identity = (stat.st_dev, stat.st_ino)
+                if identity != self.identity or stat.st_size < self.offset:
+                    self.identity = identity
+                    self.partial = b''
+                    self.seeding = True
+                    # A replaced or truncated journal starts a fresh follow; seed from the existing tail.
+                    self.offset = max(0, stat.st_size - 262144) if self.start_at_end else 0
+                    if self.offset:
+                        source.seek(self.offset)
+                        skipped = source.readline()
+                        self.offset += len(skipped)
+                source.seek(self.offset)
+                data = source.read(4 * 1024 * 1024)
+        except OSError:
+            return
+        if not data:
+            return
+        self.offset += len(data)
+        lines = (self.partial + data).split(b'\n')
+        self.partial = lines.pop()
+        now = time.time()
+        # The seed batch restores recent records for display; counts only cover records appended afterwards.
+        counted, self.seeding = not self.seeding, False
+        with self.lock:
+            for line in lines:
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(value, dict) or not isinstance(value.get('kind'), str):
+                    continue
+                self.recent.append(value)
+                if counted:
+                    self.kinds[value['kind']] += 1
+                    self.minute.append((now, value['kind']))
+                if value['kind'] not in TRACE_KINDS:
+                    self.progression.append(value)
+            while self.minute and now - self.minute[0][0] > 60:
+                self.minute.popleft()
+
+    def events(self, scope):
+        with self.lock:
+            return list(self.progression if scope == 'progression' else self.recent)
+
+    def stats(self):
+        with self.lock:
+            cutoff = time.time() - 60
+            recent = Counter(kind for stamp, kind in self.minute if stamp >= cutoff)
+            return {'since': self.since, 'total': sum(self.kinds.values()), 'kinds': dict(self.kinds),
+                    'recent': dict(recent)}
+
+    def follow(self, stop, interval=0.25):
+        while not stop.wait(interval):
+            self.poll()
+
+
+class MaxSpeed:
+    """Probe the available rates, backing off before projected debt reaches the user's target."""
+
+    def __init__(self, run, limit, sequence, now):
+        self.run = run
+        self.limit = limit
+        self.sequence = sequence
+        self.frame = None
+        self.fresh_at = now
+        self.stable_since = None
+        self.retry_after = now
+        self.status = 'Waiting for world acknowledgement'
+
+    def choose(self, current, now):
+        if self.frame and current['seq'] == self.frame['seq']:
+            if now - self.fresh_at >= 3:
+                self.status = 'Waiting for fresh telemetry'
+                self.stable_since = None
+            return None
+        previous, elapsed = self.frame, now - self.fresh_at
+        self.frame, self.fresh_at = current, now
+        if current['controlSeq'] < self.sequence:
+            self.status = 'Waiting for world acknowledgement'
+            self.stable_since = None
+            return None
+        if current.get('paused'):
+            self.status = 'Paused'
+            self.stable_since = None
+            return None
+        if not current.get('ready') or current.get('populationPending'):
+            self.status = 'Waiting for the bot population'
+            self.stable_since = None
+            return 1 if current['requestedSpeed'] > 1 else None
+
+        speed, backlog = current['requestedSpeed'], current['backlogMs']
+        growth = 0
+        if previous and 0 < elapsed < 3 and previous['requestedSpeed'] == speed:
+            growth = max(0, (backlog - previous['backlogMs']) / elapsed)
+        # Leave room for the next sample and mailbox acknowledgement. A sudden stall can still overshoot.
+        projected = backlog + growth * 0.5
+        if projected >= self.limit * 0.8:
+            self.stable_since = None
+            self.retry_after = now + 30
+            if previous and backlog < previous['backlogMs']:
+                self.status = 'Holding speed while backlog drains'
+                return None
+            if speed == 1:
+                self.status = 'At 1×; waiting for backlog to drain'
+                return None
+            self.status = 'Reducing speed to drain backlog'
+            return SPEEDS[SPEEDS.index(speed) - 1]
+        if backlog > self.limit * 0.25:
+            self.stable_since = None
+            self.status = 'Holding speed while backlog drains'
+            return None
+        if self.stable_since is None:
+            self.stable_since = now
+        if speed == SPEEDS[-1]:
+            self.status = 'Running at the highest available speed'
+        elif now >= self.retry_after and now - self.stable_since >= 5:
+            self.stable_since = None
+            self.status = 'Trying the next speed'
+            return SPEEDS[SPEEDS.index(speed) + 1]
+        else:
+            self.status = 'Measuring sustainable speed'
+        return None
+
+
 class Spool:
-    def __init__(self, directory, token):
+    def __init__(self, directory, token, follow=True):
         self.directory = Path(directory)
         self.token = token
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.sequence = 0
+        self.max_speed = None
+        self.backlog_limit_ms = 100
+        self.speed_status = 'Manual speed'
         self.viewers = threading.BoundedSemaphore(16)
+        self.tail = EventTail(self.directory / 'events.ndjson')
+        self.stop = threading.Event()
+        if follow:
+            threading.Thread(target=self.tail.follow, args=(self.stop,), daemon=True).start()
+            threading.Thread(target=self.follow_speed, daemon=True).start()
+
+    def close(self):
+        self.stop.set()
 
     def snapshot(self):
-        return json.loads((self.directory / 'latest.json').read_text())
+        with self.lock:
+            current = json.loads((self.directory / 'latest.json').read_text())
+            current['speedControl'] = {
+                'mode': 'max' if self.max_speed else 'manual',
+                'backlogLimitMs': self.backlog_limit_ms,
+                'status': self.max_speed.status if self.max_speed else self.speed_status,
+            }
+            return current
+
+    def follow_speed(self):
+        while not self.stop.wait(0.25):
+            try:
+                self.adjust_speed()
+            except (OSError, ValueError, KeyError, TypeError):
+                with self.lock:
+                    if self.max_speed:
+                        self.max_speed.status = 'Waiting for valid telemetry and control mailbox'
+                        self.max_speed.stable_since = None
+
+    def adjust_speed(self, now=None):
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            controller = self.max_speed
+            if not controller:
+                return
+            current = self.snapshot()
+            if (current['run'] != controller.run or current.get('readOnly') or current.get('source') == 'python-api'
+                    or current.get('baseline') or current.get('completed') or current.get('fault')
+                    or current.get('observers') or current['controlSeq'] > controller.sequence
+                    or (current['controlSeq'] == controller.sequence and current.get('controlError'))):
+                self.max_speed = None
+                self.speed_status = 'Max stopped: run state or another controller changed'
+                return
+            fields = (self.directory / 'control.txt').read_text().split()
+            if fields[:2] != [controller.run, str(controller.sequence)]:
+                self.max_speed = None
+                self.speed_status = 'Max stopped: another controller changed speed'
+                return
+            self.validate_speed_telemetry(current)
+            speed = controller.choose(current, now)
+            if speed is not None:
+                result = self._control({'run': current['run'], 'speed': speed, 'paused': False})
+                controller.sequence = result['sequence']
+
+    @staticmethod
+    def validate_speed_telemetry(current):
+        if (current.get('requestedSpeed') not in SPEEDS or type(current.get('seq')) is not int
+                or type(current.get('backlogMs')) not in (int, float)
+                or not math.isfinite(current['backlogMs']) or current['backlogMs'] < 0):
+            raise ValueError('Max requires valid speed and backlog telemetry')
 
     def control(self, request):
-        if (set(request) not in ({'run', 'speed', 'paused'}, {'run', 'speed', 'paused', 'bots'})
-                or type(request['speed']) is not int or request['speed'] not in (1, 2, 5, 10)
+        required = {'run', 'speed', 'paused'}
+        if (not required <= set(request) or set(request) - required - {'bots', 'backlogLimitMs'}
+                or not (request['speed'] == 'max'
+                        or (type(request['speed']) is int and request['speed'] in SPEEDS))
                 or type(request['paused']) is not bool):
-            raise ValueError('Expected run, speed (1, 2, 5, 10), and paused (boolean)')
+            raise ValueError('Expected run, speed (1, 2, 5, 10, or max), and paused (boolean)')
+        if 'backlogLimitMs' in request and (request['speed'] != 'max'
+                or type(request['backlogLimitMs']) is not int or not 10 <= request['backlogLimitMs'] <= 60000):
+            raise ValueError('backlogLimitMs requires Max and must be an integer from 10 to 60000')
         if 'bots' in request and (type(request['bots']) is not int or not 0 <= request['bots'] <= 100):
             raise ValueError('bots must be an integer from 0 to 100')
+        with self.lock:
+            numeric = dict(request)
+            numeric.pop('backlogLimitMs', None)
+            if request['speed'] == 'max':
+                current = self.snapshot()
+                if current.get('baseline') or current.get('observers'):
+                    raise ValueError('Max is unavailable during real-time baseline or GM POV')
+                self.validate_speed_telemetry(current)
+                numeric['speed'] = current['requestedSpeed'] if self.max_speed else 1
+            result = self._control(numeric)
+            if request['speed'] == 'max':
+                self.backlog_limit_ms = request.get('backlogLimitMs', self.backlog_limit_ms)
+                self.max_speed = MaxSpeed(request['run'], self.backlog_limit_ms,
+                                          result['sequence'], time.monotonic())
+            else:
+                self.max_speed = None
+                self.speed_status = 'Manual speed'
+            return result
+
+    def _control(self, request):
         with self.lock:
             current = self.snapshot()
             if current.get('readOnly') or current.get('source') == 'python-api':
@@ -126,10 +369,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         static = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
-                  '/model.js': ('model.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+                  '/model.js': ('model.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'),
+                  '/style.css': ('style.css', 'text/css')}
         if path in static:
             name, mime = static[path]
             self.reply(200, (WEB / name).read_bytes(), mime)
+            return
+        if path == '/favicon.ico':
+            self.reply(204, b'', 'image/x-icon')
             return
         if not self.authorized():
             self.reply(401, {'error': 'Bearer token required'})
@@ -176,7 +423,13 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.close_connection = True
         elif path == '/api/events':
-            self.reply(200, journal_tail(spool.directory / 'events.ndjson', 500, 262144))
+            scope = parse_qs(urlparse(self.path).query).get('scope', [''])[0]
+            if scope == 'progression':
+                self.reply(200, spool.tail.events('progression'))
+            else:
+                self.reply(200, journal_tail(spool.directory / 'events.ndjson', 500, 262144))
+        elif path == '/api/event-stats':
+            self.reply(200, spool.tail.stats())
         elif path == '/api/history':
             self.reply(200, journal_tail(spool.directory / 'snapshots.ndjson', 1000, 4 * 1024 * 1024))
         else:

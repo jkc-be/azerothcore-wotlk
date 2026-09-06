@@ -1,11 +1,91 @@
+export const ACTIVITIES = ["idle", "moving", "combat", "casting", "dead"];
+
+// Trace-only journal kinds. Keep in sync with TRACE_KINDS in bridge.py.
+export const TRACE_KINDS = new Set([
+  "position",
+  "melee_swing",
+  "aura_tick",
+  "damage_input",
+  "damage",
+  "periodic_damage",
+  "cast_start",
+  "cast_finish",
+  "cast_cancel",
+  "cooldown",
+  "regeneration",
+  "health_set",
+  "power_set",
+  "creature_death",
+  "creature_respawn",
+]);
+
 export function duration(ms) {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s`;
 }
 
+export function clock(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const days = Math.floor(seconds / 86400);
+  const pad = (value) => String(value).padStart(2, "0");
+  return {
+    days,
+    time: `${pad(Math.floor(seconds / 3600) % 24)}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`,
+  };
+}
+
+export function formatMoney(copper) {
+  if (copper == null || !Number.isFinite(copper)) return "unknown";
+  const gold = Math.floor(copper / 10000),
+    silver = Math.floor(copper / 100) % 100,
+    bronze = copper % 100;
+  return gold ? `${gold}g ${silver}s` : silver ? `${silver}s ${bronze}c` : `${bronze}c`;
+}
+
+export function formatNumber(value, digits = 0) {
+  if (value == null || !Number.isFinite(value)) return "unknown";
+  return value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+}
+
+export function healthPercent(bot) {
+  return (100 * (bot.health ?? 0)) / Math.max(1, bot.maxHealth ?? 1);
+}
+
+export function activityMix(bots) {
+  const mix = Object.fromEntries(ACTIVITIES.map((activity) => [activity, 0]));
+  for (const bot of bots) mix[ACTIVITIES.includes(bot.activity) ? bot.activity : "idle"] += 1;
+  return mix;
+}
+
 export function summarize(snapshot) {
-  const result = { simMs: snapshot.simMs, xp: 0, quests: 0, deaths: 0, levels: {}, zones: {} };
-  for (const bot of snapshot.bots) {
+  const bots = snapshot.bots;
+  const result = {
+    simMs: snapshot.simMs,
+    realMs: snapshot.realMs ?? null,
+    seq: snapshot.seq ?? null,
+    xp: 0,
+    quests: 0,
+    deaths: 0,
+    levels: {},
+    zones: {},
+    activity: activityMix(bots),
+    inWorld: bots.length,
+    online: snapshot.onlineBots ?? null,
+    active: snapshot.activeBots ?? null,
+    expected: snapshot.expectedBots ?? null,
+    requestedSpeed: snapshot.requestedSpeed ?? null,
+    achievedSpeed: snapshot.achievedSpeed ?? null,
+    backlogMs: snapshot.backlogMs ?? null,
+    tickMs: snapshot.maxTickUs == null ? null : snapshot.maxTickUs / 1000,
+    paused: Boolean(snapshot.paused),
+    meanHealth: bots.length ? bots.reduce((sum, bot) => sum + healthPercent(bot), 0) / bots.length : null,
+    money: bots.some((bot) => bot.money != null) ? bots.reduce((sum, bot) => sum + (bot.money ?? 0), 0) : null,
+    questsActive: bots.reduce((sum, bot) => sum + (bot.quests?.length ?? 0), 0),
+    meanLevel: bots.length ? bots.reduce((sum, bot) => sum + bot.level, 0) / bots.length : null,
+    minLevel: bots.length ? Math.min(...bots.map((bot) => bot.level)) : null,
+    maxLevel: bots.length ? Math.max(...bots.map((bot) => bot.level)) : null,
+  };
+  for (const bot of bots) {
     result.xp += bot.earnedXp ?? 0;
     result.quests += bot.questCompletions ?? 0;
     result.deaths += bot.deaths;
@@ -17,15 +97,170 @@ export function summarize(snapshot) {
   if (snapshot.runTotals) Object.assign(result, snapshot.runTotals);
   if (snapshot.source === "python-api") {
     result.xp = result.quests = null;
-    result.observed = snapshot.bots.length;
-    result.combat = snapshot.bots.filter((bot) => bot.combat).length;
-    result.alive = snapshot.bots.filter((bot) => bot.alive).length;
-    result.health = snapshot.bots.length
-      ? snapshot.bots.reduce((sum, bot) => sum + (100 * bot.health) / Math.max(1, bot.maxHealth), 0) /
-        snapshot.bots.length
-      : null;
+    result.observed = bots.length;
+    result.combat = bots.filter((bot) => bot.combat).length;
+    result.alive = bots.filter((bot) => bot.alive).length;
+    result.health = bots.length ? bots.reduce((sum, bot) => sum + healthPercent(bot), 0) / bots.length : null;
   }
   return result;
+}
+
+// Progression rate over the trailing window, expressed per hour of the history's time basis.
+export function rate(history, key, windowMs) {
+  if (history.length < 2) return null;
+  const last = history.at(-1);
+  if (last[key] == null) return null;
+  let first = history[0];
+  for (let index = history.length - 2; index >= 0; index -= 1) {
+    if (history[index][key] == null) break;
+    first = history[index];
+    if (last.simMs - history[index].simMs >= windowMs) break;
+  }
+  const deltaMs = last.simMs - first.simMs;
+  if (deltaMs <= 0 || first[key] == null) return null;
+  return { perHour: ((last[key] - first[key]) * 3600000) / deltaMs, delta: last[key] - first[key], deltaMs };
+}
+
+// Average history into at most `buckets` points so small panels show trends rather than per-snapshot jitter.
+export function bucketHistory(history, buckets = 120) {
+  if (history.length <= buckets) return history;
+  const size = Math.ceil(history.length / buckets);
+  const result = [];
+  for (let start = 0; start < history.length; start += size) {
+    const group = history.slice(start, start + size);
+    const mean = (values) => {
+      const known = values.filter((value) => value != null);
+      return known.length ? known.reduce((sum, value) => sum + value, 0) / known.length : null;
+    };
+    result.push({
+      simMs: group.at(-1).simMs,
+      meanLevel: mean(group.map((point) => point.meanLevel)),
+      minLevel: mean(group.map((point) => point.minLevel)),
+      maxLevel: mean(group.map((point) => point.maxLevel)),
+      activity: Object.fromEntries(
+        ACTIVITIES.map((activity) => [activity, mean(group.map((point) => point.activity?.[activity] ?? 0))]),
+      ),
+    });
+  }
+  return result;
+}
+
+export function series(history, key, limit = 120) {
+  return history.slice(-limit).map((point) => (point[key] == null ? null : point[key]));
+}
+
+export function zoneTable(bots) {
+  const counts = new Map();
+  for (const bot of bots) {
+    const key = `${bot.map}/${bot.zone ?? "?"}`;
+    const entry = counts.get(key) || { map: bot.map, zone: bot.zone ?? null, count: 0, combat: 0 };
+    entry.count += 1;
+    if (bot.activity === "combat" || bot.combat) entry.combat += 1;
+    counts.set(key, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+export function leaderboard(bots, key, limit = 5, ascending = false) {
+  return bots
+    .filter((bot) => bot[key] != null)
+    .sort((a, b) => (ascending ? a[key] - b[key] : b[key] - a[key]) || a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
+
+// The world counts a bot as active when its AI updated within 10 simulated seconds; report the others.
+export function stalledBots(snapshot, thresholdMs = 10000) {
+  return snapshot.bots
+    .filter((bot) => bot.lastAiMs != null && snapshot.simMs - bot.lastAiMs > thresholdMs)
+    .map((bot) => ({ bot, silentMs: snapshot.simMs - bot.lastAiMs }))
+    .sort((a, b) => b.silentMs - a.silentMs);
+}
+
+export function healthStats(bots) {
+  if (!bots.length) return { mean: null, min: null, low: 0, dead: 0 };
+  const percents = bots.map(healthPercent);
+  return {
+    mean: percents.reduce((sum, value) => sum + value, 0) / percents.length,
+    min: Math.min(...percents),
+    low: percents.filter((value) => value > 0 && value < 35).length,
+    dead: bots.filter((bot) => bot.health === 0 || bot.alive === false).length,
+  };
+}
+
+export function questStats(bots) {
+  const result = { active: 0, complete: 0, progressing: 0, bots: 0 };
+  for (const bot of bots) {
+    const quests = bot.quests || [];
+    if (quests.length) result.bots += 1;
+    for (const quest of quests) {
+      result.active += 1;
+      if (quest.state & 1) result.complete += 1;
+      else if ((quest.objectives || []).some(Boolean) || (quest.items || []).some(Boolean)) result.progressing += 1;
+    }
+  }
+  return result;
+}
+
+export function gearCount(bot) {
+  return (bot.gear || []).filter(Boolean).length;
+}
+
+export function formatClock(ms) {
+  const { days, time } = clock(ms);
+  return days ? `${days}d ${time}` : time;
+}
+
+export function alerts(state, { stale = false, gaps = 0, silentSince = null } = {}) {
+  const list = [];
+  const python = state.source === "python-api";
+  const backlog = state.backlogMs == null ? "" : `${(state.backlogMs / 1000).toFixed(1)} s`;
+  if (state.fault)
+    list.push({ level: "danger", text: `Run frozen: ${state.fault}. Export the run and inspect the server.` });
+  if (state.completed)
+    list.push({
+      level: "info",
+      text: python ? "Feed closed, showing recorded history." : "Simulated duration complete.",
+    });
+  if (stale) list.push({ level: "danger", text: "No snapshot for 3 s. Check the bridge." });
+  if (state.controlError) list.push({ level: "warn", text: `Control rejected: ${state.controlError}` });
+  if (!python) {
+    if (state.overloaded) list.push({ level: "warn", text: `Overloaded: ${backlog} of simulated steps queued.` });
+    if (state.populationPending)
+      list.push({
+        level: "info",
+        text:
+          `Population adjusting: ${state.onlineBots} of ${state.expectedBots} bots online` +
+          `${state.paused ? ", waiting for Resume" : ""}.`,
+      });
+    if (state.observers)
+      list.push({
+        level: "info",
+        text: `${state.observers} GM observer${state.observers === 1 ? "" : "s"} connected, speed locked at 1×.`,
+      });
+    if (state.baseline) list.push({ level: "info", text: "Real-time baseline: 1× without pause only." });
+    // The speed instrument already shows the shortfall while overloaded; one alert is enough.
+    if (
+      !state.overloaded &&
+      !state.paused &&
+      !state.completed &&
+      state.achievedSpeed != null &&
+      state.requestedSpeed > 1 &&
+      state.achievedSpeed < 0.9 * state.requestedSpeed
+    )
+      list.push({
+        level: "warn",
+        text: `Running at ${state.achievedSpeed.toFixed(2)}× of the requested ${state.requestedSpeed}×.`,
+      });
+    if (state.ready === false) list.push({ level: "info", text: "Waiting for the complete initial cohort." });
+    if (silentSince)
+      list.push({ level: "warn", text: `${silentSince} bots without an AI update for over 10 simulated seconds.` });
+  }
+  if (gaps)
+    list.push({
+      level: "info",
+      text: `${gaps} snapshot gap${gaps === 1 ? "" : "s"} this session, coalesced by the writer.`,
+    });
+  return list;
 }
 
 export function visibleBots(snapshot, map, zone, instance = "all") {
@@ -50,6 +285,28 @@ export function retainedHistory(frames, snapshot) {
     .sort((a, b) => a.seq - b.seq)
     .slice(-4000)
     .map(summarize);
+}
+
+// Per-bot recent samples used for inspector sparklines and map trails.
+export function recordTrails(trails, snapshot, limit = 240) {
+  for (const bot of snapshot.bots) {
+    const trail = trails.get(bot.id) || [];
+    const last = trail.at(-1);
+    if (last && last.simMs === snapshot.simMs) continue;
+    trail.push({
+      simMs: snapshot.simMs,
+      map: bot.map,
+      instance: bot.instance,
+      x: bot.x,
+      y: bot.y,
+      health: healthPercent(bot),
+      xp: bot.earnedXp ?? null,
+      level: bot.level,
+    });
+    if (trail.length > limit) trail.splice(0, trail.length - limit);
+    trails.set(bot.id, trail);
+  }
+  return trails;
 }
 
 export function worldToScreen(bot, view, width, height) {

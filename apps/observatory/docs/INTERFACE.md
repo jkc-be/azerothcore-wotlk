@@ -58,6 +58,8 @@ browser. All API endpoints require `Authorization: Bearer TOKEN`; static UI file
 | `GET /api/stream` | SSE `data: SNAPSHOT` records; real-time heartbeats; no replay on reconnect |
 | `GET /api/snapshot` | Latest snapshot or 503 while starting |
 | `GET /api/events` | At most 500 recent events from a bounded journal tail |
+| `GET /api/events?scope=progression` | At most 2,000 recent non-trace events retained by the journal follower |
+| `GET /api/event-stats` | Per-kind record counts since the bridge started following, plus counts for the last minute |
 | `GET /api/history` | At most 1,000 complete snapshots from the most recent 4 MiB of the snapshot journal |
 | `GET /api/export/NAME` | Manifest, initial state, snapshots, or event journal; fixed cutoff at request start |
 | `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25}` → 202 accepted sequence |
@@ -66,6 +68,34 @@ A 202 response is mailbox acceptance. Application is acknowledged by a later sna
 state. Controls are validated again by the writer, applied by the world thread between joined updates, and scoped to
 the run. The mailbox intentionally coalesces rapid requests: a newer sequence supersedes an unapplied older request.
 Baseline mode permits 1× without pause only. Completed/faulted runs cannot be resumed by the adapter.
+
+## Adaptive Max speed
+
+`POST /api/control` also accepts `"speed":"max"` with optional `"backlogLimitMs":100` (integer, 10–60,000).
+Max selects among the existing 1×, 2×, 5× and 10× rates. The backlog limit is outstanding **simulated** milliseconds,
+not a wall-clock delay. Selecting a numeric speed returns to manual control. Pause/resume and population changes can
+retain Max by sending `"speed":"max"` again. The default backlog target is 100 ms; the dashboard allows editing it.
+
+The bridge runs the controller every 250 ms, independently of browser connections. Max starts at 1×, waits for world
+acknowledgement and a settled population, then probes one faster preset after five seconds below 25% of the target.
+It steps down if debt or projected growth reaches 80% of the target, and waits 30 seconds before retrying a faster
+rate. Falling backlog is allowed to drain at the current speed. These margins reduce oscillation; the limit is a
+feedback target, not a hard cap. Sampling, mailbox latency and sudden load spikes can briefly exceed it. If even 1×
+cannot meet the target, Max reports that it is waiting at 1×; it never discards debt or pauses gameplay automatically.
+
+HTTP/SSE snapshots add `speedControl: {mode, backlogLimitMs, status}` from the bridge. `requestedSpeed`, `backlogMs`
+and `controlSeq` remain the world's authoritative values; the private mailbox format and world journal are unchanged.
+Max waits on stale telemetry or pending acknowledgements. A GM observer, run change, completion, fault, rejected control
+or another controller's mailbox request cancels Max. Re-enable it explicitly after GM POV ends. Baseline and read-only
+feeds reject Max. Restarting the bridge returns to manual mode at the world's last requested speed; reconnecting or
+closing the browser preserves Max while the bridge remains running.
+
+The bridge follows `events.ndjson` incrementally from its tail: it reads only appended bytes, keeps the newest 500
+records of every kind and the newest 2,000 progression records, and counts records per kind. With `Observatory.Trace`
+enabled, per-step trace kinds (`position`, swings, ticks, casts, cooldowns, resource setters, creature deaths) dominate
+the bounded file tail, so the dashboard reads the progression scope for its live feed and inspector while the event
+mix table shows the trace volume. The seed batch read at startup restores the display but is not counted. Counts reset
+when the bridge restarts or the journal file is replaced; the export remains the complete record.
 
 Every SSE viewer has an independent connection and a five-second socket deadline. At most 16 streams are accepted.
 Slow viewers skip snapshots and reconnect to the newest state; browser rendering never drives simulation ticks.

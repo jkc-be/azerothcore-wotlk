@@ -8,110 +8,297 @@
   </head>
   <body>
     <header>
-      <div>
-        <span class="eyebrow">AZEROTHCORE / LIVE GAMEPLAY</span>
+      <div class="identity">
         <h1>Playerbot Observatory</h1>
+        <p id="run-label">Not connected</p>
       </div>
       <form id="connect">
         <label>Access token <input id="token" type="password" required autocomplete="off" /></label>
         <button>Connect</button>
+        <span id="link-state" class="link-state" data-state="off">not connected</span>
       </form>
     </header>
-    <div id="notice" role="status">Connect to an Observatory run or Python observation feed.</div>
-    <section class="metrics" id="metrics" aria-label="Simulation status"></section>
-    <nav aria-label="Simulation controls">
-      <button id="pause" disabled>Pause</button>
-      <label id="speed-control"
-        >Requested speed
-        <select id="speed" disabled>
-          <option>1</option>
-          <option>2</option>
-          <option>5</option>
-          <option>10</option>
-        </select>
-        ×</label
-      >
-      <form id="population">
-        <label>Target bots <input id="bot-count" type="number" min="0" max="100" step="1" required disabled /></label>
-        <button id="set-bots" disabled>Set bots</button>
-      </form>
-      <span id="population-status" role="status"></span>
-      <span id="control-status"></span>
-      <label
-        >Export
-        <select id="export-file">
-          <option>snapshots.ndjson</option>
-          <option>events.ndjson</option>
-          <option>initial.json</option>
-          <option>manifest.json</option>
-        </select></label
-      ><button id="export">Download</button>
-    </nav>
-    <main>
-      <section class="map-panel">
-        <div class="panel-heading">
-          <h2>World map</h2>
-          <label
-            >Map
-            <select id="map"></select></label
-          ><label
-            >Zone
-            <select id="zone"></select
-          ></label>
-          <label
-            >Instance
-            <select id="instance">
-              <option value="all">All instances</option>
-            </select></label
-          >
-          <button id="fit">Fit bots</button>
-          <button id="fit-map">Fit map</button>
-          <label><input id="map-art" type="checkbox" checked /> Artwork</label>
+
+    <section class="bench" aria-label="Simulation clock, load and controls">
+      <div class="clock">
+        <span class="label" id="clock-label">Simulated time</span>
+        <b id="clock-time">00:00:00</b>
+        <span id="clock-days"></span>
+        <span id="clock-real" class="sub">waiting for a snapshot</span>
+      </div>
+      <div class="figure speed">
+        <span class="label">Achieved speed</span>
+        <b id="speed-achieved">–</b>
+        <canvas id="speed-bar" aria-hidden="true"></canvas>
+        <span class="sub"><span id="speed-requested">no simulation control</span><span id="speed-ratio"></span></span>
+      </div>
+      <div class="figure" id="backlog-figure">
+        <span class="label">Backlog</span>
+        <b id="backlog-value">0.00 s</b>
+        <canvas id="backlog-spark" aria-hidden="true"></canvas>
+        <span class="sub">simulated steps queued</span>
+      </div>
+      <div class="figure" id="tick-figure">
+        <span class="label">Longest tick</span>
+        <b id="tick-value">0.0 ms</b>
+        <canvas id="tick-spark" aria-hidden="true"></canvas>
+        <span class="sub">slowest world update this sample</span>
+      </div>
+      <div class="deck" id="deck">
+        <button id="pause" class="primary" disabled>Pause</button>
+        <div id="speed-control" class="segmented" role="group" aria-label="Requested speed">
+          <button data-speed="1" disabled>1×</button>
+          <button data-speed="2" disabled>2×</button>
+          <button data-speed="5" disabled>5×</button>
+          <button data-speed="10" disabled>10×</button>
+          <button data-speed="max" disabled>Max</button>
         </div>
-        <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
-        <p class="caption">
-          Drag to pan · scroll to zoom · select a marker.
-          <span id="map-art-status">Loading local map artwork…</span>
-        </p>
-      </section>
-      <aside>
-        <label>Find a bot <input id="bot-search" type="search" placeholder="Name or GUID" /></label>
-        <label for="bot-list">Observed population <span id="roster-count"></span></label>
-        <select id="bot-list" size="5" aria-label="Observed bots"></select>
-        <h2 id="bot-name">Select a bot</h2>
-        <div id="bot-details">Choose a marker to inspect progression.</div>
-        <h3>Recent events</h3>
-        <ol id="events"></ol>
-      </aside>
-      <section class="charts">
-        <div class="panel-heading">
-          <h2 id="chart-title">Population over simulated time</h2>
+        <form id="max-speed-settings">
           <label
-            >Metric
-            <select id="chart-metric">
-              <option value="levels">Level distribution</option>
-              <option value="zones">Zone population</option>
-              <option value="xp">XP gained</option>
-              <option value="quests">Quest completions</option>
+            >Max backlog (ms)
+            <input id="backlog-limit" type="number" min="10" max="60000" step="1" value="100" required disabled />
+          </label>
+          <button id="set-max-speed" disabled>Apply Max</button>
+        </form>
+        <span id="max-speed-status" role="status"></span>
+        <form id="population">
+          <label
+            >Target bots
+            <input id="bot-count" type="number" min="0" max="100" step="1" required disabled />
+          </label>
+          <input id="bot-range" type="range" min="0" max="100" step="1" disabled aria-label="Target bots slider" />
+          <button id="set-bots" disabled>Set bots</button>
+        </form>
+        <span id="population-status" role="status"></span>
+      </div>
+      <div class="status-line">
+        <span id="notice" role="status">Enter the access token to connect to a run or a Python observation feed.</span>
+        <ul id="alerts" class="alerts" aria-label="Simulation alerts"></ul>
+        <div class="lamps" id="lamps" aria-label="Run state"></div>
+      </div>
+    </section>
+
+    <section class="region" aria-label="Progression">
+      <div class="region-head"><h2>Progression</h2></div>
+      <div class="metrics" id="metrics"></div>
+    </section>
+
+    <section class="region" aria-label="World map and bots">
+      <div class="region-head">
+        <h2>World map <span class="region-note" id="map-count"></span></h2>
+      </div>
+      <main>
+        <div class="map-panel">
+          <div class="filters">
+            <label
+              >Map
+              <select id="map"></select
+            ></label>
+            <label
+              >Zone
+              <select id="zone"></select
+            ></label>
+            <label
+              >Instance
+              <select id="instance">
+                <option value="all">All instances</option>
+              </select></label
+            >
+            <label
+              >Colour
+              <select id="map-colour">
+                <option value="activity">Activity</option>
+                <option value="health">Health</option>
+                <option value="level">Level</option>
+              </select></label
+            >
+            <div class="segmented">
+              <button id="fit">Fit bots</button>
+              <button id="fit-map">Fit map</button>
+            </div>
+            <div class="toggles">
+              <label><input id="map-art" type="checkbox" checked />Artwork</label>
+              <label><input id="map-trails" type="checkbox" checked />Trail</label>
+            </div>
+          </div>
+          <div class="map-frame">
+            <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
+            <div id="map-tip" class="map-tip" hidden></div>
+            <ul id="map-legend" class="map-legend"></ul>
+            <span id="map-art-status" class="map-attribution">Loading map artwork</span>
+          </div>
+          <p class="caption">Drag to pan, scroll to zoom, click a bot to inspect.</p>
+        </div>
+        <aside class="roster-column" id="roster-column">
+          <div class="roster-tools">
+            <input id="bot-search" type="search" placeholder="Find by name or GUID" aria-label="Find a bot" />
+            <select id="roster-sort" aria-label="Sort bots">
+              <option value="name">Name</option>
+              <option value="level">Level</option>
+              <option value="earnedXp">Earned XP</option>
+              <option value="health">Health</option>
+              <option value="activity">Activity</option>
               <option value="deaths">Deaths</option>
-              <option value="observed" data-python>Observed bots</option>
-              <option value="alive" data-python>Alive bots (last observation)</option>
-              <option value="combat" data-python>In combat (last observation)</option>
-              <option value="health" data-python>Mean health % (last observation)</option>
-              <option value="kills" data-python>Kills since observation baselines</option>
-              <option value="levelGains" data-python>Levels gained since observation baselines</option>
-            </select></label
-          >
+            </select>
+          </div>
+          <div class="roster-label" id="roster-count">No bots yet</div>
+          <div id="bot-list" role="listbox" tabindex="0" aria-label="Observed bots"></div>
+          <div id="inspector">
+            <h3 id="bot-name">No bot selected</h3>
+            <p id="bot-empty" class="caption">Pick one from the list or click a marker on the map.</p>
+            <div id="bot-bars" class="bars" hidden></div>
+            <canvas id="bot-spark" class="bot-spark" aria-hidden="true" hidden></canvas>
+            <div id="bot-details" hidden></div>
+            <h4 id="events-title" hidden>Recent events</h4>
+            <ol id="events" hidden></ol>
+          </div>
+        </aside>
+      </main>
+    </section>
+
+    <section class="region" aria-label="Timeline">
+      <div class="region-head">
+        <h2 id="chart-title">Timeline</h2>
+        <label
+          >Window
+          <select id="chart-window">
+            <option value="0">Whole session</option>
+            <option value="3600000">Last hour</option>
+            <option value="600000">Last 10 minutes</option>
+          </select></label
+        >
+        <label
+          >Metric
+          <select id="chart-metric">
+            <option value="xp">XP gained</option>
+            <option value="quests">Quest completions</option>
+            <option value="deaths">Deaths</option>
+            <option value="levels">Level distribution</option>
+            <option value="zones">Zone population</option>
+            <option value="speed">Achieved and requested speed</option>
+            <option value="backlogMs">Backlog (ms)</option>
+            <option value="tickMs">Longest world tick (ms)</option>
+            <option value="population">Active, online and target bots</option>
+            <option value="activity">Activity mix</option>
+            <option value="meanHealth">Mean health %</option>
+            <option value="money">Total money (copper)</option>
+            <option value="questsActive">Quests in logs</option>
+            <option value="observed" data-python>Observed bots</option>
+            <option value="alive" data-python>Alive bots (last observation)</option>
+            <option value="combat" data-python>In combat (last observation)</option>
+            <option value="health" data-python>Mean health % (last observation)</option>
+            <option value="kills" data-python>Kills since observation baselines</option>
+            <option value="levelGains" data-python>Levels gained since observation baselines</option>
+          </select></label
+        >
+      </div>
+      <div class="chart-grid">
+        <canvas id="chart-canvas" aria-label="History chart"></canvas>
+        <div class="readout-column">
+          <div id="chart-readout" class="readout"></div>
+          <div id="legend"></div>
+          <p class="caption" id="history-status">No history yet</p>
         </div>
-        <canvas id="chart-canvas" aria-label="Population history chart"></canvas>
-        <div id="legend"></div>
-        <p class="caption">
-          <span id="history-status">No history loaded.</span>
-          Up to 4,000 samples in this session; recent recorded history loads on connect. Full timestamped history is
-          retained in exports. Python observations are sampled independently for each bot.
-        </p>
-      </section>
-    </main>
+      </div>
+    </section>
+
+    <section class="region" aria-label="Cohort">
+      <div class="region-head"><h2 id="cohort-title">Cohort over simulated time</h2></div>
+      <div class="analytics">
+        <div>
+          <h3>Activity share</h3>
+          <canvas id="activity-chart" class="small-chart" aria-label="Activity share over time"></canvas>
+          <ul id="activity-list" class="swatches"></ul>
+          <div id="health-summary" class="summary"></div>
+        </div>
+        <div>
+          <h3>Levels</h3>
+          <canvas id="level-chart" class="small-chart" aria-label="Lowest, mean and highest level over time"></canvas>
+          <div id="level-summary" class="summary"></div>
+        </div>
+        <div>
+          <h3>Where the bots are</h3>
+          <table id="zone-table" class="data">
+            <thead>
+              <tr>
+                <th>Zone</th>
+                <th>Bots</th>
+                <th>In combat</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="panel-head">
+            <h3>Leaders</h3>
+            <select id="board-metric" aria-label="Leaderboard metric">
+              <option value="earnedXp">Earned XP</option>
+              <option value="questCompletions">Quests completed</option>
+              <option value="level">Level</option>
+              <option value="deaths">Deaths</option>
+              <option value="money">Money</option>
+              <option value="kills" data-python>Kills</option>
+              <option value="stalled">Silent AI</option>
+            </select>
+          </div>
+          <ol id="board" class="board"></ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="region" aria-label="Journal">
+      <div class="region-head"><h2>Journal</h2></div>
+      <div class="feed-row">
+        <div class="feed">
+          <div class="panel-head">
+            <h3>Live events</h3>
+            <label
+              >Kind
+              <select id="feed-kind">
+                <option value="">All progression events</option>
+              </select></label
+            >
+            <button id="feed-follow" class="toggle" aria-pressed="true">Following</button>
+          </div>
+          <ol id="feed"></ol>
+          <p class="caption" id="feed-status">Trace records (positions, swings, ticks) are counted, not listed.</p>
+        </div>
+        <div>
+          <h3>Record counts since start</h3>
+          <table id="event-mix" class="data">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Total</th>
+                <th>Last minute</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div>
+          <h3>Run</h3>
+          <ol id="control-log" class="control-log"></ol>
+          <span id="control-status"></span>
+          <div class="export">
+            <label
+              >Export
+              <select id="export-file">
+                <option>snapshots.ndjson</option>
+                <option>events.ndjson</option>
+                <option>initial.json</option>
+                <option>manifest.json</option>
+              </select></label
+            ><button id="export">Download</button>
+          </div>
+          <details id="manifest-box">
+            <summary>Run manifest</summary>
+            <dl id="manifest"></dl>
+          </details>
+        </div>
+      </div>
+    </section>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -39,7 +39,8 @@ try {
   const errors = [];
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    if (data.method === "Runtime.exceptionThrown") errors.push(data.params.exceptionDetails.text);
+    if (data.method === "Runtime.exceptionThrown")
+      errors.push(data.params.exceptionDetails.exception?.description || data.params.exceptionDetails.text);
     if (data.id && pending.has(data.id)) {
       pending.get(data.id)(data);
       pending.delete(data.id);
@@ -87,16 +88,21 @@ try {
     assert.match(await evaluate('document.querySelector("#notice").textContent'), /SYNTHETIC PYTHON/);
     assert.equal(await evaluate('document.querySelector("#pause").disabled'), true);
     assert.equal(await evaluate('document.querySelector("#set-bots").disabled'), true);
-    assert.equal(await evaluate('document.querySelector("#bot-list").options.length'), 8);
+    assert.equal(await evaluate('document.querySelector("#deck").hidden'), true);
+    assert.equal(await evaluate('document.querySelectorAll("#bot-list [role=option]").length'), 8);
+    assert.equal(await evaluate('document.querySelector("#backlog-figure").hidden'), true);
+    assert.match(await evaluate('document.querySelector("#clock-label").textContent'), /Elapsed publisher time/);
     await evaluate(`document.querySelector('#bot-search').value = 'DemoBot2';
       document.querySelector('#bot-search').dispatchEvent(new Event('input'))`);
-    assert.equal(await evaluate('document.querySelector("#bot-list").options.length'), 1);
-    await evaluate(`document.querySelector('#bot-list').value = '9007199254740994';
-      document.querySelector('#bot-list').dispatchEvent(new Event('change'))`);
+    assert.equal(await evaluate('document.querySelectorAll("#bot-list [role=option]").length'), 1);
+    await evaluate(`document.querySelector('#bot-list [data-id="9007199254740994"]').click()`);
     await waitFor('document.querySelector("#bot-name").textContent.includes("DemoBot2")');
     assert.match(await evaluate('document.querySelector("#bot-details").textContent'), /9007199254740994/);
     assert.match(await evaluate('document.querySelector("#bot-details").textContent'), /World tick/);
+    assert.match(await evaluate('document.querySelector("#bot-bars").textContent'), /Power/);
     assert.doesNotMatch(await evaluate("document.body.innerText"), /undefined|NaN/);
+    assert.ok(await evaluate('document.querySelectorAll("#zone-table tbody tr").length >= 1'));
+    assert.ok(await evaluate('document.querySelectorAll("#board li").length >= 1'));
     assert.equal(
       await evaluate(`fetch('/api/control', {method: 'POST',
       headers: {'Authorization': 'Bearer fixture-token', 'Content-Type': 'application/json'},
@@ -111,15 +117,17 @@ try {
     await evaluate(`document.querySelector('#chart-metric').value = 'health';
       document.querySelector('#chart-metric').dispatchEvent(new Event('change'))`);
     await waitFor('document.querySelector("#legend").textContent.includes("health")');
+    await waitFor('document.querySelectorAll("#feed li").length >= 1');
+    await waitFor('document.querySelectorAll("#event-mix tbody tr").length >= 1');
+    assert.equal(await evaluate("fetch('/api/event-stats').then(r => r.status)"), 401);
     await send("Page.reload");
-    await waitFor('document.querySelector("#token")?.value === ""');
+    await waitFor('document.readyState === "complete" && document.querySelector("#token")?.value === ""');
     await evaluate(`document.querySelector('#token').value = 'fixture-token';
       document.querySelector('#connect').requestSubmit()`);
-    await waitFor('document.querySelector("#bot-list").options.length === 8');
+    await waitFor('document.querySelectorAll("#bot-list [role=option]").length === 8');
     assert.ok(await evaluate("parseInt(document.querySelector('#history-status').textContent) >= 24"));
     assert.match(await evaluate('document.querySelector("#chart-title").textContent'), /elapsed real time/);
-    await evaluate(`document.querySelector('#bot-list').value = '9007199254740994';
-          document.querySelector('#bot-list').dispatchEvent(new Event('change'))`);
+    await evaluate(`document.querySelector('#bot-list [data-id="9007199254740994"]').click()`);
     assert.equal(
       await evaluate(`fetch('/api/export/snapshots.ndjson',
       {headers: {'Authorization': 'Bearer fixture-token'}}).then(r => r.text())
@@ -128,6 +136,17 @@ try {
     );
   } else {
     assert.match(await evaluate('document.querySelector("#metrics").textContent'), /100/);
+    assert.match(await evaluate('document.querySelector("#clock-days").textContent'), /day 1/);
+    assert.match(await evaluate('document.querySelector("#speed-requested").textContent'), /requested 1×/);
+    assert.equal(await evaluate('document.querySelector("#lamps").textContent'), "");
+    assert.equal(await evaluate('document.querySelector("#backlog-figure").hidden'), false);
+    assert.ok(await evaluate('document.querySelectorAll("#level-chart").length === 1'));
+    await waitFor('document.querySelectorAll("#feed li").length >= 1');
+    assert.match(await evaluate('document.querySelector("#feed").textContent'), /SYNTHETIC UI TEST/);
+    assert.equal(
+      await evaluate('document.querySelector("#control-log").textContent'),
+      "No control requests yet. Pause, speed and bot count changes appear here.",
+    );
     const rect = await evaluate(
       'JSON.stringify(document.querySelector("#map-canvas").getBoundingClientRect().toJSON())',
     );
@@ -139,27 +158,65 @@ try {
     await waitFor('document.querySelector("#bot-name").textContent.includes("FixtureBot0")');
     await evaluate('document.querySelector("#pause").click()');
     await waitFor('document.querySelector("#pause").textContent === "Resume"');
-    await evaluate(
-      'document.querySelector("#speed").value = "10"; ' +
-        'document.querySelector("#speed").dispatchEvent(new Event("change"))',
+    await evaluate("document.querySelector(\"#speed-control button[data-speed='10']\").click()");
+    await waitFor('document.querySelector("#speed-requested").textContent.includes("requested 10×")');
+    assert.equal(
+      await evaluate('document.querySelector("#speed-control button[data-speed=\'10\']").getAttribute("aria-pressed")'),
+      "true",
     );
-    await waitFor('document.querySelector("#metrics").textContent.includes("10×")');
+    await waitFor('document.querySelector("#control-log").textContent.includes("applied after")');
+    assert.equal(await evaluate('document.querySelector("#backlog-limit").value'), "100");
+    await evaluate("document.querySelector(\"#speed-control button[data-speed='max']\").click()");
+    await waitFor('document.querySelector("#speed-requested").textContent.includes("Max")');
+    assert.equal(await evaluate('document.querySelector("#pause").textContent'), "Resume");
+    await evaluate(`document.querySelector('#backlog-limit').value = '250';
+      document.querySelector('#max-speed-settings').requestSubmit()`);
+    await waitFor('document.querySelector("#max-speed-status").textContent.includes("250 ms")');
     await evaluate(
       'document.querySelector("#bot-count").value = "3"; document.querySelector("#population").requestSubmit()',
     );
     await waitFor(
-      'document.querySelector("#population-status").textContent.includes("100 / 3 bots · waiting for Resume")',
+      'document.querySelector("#population-status").textContent' +
+        '.includes("100 of 3 bots online, waiting for Resume")',
     );
+    assert.match(await evaluate('document.querySelector("#alerts").textContent'), /Population adjusting/);
+    assert.match(await evaluate('document.querySelector("#lamps").textContent'), /Population adjusting/);
     await evaluate('document.querySelector("#pause").click()');
-    await waitFor('document.querySelector("#population-status").textContent.includes("3 / 3 bots · matched")');
+    await waitFor('document.querySelector("#population-status").textContent.includes("3 of 3 bots online, matched")');
+    assert.equal(await evaluate('document.querySelector("#bot-range").value'), "3");
+    await waitFor('document.querySelector("#speed-requested").textContent.includes("Max · requested 2×")');
+    // Max belongs to the bridge: disconnecting/reloading the browser must not cancel it.
+    await send("Page.reload");
+    await waitFor('document.readyState === "complete" && document.querySelector("#token")?.value === ""');
+    await evaluate(`document.querySelector('#token').value = 'fixture-token';
+      document.querySelector('#connect').requestSubmit()`);
+    await waitFor('document.querySelector("#speed-requested").textContent.includes("Max")');
+    assert.equal(await evaluate('document.querySelector("#backlog-limit").value'), "250");
+    await evaluate("document.querySelector(\"#speed-control button[data-speed='1']\").click()");
+    await waitFor('document.querySelector("#speed-requested").textContent === "requested 1×"');
+    assert.equal(
+      await evaluate(`document.querySelector('#speed-control button[data-speed="max"]').getAttribute('aria-pressed')`),
+      "false",
+    );
+    await evaluate(`document.querySelector('#board-metric').value = 'deaths';
+      document.querySelector('#board-metric').dispatchEvent(new Event('change'))`);
+    assert.ok(await evaluate('document.querySelectorAll("#board li").length >= 3'));
+    await evaluate('document.querySelector("#board li").click()');
+    assert.match(await evaluate('document.querySelector("#bot-name").textContent'), /FixtureBot/);
+    await evaluate(`document.querySelector('#chart-metric').value = 'speed';
+      document.querySelector('#chart-metric').dispatchEvent(new Event('change'))`);
+    assert.match(await evaluate('document.querySelector("#legend").textContent'), /Achieved/);
+    assert.doesNotMatch(await evaluate("document.body.innerText"), /undefined|NaN/);
   }
   const image = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   await writeFile(screenshot, Buffer.from(image.data, "base64"));
   assert.deepEqual(errors, []);
   console.log(
     mode === "python"
-      ? "PASS: Python publisher, HTTP/history/SSE, Chromium, search, inspection, charts, reload, exports, read-only."
-      : "PASS: Chromium UI, fixture SSE, bot selection, pause acknowledgement and speed controls; no JS exceptions.",
+      ? "PASS: Python publisher, HTTP/history/SSE, Chromium, search, inspection, charts, reload, exports, " +
+          "read-only."
+      : "PASS: Chromium UI, fixture SSE, bot selection, pause acknowledgement and speed controls; " +
+          "no JS exceptions.",
   );
 } finally {
   socket?.close();
