@@ -66,6 +66,7 @@ def main():
             subprocess.run(['node', str(Path(__file__).with_suffix('.mjs')),
                             f'http://127.0.0.1:{server.server_port}', str(artifact)], check=True, timeout=40)
         finally:
+            server.spool.close()
             stopped.set()
             thread.join()
             server.shutdown()
