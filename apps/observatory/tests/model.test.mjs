@@ -21,3 +21,8 @@ test("view fitting centers world coordinates with WoW north/east axes", () => {
   assert.deepEqual(worldToScreen({ x: fit.x + 10, y: fit.y + 10 }, { ...fit, scale: 1 }, 800, 600), { x: 390, y: 290 });
 });
 test("simulated time labels retain whole days", () => assert.equal(duration(86400000), "24h 0m 0s"));
+
+test("run totals retain departed bots' progression", () => {
+  const snapshot = { simMs: 100, bots: [], runTotals: { xp: 1200, quests: 3, deaths: 2 } };
+  assert.deepEqual(summarize(snapshot), { simMs: 100, xp: 1200, quests: 3, deaths: 2, levels: {}, zones: {} });
+});

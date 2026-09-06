@@ -40,6 +40,33 @@ class Controls(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False})
 
+    def test_population_coalesces_without_losing_target_on_speed_change(self):
+        self.snapshot.update(expectedBots=1, maxBots=100)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': True, 'bots': 3})
+        restarted = bridge.Spool(self.path, 'test-token')
+        result = restarted.control({'run': 'run-a', 'speed': 5, 'paused': False})
+        self.assertEqual(result['sequence'], 7)
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 7 5 0 3\n')
+        restarted.control({'run': 'run-a', 'speed': 5, 'paused': False, 'bots': 0})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 8 5 0 0\n')
+
+    def test_population_validation_and_pool_limit(self):
+        self.snapshot.update(expectedBots=1, maxBots=3)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        for bots in (-1, 4, 101, True, 1.5, '2', None):
+            with self.assertRaises(ValueError):
+                self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': bots})
+        self.assertFalse((self.path / 'control.txt').exists())
+        self.snapshot['baseline'] = True
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        with self.assertRaises(ValueError):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 2})
+
+    def test_old_world_rejects_population_control(self):
+        with self.assertRaises(ValueError):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 2})
+
     def test_viewer_capacity_is_bounded(self):
         for _ in range(16):
             self.assertTrue(self.spool.viewers.acquire(blocking=False))

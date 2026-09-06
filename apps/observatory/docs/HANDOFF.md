@@ -18,13 +18,15 @@ git clone --branch main --recurse-submodules \
 cd azerothcore-observatory
 git submodule status --recursive
 cmake -S . -B ../build-observatory -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_INSTALL_PREFIX=/srv/observatory/server -DSCRIPTS=static -DMODULES=static -DBUILD_TESTING=ON
+  -DCMAKE_INSTALL_PREFIX=/srv/observatory/server -DSCRIPTS=static -DMODULES=static -DBUILD_TESTING=ON \
+  -DDISABLED_AC_MODULES="mod-python-api"
 cmake --build ../build-observatory --parallel 4
 ctest --test-dir ../build-observatory --output-on-failure
 cmake --install ../build-observatory
 ```
 
-Use only the pinned Playerbots module during v1 validation. Set the parallel build count for the server's memory capacity.
+Use only the pinned Playerbots module during v1 validation. The separate Python API handoff requires its own
+external-control patch; leave it disabled for autonomous observatory runs. Set the parallel build count for the server's memory capacity.
 The upstream module requires its Playerbot core; standard AzerothCore is not compatible. See the
 [upstream installation guide](https://github.com/mod-playerbots/mod-playerbots#installation) for server prerequisites
 and client-data extraction. Supply the licensed 3.3.5a DBC/maps/vmaps/mmaps files to the installed world's `DataDir`.
@@ -41,7 +43,8 @@ equipment/levels, known NPC/route/spell setup and effective configuration for ev
 Copy installed `worldserver.conf.dist` and `modules/playerbots.conf.dist` into their runtime `.conf` paths. Merge
 `../config/worldserver.conf.example` and `../config/playerbots.conf.example`, replacing credentials and paths.
 Do not use the fragments as complete configuration files. Do not change rates to achieve acceleration. Begin with one
-bot for timing proof; change all three count settings together. `BotGuids`, when supplied, pins exact eligible characters.
+bot for timing proof by setting BotCount to 1; equal MinRandomBots/MaxRandomBots provision the pool.
+`BotGuids`, when supplied, pins exact eligible characters.
 Standard upstream convenience settings are retained and recorded. A normal fresh generated population spans upstream
 levels 1–80; generation is not earned leveling. Use a prepared low-level fixture to study leveling from a common start.
 
@@ -53,7 +56,7 @@ install -d -m 700 /srv/observatory/runs
 ```
 
 The run directory itself must not exist: worldserver creates it atomically at startup and refuses reuse. The startup
-checks also require `DISPOSABLE_BOTS_ONLY`, `obs_` database names, fixed counts, no periodic logouts, and disabled
+checks also require `DISPOSABLE_BOTS_ONLY`, `obs_` database names, bounded population, no periodic logouts, and disabled
 console/RA/SOAP/bot command listeners. Public clients are rejected in world authentication independently of bind address.
 The observatory starts at requested 1×. Set speed in the UI or benchmark controller after reviewing initial state.
 Signals still stop the process; after normal shutdown the writer drains and closes the journal.
@@ -76,3 +79,9 @@ See `INTERFACE.md` for controls, data semantics, backpressure and exports; `TIMI
 
 After any run or crash, archive the spool and logs, then recreate all test databases from the clean pre-run fixture.
 Do not restart with virtual future deadlines or attempt cross-restart continuation. Use a new run directory every time.
+
+For adjustable population, keep `AiPlayerbot.MinRandomBots = AiPlayerbot.MaxRandomBots = 100` to provision the pool,
+then set `Observatory.BotCount` to the desired initial count (for example 1). Clear BotGuids or provide the full
+eligible pool; a single pinned GUID intentionally caps growth at one. The dashboard's **Target bots → Set bots** control accepts
+0 through the effective pool limit. Zero logs all bots out without deleting characters; Resume applies queued changes.
+Update core, the pinned module, and bridge together. See INTERFACE.md for population acknowledgement and timeouts.

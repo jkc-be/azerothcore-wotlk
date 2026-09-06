@@ -16,8 +16,8 @@ population benchmarks remain pending.
 - [Local map artwork setup](docs/MAPS.md)
 
 The dashboard plots authoritative world coordinates, inspects bots and quests, charts progression against simulated
-time, controls pause and requested speed, and exports timestamped events. It uses plain browser JavaScript and a local
-Python SSE adapter; neither is coupled to simulation tick frequency. Optional local client map artwork is aligned
+time, controls target population, pause and requested speed, and exports timestamped events. It uses plain browser
+JavaScript and a local Python SSE adapter; neither is coupled to simulation tick frequency. Optional local client map artwork is aligned
 with server coordinates; artwork is not bundled in this repository.
 
 Permitted local checks (no server build):

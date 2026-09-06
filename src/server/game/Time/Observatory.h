@@ -31,6 +31,9 @@ namespace Observatory
     AC_GAME_API void Stop();
     AC_GAME_API void Fail(std::string_view reason);
     AC_GAME_API bool AllowsBot(uint32 characterId);
+    // World-thread-only population contract with the Playerbots module.
+    AC_GAME_API uint32 TargetBotCount();
+    AC_GAME_API void PopulationSettled(bool settled);
     // World-thread pump; controls and observation keep running while gameplay is paused.
     AC_GAME_API void Run();
     AC_GAME_API void Event(Player const* player, std::string_view kind, uint64 value = 0, std::string_view detail = {});

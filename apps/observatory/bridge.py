@@ -28,10 +28,12 @@ class Spool:
         return json.loads((self.directory / 'latest.json').read_text())
 
     def control(self, request):
-        if (set(request) != {'run', 'speed', 'paused'}
+        if (set(request) not in ({'run', 'speed', 'paused'}, {'run', 'speed', 'paused', 'bots'})
                 or type(request['speed']) is not int or request['speed'] not in (1, 2, 5, 10)
                 or type(request['paused']) is not bool):
             raise ValueError('Expected run, speed (1, 2, 5, 10), and paused (boolean)')
+        if 'bots' in request and (type(request['bots']) is not int or not 0 <= request['bots'] <= 100):
+            raise ValueError('bots must be an integer from 0 to 100')
         with self.lock:
             current = self.snapshot()
             if request['run'] != current['run']:
@@ -42,15 +44,29 @@ class Spool:
                 raise ValueError('The configured simulated duration has completed')
             if current['fault']:
                 raise ValueError('Run is invalid; inspect server and start a fresh run')
+            bots = current.get('expectedBots', 100)
             try:
-                run, sequence, _, _ = (self.directory / 'control.txt').read_text().split()
+                fields = (self.directory / 'control.txt').read_text().split()
+                run, sequence = fields[:2]
+                if run == current['run'] and len(fields) == 5:
+                    bots = int(fields[4])
                 if run == current['run']:
                     self.sequence = max(self.sequence, int(sequence))
             except (OSError, ValueError):
                 pass
+            bots = request.get('bots', bots)
+            if 'bots' in request and 'maxBots' not in current:
+                raise ValueError('Update the worldserver before controlling population')
+            if bots > current.get('maxBots', 100):
+                raise ValueError('Target exceeds the configured bot pool')
+            if current.get('baseline') and bots != current.get('expectedBots'):
+                raise ValueError('Real-time baseline has a fixed population')
             self.sequence = max(self.sequence, current['controlSeq']) + 1
             # The world acknowledges application in subsequent snapshots; HTTP 202 is acceptance only.
-            text = f"{request['run']} {self.sequence} {request['speed']} {int(request['paused'])}\n"
+            text = f"{request['run']} {self.sequence} {request['speed']} {int(request['paused'])}"
+            if 'maxBots' in current:
+                text += f" {bots}"
+            text += "\n"
             temporary = self.directory / 'control.txt.tmp'
             temporary.write_text(text)
             os.replace(temporary, self.directory / 'control.txt')

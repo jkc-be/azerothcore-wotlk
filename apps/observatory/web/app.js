@@ -110,12 +110,22 @@ function ingest(snapshot) {
     pendingControl = 0;
   }
   if (state?.run === snapshot.run && state.seq >= snapshot.seq) return;
+  const previousTarget = state?.expectedBots;
   state = snapshot;
   freshAt = performance.now();
   if (!history.length || history.at(-1).simMs !== state.simMs) history.push(summarize(state));
   if (history.length > 4000) history.splice(0, history.length - 4000);
   updateMaps();
   $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline);
+  $("bot-count").disabled = $("set-bots").disabled = $("pause").disabled || state.maxBots === undefined;
+  $("bot-count").max = state.maxBots ?? 100;
+  if (previousTarget !== state.expectedBots || !$("bot-count").value) $("bot-count").value = state.expectedBots;
+  $("population-status").textContent = state.maxBots === undefined
+    ? "Server update required to change bot count"
+    : state.populationPending
+    ? `${state.onlineBots} / ${state.expectedBots} bots · ` +
+      (state.paused ? "waiting for Resume" : "adjusting population…")
+    : `${state.onlineBots} / ${state.expectedBots} bots · matched`;
   $("pause").textContent = state.paused ? "Resume" : "Pause";
   $("speed").value = state.requestedSpeed;
   $("control-status").textContent =
@@ -127,7 +137,7 @@ function ingest(snapshot) {
     ["Real elapsed", duration(state.realMs)],
     ["Requested / achieved", `${state.requestedSpeed}× / ${state.achievedSpeed.toFixed(2)}×`],
     ["Active / online / in world", `${state.activeBots} / ${state.onlineBots} / ${state.bots.length}`],
-    ["Cohort", state.ready ? `${state.expectedBots} identified` : `Starting ${state.expectedBots}`],
+    ["Target bots", `${state.expectedBots} (limit ${state.maxBots ?? state.expectedBots})`],
     ["Backlog", `${(state.backlogMs / 1000).toFixed(2)}s`],
   ];
   $("metrics").replaceChildren(
@@ -201,13 +211,13 @@ $("connect").addEventListener("submit", (event) => {
   });
   connect();
 });
-async function control(paused, speed) {
+async function control(paused, speed, bots) {
   if (!state) return;
   try {
     const response = await api("/api/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ run: state.run, speed, paused }),
+      body: JSON.stringify({ run: state.run, speed, paused, ...(bots === undefined ? {} : { bots }) }),
     });
     pendingControl = (await response.json()).sequence;
     $("control-status").textContent = `Request ${pendingControl} awaiting world acknowledgement`;
@@ -215,6 +225,10 @@ async function control(paused, speed) {
     notice(error.message);
   }
 }
+$("population").onsubmit = (event) => {
+  event.preventDefault();
+  if ($("population").reportValidity()) control(state.paused, state.requestedSpeed, Number($("bot-count").value));
+};
 $("pause").onclick = () => control(!state.paused, state.requestedSpeed);
 $("speed").onchange = () => control(state.paused, Number($("speed").value));
 $("map").onchange = () => {
@@ -264,7 +278,12 @@ function row(label, value) {
 }
 function renderDetails() {
   const bot = state?.bots.find((bot) => bot.id === selected);
-  if (!bot) return;
+  if (!bot) {
+    $("bot-name").textContent = selected ? "Bot is offline" : "Select a bot";
+    $("bot-details").textContent = selected ? "This bot has left the simulated population." : "Choose a marker.";
+    $("events").replaceChildren();
+    return;
+  }
   $("bot-name").textContent = `${bot.name} · level ${bot.level}`;
   $("bot-details").replaceChildren(
     ...[
