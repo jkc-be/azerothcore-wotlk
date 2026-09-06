@@ -27,7 +27,8 @@ Bots transferring between maps remain in `onlineBots`, but are temporarily absen
 
 Each bot has stable string `id`, `name`, `map`, `instance`, `zone`, `x`, `y`, `z`, `level`, current `xp`,
 `nextLevelXp`, `health`, `maxHealth`, `money`, cumulative `earnedXp`, `deaths`, `questCompletions`,
-`activity`, `lastAiMs`, `aiUpdates`, equipped item entries in `gear`, and quest-log IDs, states and objective counts.
+`activity`, `lastAiMs`, `aiUpdates`, equipped item entries in `gear`, and quest-log IDs, states, creature/object
+counters (`objectives`) and item counters (`items`).
 The enclosing snapshot supplies the run and simulation timestamp for every bot. Map and zone selectors use server IDs;
 the map is a coordinate plot without proprietary map tiles. Different instances share the same coordinate plane;
 the selected-bot detail identifies the instance.
@@ -68,6 +69,7 @@ Every SSE viewer has an independent connection and a five-second socket deadline
 Slow viewers skip snapshots and reconnect to the newest state; browser rendering never drives simulation ticks.
 The writer's latest-snapshot slot also coalesces during slow disk I/O; sequence gaps expose this. Events are retained
 in a bounded 65,536-record queue. Overflow or writer failure invalidates and freezes the run (`journal_failure`),
-never silently yielding a trustworthy-looking incomplete run. If the disk itself fails, the last visible snapshot
-may remain unchanged: the UI reports it stale after three seconds. Exports taken during a write may end in one partial
+never silently yielding a trustworthy-looking incomplete run. A full bot-operation queue similarly freezes the run
+with `bot_operation_queue_overflow`; its dropped operation makes that run invalid. If the disk itself fails, the last
+visible snapshot may remain unchanged: the UI reports it stale after three seconds. Exports taken during a write may end in one partial
 NDJSON line; export after shutdown for a complete final journal.

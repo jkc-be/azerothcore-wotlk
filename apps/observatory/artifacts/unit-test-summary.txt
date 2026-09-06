@@ -1,0 +1,18 @@
+Source 7a91338ac2c02c591838b74bb27849487c4ceca2
+Module 5f5237dd3df7dc5c8099733a8e2661467c24f467
+
+[==========] Running 11403 tests from 85 test suites.
+[----------] 1 test from SimulationClockDeathTest
+[ RUN      ] SimulationClockDeathTest.GameplayClocksPauseAndAdvanceTogether
+[       OK ] SimulationClockDeathTest.GameplayClocksPauseAndAdvanceTogether (38 ms)
+[----------] 1 test from SimulationClockDeathTest (38 ms total)
+[ RUN      ] SimulationBudget.AccelerationChangesNumberOfNormalSteps
+[       OK ] SimulationBudget.AccelerationChangesNumberOfNormalSteps (0 ms)
+[ RUN      ] SimulationBudget.PausePreservesDebtWithoutAccumulatingPausedWallTime
+[       OK ] SimulationBudget.PausePreservesDebtWithoutAccumulatingPausedWallTime (0 ms)
+[ RUN      ] SimulationBudget.SpeedChangesAndOverloadNeverDiscardFractionalOrOutstandingSteps
+[       OK ] SimulationBudget.SpeedChangesAndOverloadNeverDiscardFractionalOrOutstandingSteps (0 ms)
+[==========] 11403 tests from 85 test suites ran. (223 ms total)
+[  PASSED  ] 5917 tests.
+[  SKIPPED ] 5486 tests, listed below:
+  YOU HAVE 1 DISABLED TEST
