@@ -54,10 +54,13 @@ def main():
             frame = api('/api/snapshot')
             if frame['fault']:
                 raise RuntimeError(frame['fault'])
-            if frame['ready'] and frame['activeBots'] == args.bots:
+            if (frame['ready'] and not frame.get('populationPending', False)
+                    and frame['expectedBots'] == args.bots and frame['activeBots'] == args.bots
+                    and len(frame['bots']) == args.bots):
                 break
             time.sleep(1)
         run = frame['run']
+        cohort = {bot['id'] for bot in frame['bots']}
         if args.control_proof:
             paused = control(frame, True, 1)
             time.sleep(2)
@@ -84,7 +87,9 @@ def main():
                     output.flush()
                     samples += 1
                     shortfalls += frame['achievedSpeed'] < args.speed * 0.95
-                    if frame['onlineBots'] != args.bots or frame['activeBots'] != args.bots:
+                    if (frame['expectedBots'] != args.bots or frame['onlineBots'] != args.bots
+                            or frame['activeBots'] != args.bots
+                            or any(bot['id'] not in cohort for bot in frame['bots'])):
                         raise RuntimeError('Cohort member missing or AI update stalled')
                 if time.monotonic() - fresh > 10:
                     raise TimeoutError('World snapshots stopped advancing')

@@ -19,7 +19,7 @@ cd azerothcore-observatory
 git submodule status --recursive
 cmake -S . -B ../build-observatory -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCMAKE_INSTALL_PREFIX=/srv/observatory/server -DSCRIPTS=static -DMODULES=static -DBUILD_TESTING=ON \
-  -DDISABLED_AC_MODULES="mod-python-api"
+  -DMODULE_MOD-PYTHON-API=disabled
 cmake --build ../build-observatory --parallel 4
 ctest --test-dir ../build-observatory --output-on-failure
 cmake --install ../build-observatory
