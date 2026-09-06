@@ -4,7 +4,6 @@ AzerothCore is a C++ MMORPG server emulator for World of Warcraft 3.3.5a (WotLK)
 
 ## Agent rules
 
-- **Local machine role: client only.** This machine runs the WoW client, not the game server. This checkout is for preparing server-side handoffs. Server code written here is for the separate server side to implement; do not build, execute, install, restart or deploy server components here unless the user explicitly overrides this instruction. Deliver source changes and integration notes instead of requesting server SSH access or deployment approval as a routine next step.
 - **Do not configure or build unless explicitly asked.** Builds are slow and rarely needed for code changes.
 - **Never edit SQL files outside `data/sql/updates/pending_db_*/` unless explicitly requested.** `data/sql/base/`, `data/sql/archive/`, and `data/sql/updates/db_*/` are immutable.
 - Formatting follows `.editorconfig`: UTF-8, LF, max 120 cols, trailing newline, no trailing whitespace; 4-space indent for C++ (tabs forbidden), 2-space for JSON/YAML/sh/ts/js.
