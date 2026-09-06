@@ -4,6 +4,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import threading
@@ -89,7 +90,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(401, {'error': 'Bearer token required'})
             return
         spool = self.server.spool
-        if path == '/api/stream':
+        maps = getattr(self.server, 'maps', None)
+        if path == '/api/maps':
+            try:
+                self.reply(200, json.loads((maps / 'manifest.json').read_text()) if maps else {'areas': []})
+            except (OSError, ValueError):
+                self.reply(503, {'error': 'Map artwork is unavailable'})
+        elif re.fullmatch(r'/api/maps/\d+-\d+(?:-\d+)?\.png', path):
+            try:
+                if not maps:
+                    raise FileNotFoundError()
+                self.reply(200, (maps / path.rsplit('/', 1)[-1]).read_bytes(), 'image/png')
+            except OSError:
+                self.reply(404, {'error': 'Map tile unavailable'})
+        elif path == '/api/stream':
             self.stream()
         elif path == '/api/snapshot':
             try:
@@ -197,6 +211,7 @@ def main():
     parser.add_argument('--spool', required=True)
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--token-file', type=Path, required=True)
+    parser.add_argument('--maps', type=Path, help='Local artwork directory created by extract_maps.py')
     args = parser.parse_args()
     if not args.token_file.exists():
         descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -208,6 +223,7 @@ def main():
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.daemon_threads = True
     server.spool = Spool(args.spool, token)
+    server.maps = args.maps
     print(f'Observatory: http://127.0.0.1:{args.port}; token: {args.token_file}')
     server.serve_forever()
 
