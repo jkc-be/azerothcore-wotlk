@@ -1,0 +1,7 @@
+# Copy these options into the server's effective configuration. Read at startup only.
+PythonAPI.Enable = 0
+PythonAPI.Port = 5001
+
+# Existing headless Playerbots to expose, separated by commas or spaces. Empty exposes none.
+# Real players and selfbots are excluded, even when named here. Requires the bundled Playerbots patch.
+PythonAPI.Playerbots.Names = ""
