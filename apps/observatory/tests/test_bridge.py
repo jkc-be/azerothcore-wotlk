@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -416,6 +417,7 @@ class EventFollower(unittest.TestCase):
 
     def test_missing_journal_then_incremental_follow_without_rescans(self):
         tail = bridge.EventTail(self.path, recent=3, progression=4)
+        self.addCleanup(tail.close)
         tail.poll()
         self.assertEqual(tail.events('progression'), [])
         self.assertEqual(tail.stats()['total'], 0)
@@ -439,16 +441,27 @@ class EventFollower(unittest.TestCase):
         self.assertEqual([event['seq'] for event in tail.events('progression')], [1, 5, 6, 7])
         self.assertEqual(tail.stats()['kinds'], {'position': 1, 'quest_reward': 1, 'death': 1, 'bot_action': 1})
 
-    def test_replaced_journal_restarts_from_its_tail(self):
+    def test_rotated_journal_is_drained_before_its_successor_is_read_from_the_start(self):
         tail = bridge.EventTail(self.path)
+        self.addCleanup(tail.close)
         self.path.write_text(self.record(1, 'xp') * 3)
         tail.poll()
         self.assertEqual(len(tail.events('recent')), 3)
+        # The world appends, closes and renames the segment, then opens a fresh journal, all between polls.
+        with self.path.open('a') as journal:
+            journal.write(self.record(4, 'death'))
+        self.path.rename(self.path.with_name('events.000001.ndjson'))
+        self.path.write_text(self.record(5, 'position') + self.record(6, 'quest_reward'))
+        tail.poll()
+        self.assertEqual([event['seq'] for event in tail.events('recent')][-3:], [4, 5, 6])
+        self.assertEqual(tail.stats()['kinds'], {'death': 1, 'position': 1, 'quest_reward': 1})
+        # A journal that vanishes is simply followed again once it reappears.
         self.path.unlink()
+        tail.poll()
         self.path.write_text(self.record(9, 'death'))
         tail.poll()
         self.assertEqual([event['seq'] for event in tail.events('recent')][-1], 9)
-        self.assertEqual(tail.stats()['total'], 0)
+        self.assertEqual(tail.stats()['kinds']['death'], 2)
 
     def test_large_seed_skips_the_partial_first_line(self):
         with self.path.open('w') as journal:
@@ -456,11 +469,208 @@ class EventFollower(unittest.TestCase):
                 journal.write(self.record(seq, 'position', detail='x' * 60))
             journal.write(self.record(6000, 'xp'))
         tail = bridge.EventTail(self.path)
+        self.addCleanup(tail.close)
         tail.poll()
         recent = tail.events('recent')
         self.assertEqual(recent[-1]['seq'], 6000)
         self.assertEqual(len(recent), 500)
         self.assertEqual(tail.events('progression'), [recent[-1]])
+
+    def test_long_term_counts_per_bucket_and_progression_survive_a_restart(self):
+        tail = bridge.EventTail(self.path)
+        self.path.write_text(self.record(1, 'xp'))
+        tail.poll()  # seed: displayed and kept in progression.ndjson, but not counted
+        minute = bridge.BUCKET_MS
+        with self.path.open('a') as journal:
+            journal.write(self.record(2, 'position') + self.record(3, 'quest_reward')
+                          + json.dumps({'run': 'run-a', 'seq': 4, 'simMs': minute + 5, 'kind': 'death'}) + '\n')
+        tail.poll()
+        points = tail.long_term()['points']
+        self.assertEqual([(point['bucket'], point['kinds']) for point in points],
+                         [(0, {'position': 1, 'quest_reward': 1}), (minute, {'death': 1})])
+        self.assertTrue(points[-1]['partial'])
+        tail.close()
+        progression = self.path.with_name('progression.ndjson').read_text().splitlines()
+        self.assertEqual([json.loads(line)['seq'] for line in progression], [1, 3, 4])
+
+        restarted = bridge.EventTail(self.path)
+        self.addCleanup(restarted.close)
+        restarted.poll()  # the seed batch repeats records already stored; none is written twice
+        with self.path.open('a') as journal:
+            journal.write(json.dumps({'run': 'run-a', 'seq': 5, 'simMs': minute + 9, 'kind': 'level'}) + '\n')
+        restarted.poll()
+        progression = self.path.with_name('progression.ndjson').read_text().splitlines()
+        self.assertEqual([json.loads(line)['seq'] for line in progression], [1, 3, 4, 5])
+        points = restarted.long_term()['points']
+        self.assertEqual([(point['bucket'], point['kinds']) for point in points],
+                         [(0, {'position': 1, 'quest_reward': 1}), (minute, {'death': 1}), (minute, {'level': 1})])
+        restarted.close()
+        # The bucket flushed at shutdown and the one completed afterwards merge on the next load.
+        reloaded = bridge.EventTail(self.path)
+        self.addCleanup(reloaded.close)
+        self.assertEqual([(point['bucket'], point['kinds']) for point in reloaded.long_term()['points']],
+                         [(0, {'position': 1, 'quest_reward': 1}), (minute, {'death': 1, 'level': 1})])
+
+
+class TieredHistory(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name)
+
+    @staticmethod
+    def frame(seq, sim_ms, level=1, health=100, paused=False, tick_us=1000):
+        bots = [{'id': f'b{index}', 'map': 0, 'zone': 12, 'level': level + index, 'health': health,
+                 'maxHealth': 100, 'earnedXp': seq * 10, 'questCompletions': seq, 'deaths': 0,
+                 'money': 5, 'activity': 'combat' if index else 'idle', 'quests': [{'id': 1}]}
+                for index in range(2)]
+        return {'run': 'run-a', 'seq': seq, 'simMs': sim_ms, 'realMs': sim_ms, 'paused': paused,
+                'maxTickUs': tick_us, 'backlogMs': 10, 'requestedSpeed': 2, 'achievedSpeed': 1.5,
+                'onlineBots': 2, 'activeBots': 2, 'expectedBots': 2, 'bots': bots}
+
+    def test_summary_matches_the_dashboard_model(self):
+        point = bridge.summarize(self.frame(3, 1000, level=2, health=50))
+        self.assertEqual((point['xp'], point['quests'], point['deaths'], point['questsActive'], point['money']),
+                         (60, 6, 0, 2, 10))
+        self.assertEqual((point['levels'], point['zones'], point['activity']['combat'], point['activity']['idle']),
+                         ({'Level 2': 1, 'Level 3': 1}, {'0/12': 2}, 1, 1))
+        self.assertEqual((point['meanLevel'], point['minLevel'], point['maxLevel'], point['meanHealth']),
+                         (2.5, 2, 3, 50))
+        self.assertEqual((point['tickMs'], point['pausedShare'], point['bucket'], point['samples']), (1, 0, 0, 1))
+
+    def test_buckets_combine_gauges_counters_and_extremes_then_coarsen(self):
+        a = bridge.summarize(self.frame(1, 0, level=1, tick_us=3000))
+        b = bridge.summarize(self.frame(2, 1000, level=5, paused=True, tick_us=500))
+        c = bridge.summarize(self.frame(3, 2000, level=3))
+        merged = bridge.combine_points(a, b)
+        self.assertEqual((merged['samples'], merged['seq'], merged['xp'], merged['minLevel'], merged['maxLevel']),
+                         (2, 2, 40, 1, 6))
+        self.assertEqual((merged['meanLevel'], merged['tickMs'], merged['pausedShare']), (3.5, 3, 0.5))
+        self.assertEqual(merged['activity'], {'idle': 1, 'moving': 0, 'combat': 1, 'casting': 0, 'dead': 0})
+        self.assertEqual(bridge.combine_points(b, a)['seq'], 2)  # order of arrival does not matter
+        coarse = bridge.coarsen([a, b, c], 2, bridge.combine_points)
+        self.assertEqual([(point['samples'], point['seq']) for point in coarse], [(2, 2), (1, 3)])
+        self.assertEqual(merged['buckets'], 1)  # one bucket accumulating
+        later = dict(c, bucket=bridge.BUCKET_MS)
+        self.assertEqual(bridge.combine_points(merged, later)['buckets'], 2)  # two buckets folded
+        counts = bridge.combine_counts({'bucket': 0, 'samples': 2, 'kinds': {'xp': 2}},
+                                       {'bucket': bridge.BUCKET_MS, 'samples': 1, 'kinds': {'xp': 1, 'death': 1}})
+        self.assertEqual((counts['buckets'], counts['samples'], counts['kinds']), (2, 3, {'xp': 3, 'death': 1}))
+        self.assertEqual(bridge.coarsen([a, b, c], 3, bridge.combine_points), [a, b, c])
+
+    def test_snapshot_follower_rolls_up_seeds_milestones_and_restores_without_double_counting(self):
+        journal = self.path / 'snapshots.ndjson'
+        bucket, milestone = bridge.BUCKET_MS, bridge.MILESTONE_MS
+        with journal.open('w') as target:
+            for seq, sim_ms in enumerate([0, 1000, bucket, bucket + 1000, milestone, milestone + 1000], start=1):
+                target.write(json.dumps(self.frame(seq, sim_ms, level=seq)) + '\n')
+        tail = bridge.SnapshotTail(journal)
+        tail.poll()  # the seed is real history and enters the long-term tier
+        points = tail.long_term()['points']
+        self.assertEqual([(point['bucket'], point['samples'], point['seq']) for point in points],
+                         [(0, 2, 2), (bucket, 2, 4), (milestone, 2, 6)])
+        self.assertTrue(points[-1]['partial'])
+        self.assertEqual(tail.milestone_count, 2)
+        self.assertEqual([json.loads(line)['seq'] for line in (self.path / 'milestones.ndjson').read_text()
+                          .splitlines()], [1, 5])
+        tail.close()
+        stored = [json.loads(line) for line in (self.path / 'rollup.ndjson').read_text().splitlines()]
+        self.assertEqual([point['bucket'] for point in stored], [0, bucket, milestone])
+
+        restarted = bridge.SnapshotTail(journal)
+        self.addCleanup(restarted.close)
+        restarted.poll()  # the seed repeats every stored frame
+        with journal.open('a') as target:
+            target.write(json.dumps(self.frame(7, milestone + 2000, level=7)) + '\n')
+        restarted.poll()
+        points = restarted.long_term()['points']
+        self.assertEqual([(point['bucket'], point['samples'], point['seq']) for point in points],
+                         [(0, 2, 2), (bucket, 2, 4), (milestone, 2, 6), (milestone, 1, 7)])
+        self.assertEqual(restarted.milestone_count, 2)
+        self.assertEqual(len(restarted.long_term(2)['points']), 2)
+
+    def test_first_start_backfills_the_rollup_from_the_whole_journal_and_later_starts_seed_from_the_tail(self):
+        journal = self.path / 'snapshots.ndjson'
+        with journal.open('w') as target:
+            for seq in range(1, 41):
+                target.write(json.dumps(self.frame(seq, seq * bridge.BUCKET_MS)) + '\n')
+        tail = bridge.SnapshotTail(journal, seed_bytes=2048)
+        tail.poll()
+        self.assertEqual(len(tail.long_term(1000)['points']), 40)
+        tail.close()
+        with journal.open('a') as target:
+            for seq in range(41, 81):
+                target.write(json.dumps(self.frame(seq, seq * bridge.BUCKET_MS)) + '\n')
+        restarted = bridge.SnapshotTail(journal, seed_bytes=2048)
+        self.addCleanup(restarted.close)
+        restarted.poll()  # only the tail is seeded now; the gap stays visible instead of costing a full rescan
+        points = restarted.long_term(1000)['points']
+        self.assertLess(len(points), 80)
+        self.assertEqual(points[-1]['seq'], 80)
+
+    def test_prune_keeps_the_budget_and_never_deletes_unconsumed_or_live_files(self):
+        spool = bridge.Spool(self.path, 'test-token', follow=False, retain_bytes=250)
+        self.addCleanup(spool.close)
+        record = json.dumps({'run': 'run-a', 'seq': 1, 'simMs': 0, 'kind': 'xp'}) + '\n'
+        for index in (1, 2, 3):
+            (self.path / f'events.{index:06d}.ndjson').write_text(record * 2)
+        (self.path / 'events.ndjson').write_text(record * 20)
+        spool.tail.poll()  # the follower holds the live file only
+        spool.prune()
+        self.assertEqual(sorted(path.name for path in self.path.glob('events*.ndjson')),
+                         ['events.000002.ndjson', 'events.000003.ndjson', 'events.ndjson'])
+        self.assertEqual(spool.pruned['events'], {'segments': 1, 'bytes': 2 * len(record)})
+        # The follower still holds a segment that was rotated under it: it and newer segments are kept.
+        (self.path / 'events.ndjson').rename(self.path / 'events.000004.ndjson')
+        (self.path / 'events.000005.ndjson').write_text(record * 2)
+        spool.prune()
+        self.assertEqual(sorted(path.name for path in self.path.glob('events*.ndjson')),
+                         ['events.000004.ndjson', 'events.000005.ndjson'])
+        retention = spool.retention()
+        self.assertTrue(retention['rotation'])
+        self.assertEqual(retention['journals']['events']['segments'], 2)
+        self.assertEqual(retention['journals']['events']['prunedSegments'], 3)
+        self.assertEqual(retention['journals']['snapshots'],
+                         {'currentBytes': 0, 'segments': 0, 'segmentBytes': 0, 'prunedSegments': 0,
+                          'prunedBytes': 0})
+
+    def test_history_and_exports_span_rotated_segments(self):
+        import urllib.request
+        for index in (1, 2):
+            (self.path / f'snapshots.{index:06d}.ndjson').write_text(
+                ''.join(json.dumps({'seq': index * 10 + offset}) + '\n' for offset in range(3)))
+        (self.path / 'snapshots.ndjson').write_text('{"seq": 30}\n{"seq": 31')
+        files = bridge.journal_files(self.path, 'snapshots')
+        self.assertEqual([path.name for path in files],
+                         ['snapshots.000001.ndjson', 'snapshots.000002.ndjson', 'snapshots.ndjson'])
+        self.assertEqual([frame['seq'] for frame in bridge.journal_tail_files(files, 5, 4096)],
+                         [11, 12, 20, 21, 22, 30][-5:])
+        self.assertEqual([frame['seq'] for frame in bridge.journal_tail_files(files, 100, 40)], [22, 30])
+        server = bridge.ThreadingHTTPServer(('127.0.0.1', 0), bridge.Handler)
+        server.daemon_threads = True
+        server.spool = bridge.Spool(self.path, 'test-token-of-sufficient-length', follow=False)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.spool.close)
+
+        def get(path):
+            request = urllib.request.Request(f'http://127.0.0.1:{server.server_port}{path}',
+                                             headers={'Authorization': 'Bearer test-token-of-sufficient-length'})
+            with urllib.request.urlopen(request) as response:
+                return response.status, response.headers, response.read()
+
+        status, headers, body = get('/api/export/snapshots.ndjson')
+        expected = b''.join(path.read_bytes() for path in files)
+        self.assertEqual((status, headers['Content-Length'], body), (200, str(len(expected)), expected))
+        status, _, body = get('/api/history?scope=long-term&limit=5')
+        self.assertEqual(json.loads(body), {'bucketMs': bridge.BUCKET_MS, 'points': []})
+        status, _, body = get('/api/retention')
+        self.assertEqual(json.loads(body)['journals']['snapshots']['segments'], 2)
+        with self.assertRaises(urllib.error.HTTPError):
+            get('/api/export/rollup.ndjson')
 
 
 if __name__ == '__main__':

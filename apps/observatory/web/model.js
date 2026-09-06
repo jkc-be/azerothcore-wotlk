@@ -149,6 +149,38 @@ export function series(history, key, limit = 120) {
   return history.slice(-limit).map((point) => (point[key] == null ? null : point[key]));
 }
 
+// Long-term tier: the bridge's snapshot buckets carry the chart keys; event buckets add journal records
+// per simulated minute. Points are joined on their bucket start, so folded responses still line up.
+export function longTermSeries(snapshots, events, bucketMs) {
+  const counts = new Map(events.map((point) => [point.bucket, point]));
+  return snapshots.map((point) => {
+    const found = counts.get(point.bucket);
+    const minutes = found ? ((found.buckets ?? 1) * bucketMs) / 60000 : 0;
+    let progression = 0,
+      trace = 0;
+    for (const [kind, count] of Object.entries(found?.kinds ?? {})) {
+      if (TRACE_KINDS.has(kind)) trace += count;
+      else progression += count;
+    }
+    return {
+      ...point,
+      records: minutes ? { progression: progression / minutes, trace: trace / minutes } : null,
+    };
+  });
+}
+
+export function formatBytes(bytes) {
+  if (bytes == null) return "unknown";
+  const units = ["B", "kB", "MB", "GB", "TB"];
+  let value = bytes,
+    unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${unit ? value.toFixed(value >= 100 ? 0 : 1) : value} ${units[unit]}`;
+}
+
 export function zoneTable(bots) {
   const counts = new Map();
   for (const bot of bots) {

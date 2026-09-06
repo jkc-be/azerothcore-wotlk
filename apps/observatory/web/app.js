@@ -28,6 +28,8 @@ import {
   retainedHistory,
   recordTrails,
   bucketHistory,
+  longTermSeries,
+  formatBytes,
 } from "./model.js";
 import { surface, sparkline, speedBar, stackedArea, lineChart, tokens, labelFont, compactNumber } from "./charts.js";
 
@@ -65,6 +67,8 @@ let token = "",
   history = [],
   events = [],
   eventStats = null,
+  longTerm = { bucketMs: 0, points: [] },
+  retention = null,
   freshAt = 0,
   abort = null,
   manifestRun = "";
@@ -147,8 +151,9 @@ async function loadManifest() {
       ["Time basis", manifest.timeBasis],
       [
         "History retention",
-        "Up to 4,000 samples in this session; recent recorded history loads on connect. " +
-          "Full timestamped history is retained in exports. Python observations are sampled per bot.",
+        "Up to 4,000 recent samples in this session; recent recorded history loads on connect. " +
+          "The bridge keeps five-minute long-term buckets and milestone snapshots for the whole run " +
+          "(see the retention note in the Journal panel). Python observations are sampled per bot.",
       ],
     ];
     const settings = manifest.settings || {};
@@ -207,6 +212,7 @@ async function connect() {
       events = [];
       ingest(snapshot, true);
       linkState("live");
+      await refreshLongTerm(signal);
       const response = await api("/api/stream", { signal });
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = "";
@@ -231,9 +237,59 @@ async function connect() {
   }
 }
 
+// The long-term tier lives in the bridge: five-minute buckets for the whole run, refreshed once a minute.
+async function refreshLongTerm(signal) {
+  if (!token || isPython()) return;
+  try {
+    const [snapshots, counts] = await Promise.all([
+      api("/api/history?scope=long-term", { signal }).then((response) => response.json()),
+      api("/api/event-stats?scope=long-term", { signal }).then((response) => response.json()),
+    ]);
+    longTerm = {
+      bucketMs: snapshots.bucketMs,
+      points: longTermSeries(snapshots.points, counts.points, snapshots.bucketMs),
+    };
+  } catch {
+    if (signal?.aborted) return;
+    longTerm = { bucketMs: 0, points: [] }; // older bridges have no long-term tier
+  }
+  try {
+    retention = await (await api("/api/retention", { signal })).json();
+  } catch {
+    retention = null;
+  }
+  renderRetention();
+  drawChart();
+}
+
+function renderRetention() {
+  if (!retention) {
+    $("retention").textContent = "Retention: this bridge keeps no long-term tier; update it for whole-run history.";
+    return;
+  }
+  const journal = (name) => {
+    const entry = retention.journals[name];
+    const parts = [`${name} ${formatBytes(entry.currentBytes)} live`];
+    if (entry.segments) parts.push(`${entry.segments} segments ${formatBytes(entry.segmentBytes)}`);
+    if (entry.prunedSegments) parts.push(`${entry.prunedSegments} pruned ${formatBytes(entry.prunedBytes)}`);
+    return parts.join(", ");
+  };
+  const long = retention.longTerm;
+  $("retention").textContent =
+    `Recent on disk: ${journal("events")}; ${journal("snapshots")}. ` +
+    (retention.rotation
+      ? `Segments beyond ${formatBytes(retention.retainBytes)} per journal are pruned once folded in. `
+      : "The world is not rotating journals (Observatory.JournalSegmentBytes = 0), so nothing is pruned. ") +
+    `Long term: ${formatNumber(long.snapshotBuckets)} snapshot and ${formatNumber(long.eventBuckets)} event ` +
+    `${Math.round(retention.bucketMs / 60000)}-minute buckets, ${formatNumber(long.milestones)} milestones, ` +
+    `progression ${formatBytes(long.progressionBytes)}.`;
+}
+
 function resetRun() {
   history = [];
   events = [];
+  longTerm = { bucketMs: 0, points: [] };
+  retention = null;
   selected = "";
   needsFit = true;
   pendingControl = 0;
@@ -1502,6 +1558,10 @@ const CHART_SERIES = {
     name: activity,
     color: activity === "idle" ? palette.ash : ACTIVITY_COLORS[activity],
   })),
+  records: [
+    { key: ["records", "progression"], name: "Progression / min", width: 2 },
+    { key: ["records", "trace"], name: "Trace / min", dashed: true },
+  ],
 };
 const CHART_MAX = { meanHealth: 100, health: 100 };
 
@@ -1540,18 +1600,28 @@ function drawChart() {
   }
   if ($("chart-metric").selectedOptions[0]?.disabled) $("chart-metric").value = python ? "observed" : "xp";
   const { ctx, width, height } = surface($("chart-canvas"));
-  const window = Number($("chart-window").value);
-  const points =
-    window && history.length ? history.filter((point) => point.simMs >= history.at(-1).simMs - window) : history;
-  $("history-status").textContent = points.length
-    ? `${points.length.toLocaleString()} samples in view`
-    : "No history yet";
+  const metric = $("chart-metric").value;
+  // Whole-run views draw the bridge's long-term buckets; every other window uses this session's samples.
+  const wholeRun = !python && ($("chart-window").value === "run" || metric === "records");
+  const window = Number($("chart-window").value) || 0;
+  const runPoints = wholeRun ? longTerm.points : [];
+  const points = runPoints.length
+    ? runPoints
+    : window && history.length
+      ? history.filter((point) => point.simMs >= history.at(-1).simMs - window)
+      : history;
+  $("history-status").textContent = runPoints.length
+    ? `${runPoints.length.toLocaleString()} long-term points over ${duration(
+        runPoints.at(-1).simMs - runPoints[0].bucket,
+      )}, ${Math.round(longTerm.bucketMs / 60000)}-minute buckets or wider`
+    : points.length
+      ? `${points.length.toLocaleString()} samples in view${wholeRun ? " (no long-term history yet)" : ""}`
+      : "No history yet";
   if (points.length < 1) {
     $("legend").replaceChildren();
     $("chart-readout").replaceChildren();
     return;
   }
-  const metric = $("chart-metric").value;
   const lines = chartSeries(metric, points);
   const layout = lineChart(ctx, width, height, lines, {
     formatX: python ? duration : formatClock,
@@ -1747,6 +1817,7 @@ setInterval(async () => {
       eventStats = null;
     }
   }
+  if (pollCount % 30 === 0) await refreshLongTerm(abort?.signal);
 }, 2000);
 window.addEventListener("resize", () => {
   drawChart();

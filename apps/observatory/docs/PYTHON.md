@@ -73,8 +73,9 @@ level distribution and accumulated kill/death/level deltas.
   Viewing or disconnecting the browser does not affect bot ownership or AI.
 
 On connect/reconnect, the bridge returns up to 1,000 recent complete snapshots from a bounded 4 MiB journal tail.
-The browser retains up to 4,000 chart samples during a session. Full `snapshots.ndjson` and `events.ndjson`, plus
-`manifest.json` and `initial.json`, remain downloadable. These files are observation history, not resumable game state.
+The browser retains up to 4,000 chart samples during a session; the whole-run long-term tier applies to world
+feeds only. Full `snapshots.ndjson` and `events.ndjson`, plus `manifest.json` and `initial.json`, remain
+downloadable. These files are observation history, not resumable game state.
 The simulation timing analyzer/benchmark expects simulation telemetry; use the UI or exported records directly for
 Python feeds. Closing the browser does not stop disk recording; manage run storage and publisher lifetime
 in the controller.

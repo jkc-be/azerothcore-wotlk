@@ -79,6 +79,9 @@ namespace
     bool trace = false;
     bool baseline = false;
     uint64 durationMs = 0;
+    // Zero keeps one growing file per journal. Otherwise a journal is renamed to NAME.NNNNNN.ndjson once it
+    // holds this many bytes so the bridge can retain a bounded recent window on disk and prune older segments.
+    uint64 segmentBytes = 0;
     std::set<std::string> trackedUnits;
     uint64 eventSequence = 0;
     thread_local std::string context;
@@ -123,12 +126,51 @@ namespace
         std::filesystem::rename(path.string() + ".tmp", path);
     }
 
+    // An append-only NDJSON journal that is rotated into numbered segments once it reaches segmentBytes.
+    struct Journal
+    {
+        std::string name;
+        std::ofstream stream;
+        uint64 bytes = 0;
+        uint32 segments = 0;
+
+        explicit Journal(std::string const& fileName) : name(fileName), stream(std::filesystem::path(directory) / name)
+        {
+        }
+
+        void Append(std::string const& line)
+        {
+            stream << line << '\n';
+            bytes += line.size() + 1;
+        }
+
+        // Only whole lines are ever moved: rotation happens after a flushed batch, never inside one.
+        void Flush()
+        {
+            stream.flush();
+            if (!stream)
+                throw std::runtime_error("Observatory journal failed");
+            if (!segmentBytes || bytes < segmentBytes)
+                return;
+            stream.close();
+            std::ostringstream segment;
+            segment << name.substr(0, name.size() - std::string_view(".ndjson").size()) << '.' << std::setw(6)
+                    << std::setfill('0') << ++segments << ".ndjson";
+            std::filesystem::rename(std::filesystem::path(directory) / name,
+                std::filesystem::path(directory) / segment.str());
+            stream.open(std::filesystem::path(directory) / name);
+            bytes = 0;
+            if (!stream)
+                throw std::runtime_error("Observatory journal failed");
+        }
+    };
+
     void Writer()
     {
         try
         {
-            std::ofstream archive(std::filesystem::path(directory) / "snapshots.ndjson");
-            std::ofstream journal(std::filesystem::path(directory) / "events.ndjson");
+            Journal archive("snapshots.ndjson");
+            Journal journal("events.ndjson");
             bool initialWritten = false;
             while (true)
             {
@@ -141,7 +183,7 @@ namespace
                     snapshot.swap(latest);
                 }
                 for (auto const& event : batch)
-                    journal << event << '\n';
+                    journal.Append(event);
                 if (!snapshot.empty())
                 {
                     WriteAtomic("latest.json", snapshot);
@@ -150,12 +192,10 @@ namespace
                         WriteAtomic("initial.json", snapshot);
                         initialWritten = true;
                     }
-                    archive << snapshot << '\n';
+                    archive.Append(snapshot);
                 }
-                journal.flush();
-                archive.flush();
-                if (!journal || !archive)
-                    throw std::runtime_error("Observatory journal failed");
+                journal.Flush();
+                archive.Flush();
 
                 // Private local spool: bridge writes one atomic request. No gameplay pointers cross threads.
                 std::ifstream control(std::filesystem::path(directory) / "control.txt");
@@ -312,6 +352,9 @@ bool Observatory::Initialize()
     if (durationMs % StepMs != 0)
         return false;
     trace = sConfigMgr->GetOption<bool>("Observatory.Trace", false);
+    segmentBytes = sConfigMgr->GetOption<uint64>("Observatory.JournalSegmentBytes", 0);
+    if (segmentBytes && segmentBytes < 1024 * 1024)
+        return false; // Segments under 1 MiB would scatter a traced run over thousands of files.
     std::string identities = sConfigMgr->GetOption<std::string>("Observatory.BotGuids", "");
     std::istringstream identityStream(identities);
     std::string identity;

@@ -22,6 +22,8 @@ import {
   alerts,
   recordTrails,
   bucketHistory,
+  longTermSeries,
+  formatBytes,
 } from "../web/model.js";
 const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
@@ -141,6 +143,32 @@ test("summaries expose simulation health and cohort composition for the dashboar
   assert.deepEqual([bucketed[0].simMs, bucketed[0].meanLevel, bucketed[0].activity.idle], [1, 0.5, 0.5]);
   assert.equal(bucketHistory(dense, 20), dense);
   assert.equal(point.inWorld, 2);
+});
+
+test("long-term points join event counts by bucket as records per simulated minute", () => {
+  const snapshots = [
+    { bucket: 0, simMs: 1000, meanLevel: 1 },
+    { bucket: 300000, simMs: 301000, meanLevel: 2 },
+    { bucket: 600000, simMs: 601000, meanLevel: 3, buckets: 2 },
+  ];
+  const events = [
+    { bucket: 0, kinds: { xp: 10, position: 3000 } },
+    { bucket: 600000, buckets: 2, kinds: { death: 5, quest_reward: 5, melee_swing: 600 } },
+  ];
+  const joined = longTermSeries(snapshots, events, 300000);
+  assert.deepEqual(
+    joined.map((point) => point.records),
+    [{ progression: 2, trace: 600 }, null, { progression: 1, trace: 60 }],
+  );
+  assert.equal(joined[2].meanLevel, 3);
+});
+
+test("byte counts read as compact decimal units", () => {
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(1536), "1.5 kB");
+  assert.equal(formatBytes(20310314350), "20.3 GB");
+  assert.equal(formatBytes(587476670), "587 MB");
+  assert.equal(formatBytes(null), "unknown");
 });
 
 test("rates use the trailing window on the history's time basis and never a false zero", () => {
