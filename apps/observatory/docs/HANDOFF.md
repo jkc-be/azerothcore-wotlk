@@ -38,9 +38,27 @@ If a provisioning pass is needed before test fixtures exist, do that on the disp
 then take a clean offline fixture before enabling virtual time. Preserve its revision, dump hashes, bot GUIDs,
 equipment/levels, known NPC/route/spell setup and effective configuration for every comparison.
 
-Copy installed `worldserver.conf.dist` and `modules/playerbots.conf.dist` into their runtime `.conf` paths. Merge
-`../config/worldserver.conf.example` and `../config/playerbots.conf.example`, replacing credentials and paths.
-Do not use the fragments as complete configuration files. Do not change rates to achieve acceleration. Begin with one
+Render the runtime `.conf` files instead of editing copies by hand. `render_config.py` takes the installed
+`.conf.dist`, applies overlays in order (the tracked `../config/worldserver.conf.example` or
+`../config/playerbots.conf.example`, then a machine-local overlay with paths and cohort settings, then a secrets file
+with the database strings, kept outside every repository with mode 600) and writes the complete config, replacing
+each template assignment in place and appending keys the template lacks:
+
+```sh
+apps/observatory/render_config.py render --template /srv/observatory/server/etc/worldserver.conf.dist \
+  --overlay apps/observatory/config/worldserver.conf.example \
+  --overlay /srv/observatory/server/etc/overlays/worldserver.local.conf \
+  --overlay /srv/observatory/secrets/worldserver.secrets.conf \
+  --set 'Observatory.Directory="/srv/observatory/runs/run-002"' \
+  --check /srv/observatory/server/etc/worldserver.conf --output /srv/observatory/server/etc/worldserver.conf
+```
+
+`--check` lists every setting that would change against the existing file (secret values hidden) and refuses to
+write when there are differences; drop it once the differences are the intended ones. `render_config.py derive
+--template … --current … --overlay <example>` prints the local overlay for a config that was edited by hand, so an
+existing deployment can be adopted without losing a setting. After a core or module update, re-render from the new
+`.conf.dist`; the overlays carry only the deliberate deviations. Do not use the fragments as complete configuration
+files. Do not change rates to achieve acceleration. Begin with one
 bot for timing proof by setting BotCount to 1; equal MinRandomBots/MaxRandomBots provision the pool.
 `BotGuids`, when supplied, pins exact eligible characters.
 Standard upstream convenience settings are retained and recorded. A normal fresh generated population spans upstream
