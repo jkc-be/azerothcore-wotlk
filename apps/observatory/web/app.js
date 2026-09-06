@@ -119,7 +119,7 @@ function ingest(snapshot) {
   $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline);
   $("bot-count").disabled = $("set-bots").disabled = $("pause").disabled || state.maxBots === undefined;
   $("bot-count").max = state.maxBots ?? 100;
-  if (previousTarget !== state.expectedBots || !$("bot-count").value) $("bot-count").value = state.expectedBots;
+  if (previousTarget !== state.expectedBots) $("bot-count").value = state.expectedBots;
   $("population-status").textContent = state.maxBots === undefined
     ? "Server update required to change bot count"
     : state.populationPending
