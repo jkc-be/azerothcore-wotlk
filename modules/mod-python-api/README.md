@@ -102,9 +102,11 @@ cd modules/mod-python-api/python
 python3 -m unittest discover -s tests -v
 ```
 
-Handoff validation: all 18 Python tests passed, as did the repository and module C++ style checks and file-format
-checks. No C++ compilation or live gameplay validation was performed. The SQL style command could not fetch
-`origin/master` because that remote branch is absent; this change contains no SQL files.
+Handoff validation: all 18 Python tests, the module C++ style check and file-format checks passed.
+The repository C++ style check passed on the original preparation branch. On the PR's `main` base it reports
+existing violations in unchanged core files. The SQL style command could not fetch `origin/master` because that
+remote branch is absent; this change contains no SQL files. No C++ compilation or live gameplay validation was
+performed.
 
 On the separate server, validate these integration scenarios before using training results:
 
