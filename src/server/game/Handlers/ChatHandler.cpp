@@ -160,22 +160,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
         }
     }
 
-    // pussywizard:
-    switch (type)
-    {
-        case CHAT_MSG_SAY:
-        case CHAT_MSG_YELL:
-        case CHAT_MSG_EMOTE:
-        case CHAT_MSG_TEXT_EMOTE:
-        case CHAT_MSG_AFK:
-        case CHAT_MSG_DND:
-        if (sender->IsSpectator())
-        {
-            recvData.rfinish();
-            return;
-        }
-    }
-
     if (sender->HasAura(1852) && type != CHAT_MSG_WHISPER)
     {
         ChatHandler(this).SendNotification(LANG_GM_SILENCE, sender->GetName());
@@ -313,6 +297,23 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
                 ChatHandler(this).SendNotification(LANG_WAIT_BEFORE_SPEAKING, timeStr);
                 return;
             }
+        }
+    }
+
+    // Spectators must retain access to permitted commands, including stopping their remote view.
+    // Ordinary local chat and presence changes remain blocked after command dispatch.
+    switch (type)
+    {
+        case CHAT_MSG_SAY:
+        case CHAT_MSG_YELL:
+        case CHAT_MSG_EMOTE:
+        case CHAT_MSG_TEXT_EMOTE:
+        case CHAT_MSG_AFK:
+        case CHAT_MSG_DND:
+        if (sender->IsSpectator())
+        {
+            recvData.rfinish();
+            return;
         }
     }
 
