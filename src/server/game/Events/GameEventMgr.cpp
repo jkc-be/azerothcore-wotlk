@@ -29,6 +29,7 @@
 #include "Player.h"
 #include "PoolMgr.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "Transport.h"
 #include "UnitAI.h"
 #include "World.h"
@@ -1074,7 +1075,7 @@ void GameEventMgr::LoadHolidayDates()
     uint32 dbCount = 0;
 
     // Step 1: Generate dynamic holiday dates based on current year
-    std::chrono::system_clock::time_point const now = std::chrono::system_clock::now();
+    std::chrono::system_clock::time_point const now = SimulationClock::SystemNow();
     std::time_t const nowTime = std::chrono::system_clock::to_time_t(now);
     std::tm localTime = {};
 #ifdef _WIN32

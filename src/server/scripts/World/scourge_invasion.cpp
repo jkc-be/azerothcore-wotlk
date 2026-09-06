@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "scourge_invasion.h"
 #include "AreaDefines.h"
 #include "CellImpl.h"
 #include "CombatAI.h"
@@ -28,6 +29,7 @@
 #include "ObjectDefines.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
+#include "SimulationClock.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -35,7 +37,6 @@
 #include "Weather.h"
 #include "WeatherMgr.h"
 #include "WorldState.h"
-#include "scourge_invasion.h"
 #include <chrono>
 
 class go_necropolis : public GameObjectAI
@@ -919,7 +920,7 @@ struct npc_pallid_horror : public ScriptedAI
         // Spawn necrotic crystal gobject
         DoCastSelf((me->GetZoneId() == AREA_UNDERCITY ? SPELL_SUMMON_FAINT_NECROTIC_CRYSTAL : SPELL_SUMMON_CRACKED_NECROTIC_CRYSTAL), true);
 
-        TimePoint now = std::chrono::steady_clock::now();
+        TimePoint now = SimulationClock::Now();
         uint32 cityAttackTimer = urand(CITY_ATTACK_TIMER_MIN, CITY_ATTACK_TIMER_MAX);
         TimePoint nextAttack = now + std::chrono::seconds(cityAttackTimer);
         uint64 timeToNextAttack = std::chrono::duration_cast<std::chrono::minutes>(nextAttack - now).count();

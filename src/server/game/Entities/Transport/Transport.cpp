@@ -28,6 +28,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "Vehicle.h"
 #include "WorldModel.h"
@@ -42,7 +43,7 @@ namespace
     // Calculates time of the next departure cycle.
     std::chrono::system_clock::time_point calculateNextDepartureTime(int oneIterationInterval)
     {
-        std::chrono::system_clock::time_point currentTime = std::chrono::system_clock::now();
+        std::chrono::system_clock::time_point currentTime = SimulationClock::SystemNow();
         std::chrono::milliseconds interval(oneIterationInterval);
         std::chrono::milliseconds timeSinceStart = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - transportStartDate);
         int64 intervalsPassed = timeSinceStart.count() / oneIterationInterval;
@@ -151,7 +152,9 @@ uint32 MotionTransport::HandleFirstDepartureSync(uint32 diff)
 
     // Making system call for current time to be more accurate.
     // Shouldn't be an issue since it runs only before the very first departure.
-    int32 millLeftToDeparture = std::chrono::duration_cast<std::chrono::milliseconds>(_firstDepartureTime - std::chrono::system_clock::now()).count();
+    int32 millLeftToDeparture =
+        std::chrono::duration_cast<std::chrono::milliseconds>(_firstDepartureTime - SimulationClock::SystemNow())
+            .count();
     if (millLeftToDeparture > 0)
         return diff;
 

@@ -48,6 +48,7 @@
 #include "MovementGenerator.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "OutdoorPvP.h"
 #include "PassiveAI.h"
 #include "Pet.h"
@@ -57,6 +58,7 @@
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
@@ -981,6 +983,7 @@ void Unit::DealDamageMods(Unit const* victim, uint32& damage, uint32* absorb)
 
 uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage const* cleanDamage, DamageEffectType damagetype, SpellSchoolMask damageSchoolMask, SpellInfo const* spellProto, bool durabilityLoss, bool /*allowGM*/, Spell const* damageSpell /*= nullptr*/)
 {
+    Observatory::Probe(attacker, "damage_input", damage, spellProto ? spellProto->Id : 0, victim);
     damage = sScriptMgr->DealDamage(attacker, victim, damage, damagetype);
     // Xinef: initialize damage done for rage calculations
     // Xinef: its rare to modify damage in hooks, however training dummy's sets damage to 0
@@ -1345,6 +1348,8 @@ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage
 
     LOG_DEBUG("entities.unit", "DealDamageEnd returned {} damage", damage);
 
+    Observatory::Probe(attacker, damagetype == DOT ? "periodic_damage" : "damage", damage,
+                       spellProto ? spellProto->Id : 0, victim);
     return damage;
 }
 
@@ -2798,6 +2803,7 @@ void Unit::AttackerStateUpdate(Unit* victim, WeaponAttackType attType /*= BASE_A
     {
         // attack can be redirected to another target
         victim = GetMeleeHitRedirectTarget(victim);
+        Observatory::Probe(this, "melee_swing", uint32(attType), 0, victim);
         CalcDamageInfo damageInfo;
         CalculateMeleeDamage(victim, &damageInfo, attType, sittingVictim);
 
@@ -12370,6 +12376,8 @@ void Unit::SetHealth(uint32 val)
 
     float prevHealthPct = GetHealthPct();
 
+    if (GetHealth() != val)
+        Observatory::Probe(this, "health_set", val);
     SetUInt32Value(UNIT_FIELD_HEALTH, val);
 
     // mobs that are now or were below 30% need to update their speed
@@ -12451,6 +12459,8 @@ void Unit::SetPower(Powers power, uint32 val, bool withPowerUpdate /*= true*/, b
     uint32 maxPower = GetMaxPower(power);
     if (maxPower < val)
         val = maxPower;
+
+    Observatory::Probe(this, fromRegenerate ? "regeneration" : "power_set", val, uint32(power));
 
     if (fromRegenerate)
     {
@@ -12870,7 +12880,7 @@ void Unit::ProcSkillsAndReactives(bool isVictim, Unit* target, uint32 procFlag, 
 
 void Unit::GetProcAurasTriggeredOnEvent(AuraApplicationProcContainer& aurasTriggeringProc, std::list<AuraApplication*>* procAuras, ProcEventInfo eventInfo)
 {
-    TimePoint now = std::chrono::steady_clock::now();
+    TimePoint now = SimulationClock::Now();
 
     auto processAuraApplication = [&](AuraApplication* aurApp)
     {

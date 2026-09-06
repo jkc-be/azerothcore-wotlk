@@ -22,6 +22,7 @@
 #include "Player.h"
 #include "RBAC.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "WorldSession.h"
 
 /*********************************************************/
@@ -68,10 +69,7 @@ void Player::UpdateSpeakTime(ChatFloodThrottle::Index index)
     m_chatFloodData[index].Time = current + delay;
 }
 
-bool Player::CanSpeak() const
-{
-    return  GetSession()->m_muteTime <= time (nullptr);
-}
+bool Player::CanSpeak() const { return GetSession()->m_muteTime <= SimulationClock::Time(); }
 
 /*********************************************************/
 /***              LOW LEVEL FUNCTIONS:Notifiers        ***/

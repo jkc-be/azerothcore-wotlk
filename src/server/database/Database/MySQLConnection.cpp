@@ -178,7 +178,7 @@ bool MySQLConnection::Execute(std::string_view sql)
         return false;
 
     {
-        uint32 _s = getMSTime();
+        uint32 _s = getRealMSTime();
 
         if (mysql_query(m_Mysql, std::string(sql).c_str()))
         {
@@ -193,7 +193,7 @@ bool MySQLConnection::Execute(std::string_view sql)
             return false;
         }
         else
-            LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getMSTime()), sql);
+            LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getRealMSTime()), sql);
     }
 
     return true;
@@ -214,7 +214,7 @@ bool MySQLConnection::Execute(PreparedStatementBase* stmt)
     MYSQL_STMT* msql_STMT = m_mStmt->GetSTMT();
     MYSQL_BIND* msql_BIND = m_mStmt->GetBind();
 
-    uint32 _s = getMSTime();
+    uint32 _s = getRealMSTime();
 
 #if MYSQL_VERSION_ID >= 80300
     if (mysql_stmt_bind_named_param(msql_STMT, msql_BIND, m_mStmt->GetParameterCount(), nullptr))
@@ -244,7 +244,7 @@ bool MySQLConnection::Execute(PreparedStatementBase* stmt)
         return false;
     }
 
-    LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", getMSTimeDiff(_s, getMSTime()), m_mStmt->getQueryString());
+    LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", getMSTimeDiff(_s, getRealMSTime()), m_mStmt->getQueryString());
 
     m_mStmt->ClearParameters();
     return true;
@@ -266,7 +266,7 @@ bool MySQLConnection::_Query(PreparedStatementBase* stmt, MySQLPreparedStatement
     MYSQL_STMT* msql_STMT = m_mStmt->GetSTMT();
     MYSQL_BIND* msql_BIND = m_mStmt->GetBind();
 
-    uint32 _s = getMSTime();
+    uint32 _s = getRealMSTime();
 
 #if MYSQL_VERSION_ID >= 80300
     if (mysql_stmt_bind_named_param(msql_STMT, msql_BIND, m_mStmt->GetParameterCount(), nullptr))
@@ -296,7 +296,7 @@ bool MySQLConnection::_Query(PreparedStatementBase* stmt, MySQLPreparedStatement
         return false;
     }
 
-    LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", getMSTimeDiff(_s, getMSTime()), m_mStmt->getQueryString());
+    LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", getMSTimeDiff(_s, getRealMSTime()), m_mStmt->getQueryString());
 
     m_mStmt->ClearParameters();
 
@@ -329,7 +329,7 @@ bool MySQLConnection::_Query(std::string_view sql, MySQLResult** pResult, MySQLF
         return false;
 
     {
-        uint32 _s = getMSTime();
+        uint32 _s = getRealMSTime();
 
         if (mysql_query(m_Mysql, std::string(sql).c_str()))
         {
@@ -343,7 +343,7 @@ bool MySQLConnection::_Query(std::string_view sql, MySQLResult** pResult, MySQLF
             return false;
         }
         else
-            LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getMSTime()), sql);
+            LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getRealMSTime()), sql);
 
         *pResult = reinterpret_cast<MySQLResult*>(mysql_store_result(m_Mysql));
         *pRowCount = mysql_affected_rows(m_Mysql);

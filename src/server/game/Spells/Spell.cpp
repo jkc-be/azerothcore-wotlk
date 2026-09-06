@@ -19,8 +19,8 @@
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
-#include "CharmInfo.h"
 #include "CellImpl.h"
+#include "CharmInfo.h"
 #include "Common.h"
 #include "ConditionMgr.h"
 #include "DisableMgr.h"
@@ -34,6 +34,7 @@
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"
@@ -51,8 +52,8 @@
 #include "Vehicle.h"
 #include "World.h"
 #include "WorldPacket.h"
-#include <cmath>
 #include <G3D/g3dmath.h>
+#include <cmath>
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue
@@ -3631,6 +3632,8 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
         }
     }
 
+    Observatory::Probe(m_caster, "cast_start", m_casttime, m_spellInfo->Id);
+
     // set timer base at cast time
     ReSetTimer();
 
@@ -4482,6 +4485,7 @@ void Spell::finish(bool ok)
 
     if (m_spellState == SPELL_STATE_FINISHED)
         return;
+    Observatory::Probe(m_caster, ok ? "cast_finish" : "cast_cancel", 0, m_spellInfo->Id);
     m_spellState = SPELL_STATE_FINISHED;
 
     // FindMap() check: pending spell events are destroyed after the caster has left the map,

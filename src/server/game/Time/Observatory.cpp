@@ -1,0 +1,532 @@
+/*
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "Observatory.h"
+#include "Config.h"
+#include "Item.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+#include "SimulationBudget.h"
+#include "SimulationClock.h"
+#include "World.h"
+#include "WorldSession.h"
+#include <algorithm>
+#include <atomic>
+#include <charconv>
+#include <condition_variable>
+#include <deque>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <map>
+#include <mutex>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <thread>
+
+namespace
+{
+    using Clock = std::chrono::steady_clock;
+    constexpr uint32 StepMs = SimulationBudget::StepMs;
+    constexpr std::size_t MaxEvents = 65536;
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::string> events;
+    std::string latest;
+    std::string directory;
+    std::string runId;
+    std::thread writer;
+    std::atomic<bool> stopping{false};
+    std::atomic<bool> fault{false};
+    std::string faultReason = "journal_failure";
+    struct Control
+    {
+        uint64 sequence = 0;
+        uint32 speed = 1;
+        bool paused = false;
+    };
+    Control pending;
+    uint32 expectedBots = 100;
+    bool trace = false;
+    bool baseline = false;
+    uint64 durationMs = 0;
+    std::set<std::string> trackedUnits;
+    uint64 eventSequence = 0;
+    thread_local std::string context;
+    struct Totals
+    {
+        uint64 lastAiMs = 0;
+        uint64 aiUpdates = 0;
+        uint64 xp = 0;
+        uint64 deaths = 0;
+        uint64 quests = 0;
+    };
+    std::map<std::string, Totals> totals;
+    std::set<std::string> cohort;
+    std::set<uint32> configuredBots;
+
+    std::string Quote(std::string_view input)
+    {
+        std::ostringstream out;
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
+        out << '"';
+        for (unsigned char c : input)
+        {
+            if (c == '"' || c == '\\')
+                out << '\\' << c;
+            else if (c < 32)
+                out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << unsigned(c);
+            else
+                out << c;
+        }
+        out << '"';
+        return out.str();
+    }
+
+    void WriteAtomic(std::string const& name, std::string const& value)
+    {
+        auto path = std::filesystem::path(directory) / name;
+        std::ofstream out(path.string() + ".tmp", std::ios::trunc);
+        out << value << '\n';
+        out.close();
+        if (!out)
+            throw std::runtime_error("Observatory output failed");
+        std::filesystem::rename(path.string() + ".tmp", path);
+    }
+
+    void Writer()
+    {
+        try
+        {
+            std::ofstream archive(std::filesystem::path(directory) / "snapshots.ndjson");
+            std::ofstream journal(std::filesystem::path(directory) / "events.ndjson");
+            bool initialWritten = false;
+            while (true)
+            {
+                std::deque<std::string> batch;
+                std::string snapshot;
+                {
+                    std::unique_lock<std::mutex> lock(mutex);
+                    wake.wait_for(lock, 50ms, [] { return stopping.load() || !events.empty() || !latest.empty(); });
+                    batch.swap(events);
+                    snapshot.swap(latest);
+                }
+                for (auto const& event : batch)
+                    journal << event << '\n';
+                if (!snapshot.empty())
+                {
+                    WriteAtomic("latest.json", snapshot);
+                    if (!initialWritten && snapshot.find("\"ready\":true") != std::string::npos)
+                    {
+                        WriteAtomic("initial.json", snapshot);
+                        initialWritten = true;
+                    }
+                    archive << snapshot << '\n';
+                }
+                journal.flush();
+                archive.flush();
+                if (!journal || !archive)
+                    throw std::runtime_error("Observatory journal failed");
+
+                // Private local spool: bridge writes one atomic request. No gameplay pointers cross threads.
+                std::ifstream control(std::filesystem::path(directory) / "control.txt");
+                std::string requestedRun;
+                uint64 sequence;
+                uint32 speed;
+                uint32 paused;
+                if (control >> requestedRun >> sequence >> speed >> paused)
+                {
+                    if ((!baseline || (speed == 1 && paused == 0)) && requestedRun == runId &&
+                        (speed == 1 || speed == 2 || speed == 5 || speed == 10) && paused <= 1)
+                    {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        if (sequence > pending.sequence)
+                            pending = {sequence, speed, paused != 0};
+                    }
+                }
+                if (stopping.load())
+                    break;
+            }
+        }
+        catch (std::exception const&)
+        {
+            fault.store(true);
+        }
+    }
+
+    std::string Players()
+    {
+        std::ostringstream out;
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
+        out << '[';
+        bool first = true;
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            if (!player->IsInWorld() || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            std::string id = guid.ToString();
+            if (!first)
+                out << ',';
+            first = false;
+            auto const& count = totals[id];
+            out << "{\"id\":" << Quote(id) << ",\"name\":" << Quote(player->GetName())
+                << ",\"map\":" << player->GetMapId() << ",\"instance\":" << player->GetInstanceId()
+                << ",\"zone\":" << player->GetZoneId() << ",\"x\":" << player->GetPositionX()
+                << ",\"y\":" << player->GetPositionY() << ",\"z\":" << player->GetPositionZ()
+                << ",\"level\":" << unsigned(player->GetLevel()) << ",\"xp\":" << player->GetUInt32Value(PLAYER_XP)
+                << ",\"nextLevelXp\":" << player->GetUInt32Value(PLAYER_NEXT_LEVEL_XP)
+                << ",\"health\":" << player->GetHealth() << ",\"maxHealth\":" << player->GetMaxHealth()
+                << ",\"lastAiMs\":" << count.lastAiMs << ",\"aiUpdates\":" << count.aiUpdates
+                << ",\"money\":" << player->GetMoney() << ",\"earnedXp\":" << count.xp << ",\"deaths\":" << count.deaths
+                << ",\"questCompletions\":" << count.quests << ",\"activity\":"
+                << Quote(!player->IsAlive()                   ? "dead"
+                         : player->IsInCombat()               ? "combat"
+                         : player->IsNonMeleeSpellCast(false) ? "casting"
+                         : player->isMoving()                 ? "moving"
+                                                              : "idle")
+                << ",\"gear\":[";
+            for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+            {
+                if (slot != EQUIPMENT_SLOT_START)
+                    out << ',';
+                Item const* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+                out << (item ? item->GetEntry() : 0);
+            }
+            out << "],\"quests\":[";
+            bool firstQuest = true;
+            for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            {
+                uint32 quest = player->GetQuestSlotQuestId(slot);
+                if (!quest)
+                    continue;
+                if (!firstQuest)
+                    out << ',';
+                firstQuest = false;
+                out << "{\"id\":" << quest << ",\"state\":" << player->GetQuestSlotState(slot) << ",\"objectives\":[";
+                for (uint8 objective = 0; objective < 4; ++objective)
+                {
+                    if (objective)
+                        out << ',';
+                    out << player->GetQuestSlotCounter(slot, objective);
+                }
+                out << "],\"items\":[";
+                auto const& statuses = player->getQuestStatusMap();
+                auto status = statuses.find(quest);
+                for (uint8 objective = 0; objective < QUEST_ITEM_OBJECTIVES_COUNT; ++objective)
+                {
+                    if (objective)
+                        out << ',';
+                    out << (status != statuses.end() ? status->second.ItemCount[objective] : 0);
+                }
+                out << "]}";
+            }
+            out << "]}";
+        }
+        out << ']';
+        return out.str();
+    }
+} // namespace
+
+bool Observatory::Initialize()
+{
+    if (!sConfigMgr->GetOption<bool>("Observatory.Enable", false))
+        return true;
+
+    if (sConfigMgr->GetOption<std::string>("Observatory.DisposableAcknowledgement", "") != "DISPOSABLE_BOTS_ONLY")
+        return false;
+    // Check before opening any database: persisted virtual epochs are unsuitable for production or restart.
+    for (std::string const key :
+         {"LoginDatabaseInfo", "WorldDatabaseInfo", "CharacterDatabaseInfo", "PlayerbotsDatabaseInfo"})
+    {
+        std::string info = sConfigMgr->GetOption<std::string>(key, "");
+        auto separator = info.rfind(';');
+        if (separator == std::string::npos || info.substr(separator + 1).rfind("obs_", 0) != 0)
+            return false;
+    }
+    expectedBots = sConfigMgr->GetOption<uint32>("Observatory.BotCount", 100);
+    if (!expectedBots || expectedBots > 100 || !sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", false) ||
+        !sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotAutologin", false) ||
+        sConfigMgr->GetOption<bool>("AiPlayerbot.DisabledWithoutRealPlayer", true) ||
+        sConfigMgr->GetOption<bool>("AiPlayerbot.EnablePeriodicOnlineOffline", true) ||
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.MinRandomBots", 0) != expectedBots ||
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.MaxRandomBots", 0) != expectedBots ||
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.CommandServerPort", 8888) != 0 ||
+        sConfigMgr->GetOption<bool>("SOAP.Enabled", false) || sConfigMgr->GetOption<bool>("Ra.Enable", false) ||
+        sConfigMgr->GetOption<bool>("Console.Enable", true))
+        return false;
+
+    baseline = sConfigMgr->GetOption<bool>("Observatory.RealTimeBaseline", false);
+    durationMs = sConfigMgr->GetOption<uint64>("Observatory.DurationMs", 0);
+    if (durationMs % StepMs != 0)
+        return false;
+    trace = sConfigMgr->GetOption<bool>("Observatory.Trace", false);
+    std::string identities = sConfigMgr->GetOption<std::string>("Observatory.BotGuids", "");
+    std::istringstream identityStream(identities);
+    std::string identity;
+    while (std::getline(identityStream, identity, ','))
+    {
+        uint32 id = 0;
+        auto [end, error] = std::from_chars(identity.data(), identity.data() + identity.size(), id);
+        if (error != std::errc() || end != identity.data() + identity.size() || !id ||
+            !configuredBots.insert(id).second)
+            return false;
+    }
+    if (!configuredBots.empty() && configuredBots.size() != expectedBots)
+        return false;
+
+    directory = sConfigMgr->GetOption<std::string>("Observatory.Directory", "");
+    try
+    {
+        if (directory.empty() || !std::filesystem::create_directory(directory))
+            return false; // A run never reuses a spool, journal, or stale control file.
+        std::filesystem::permissions(directory, std::filesystem::perms::owner_all);
+        runId = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+        std::ostringstream manifest;
+        manifest << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"stepMs\":" << StepMs
+                 << ",\"expectedBots\":" << expectedBots << ",\"settings\":{";
+        bool first = true;
+        for (auto const& key : sConfigMgr->GetKeysByString(""))
+        {
+            // Record simulation/gameplay settings only; connection strings and credentials stay private.
+            if (key.rfind("AiPlayerbot.", 0) != 0 && key.rfind("Rate.", 0) != 0 && key.rfind("Observatory.", 0) != 0 &&
+                key != "MapUpdateInterval" && key != "MapUpdate.Threads")
+                continue;
+            if (key.find("Password") != std::string::npos || key.find("Token") != std::string::npos)
+                continue;
+            if (!first)
+                manifest << ',';
+            first = false;
+            manifest << Quote(key) << ':' << Quote(sConfigMgr->GetOption<std::string>(key, "", false));
+        }
+        manifest << "}}";
+        WriteAtomic("manifest.json", manifest.str());
+        SimulationClock::Enable(!baseline);
+        writer = std::thread(Writer);
+        return true;
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
+bool Observatory::AllowsBot(uint32 characterId)
+{
+    return !SimulationClock::Enabled() || configuredBots.empty() || configuredBots.contains(characterId);
+}
+
+void Observatory::Fail(std::string_view reason)
+{
+    if (!SimulationClock::Enabled())
+        return;
+    std::lock_guard<std::mutex> lock(mutex);
+    faultReason = reason;
+    fault.store(true);
+}
+
+void Observatory::Stop()
+{
+    stopping.store(true);
+    wake.notify_one();
+    if (writer.joinable())
+        writer.join();
+}
+
+Observatory::Context::Context(std::string_view name)
+{
+    if (SimulationClock::Enabled())
+    {
+        _previous = context;
+        context = name;
+    }
+}
+
+Observatory::Context::~Context()
+{
+    if (SimulationClock::Enabled())
+        context = _previous;
+}
+
+void Observatory::Event(Player const* player, std::string_view kind, uint64 value, std::string_view detail)
+{
+    if (!SimulationClock::Enabled() || !player || !player->GetSession() || !player->GetSession()->IsBot())
+        return;
+    std::lock_guard<std::mutex> lock(mutex);
+    auto id = player->GetGUID().ToString();
+    auto& count = totals[id];
+    if (kind == "ai_update")
+    {
+        count.lastAiMs = SimulationClock::Elapsed().count();
+        ++count.aiUpdates;
+        return;
+    }
+    if (kind == "xp")
+        count.xp += value;
+    if (kind == "death")
+        ++count.deaths;
+    if (kind == "quest_reward")
+        ++count.quests;
+    if (events.size() >= MaxEvents)
+    {
+        fault.store(true); // Explicitly invalidate and freeze a run whose audit trail cannot keep up.
+        return;
+    }
+    std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<float>::max_digits10);
+    out << "{\"run\":" << Quote(runId) << ",\"seq\":" << ++eventSequence
+        << ",\"simMs\":" << SimulationClock::Elapsed().count() << ",\"bot\":" << Quote(id)
+        << ",\"kind\":" << Quote(kind) << ",\"value\":" << value << ",\"detail\":" << Quote(detail)
+        << ",\"context\":" << Quote(context) << ",\"map\":" << player->GetMapId()
+        << ",\"instance\":" << player->GetInstanceId() << '}';
+    events.push_back(out.str());
+}
+
+void Observatory::Probe(Unit const* actor, std::string_view kind, uint64 value, uint32 spell, Unit const* other)
+{
+    if (!SimulationClock::Enabled() || !trace || !actor)
+        return;
+    auto isBot = [](Unit const* unit)
+    {
+        Player const* player = unit ? unit->ToPlayer() : nullptr;
+        return player && player->GetSession() && player->GetSession()->IsBot();
+    };
+    std::lock_guard<std::mutex> lock(mutex);
+    auto id = actor->GetGUID().ToString();
+    if (!isBot(actor) && !isBot(other) && !trackedUnits.contains(id))
+        return;
+    trackedUnits.insert(id);
+    if (other)
+        trackedUnits.insert(other->GetGUID().ToString());
+    if (events.size() >= MaxEvents)
+    {
+        fault.store(true);
+        return;
+    }
+    std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<float>::max_digits10);
+    out << "{\"run\":" << Quote(runId) << ",\"seq\":" << ++eventSequence
+        << ",\"simMs\":" << SimulationClock::Elapsed().count() << ",\"bot\":" << Quote(id)
+        << ",\"kind\":" << Quote(kind) << ",\"value\":" << value << ",\"spell\":" << spell
+        << ",\"other\":" << Quote(other ? other->GetGUID().ToString() : "") << ",\"context\":" << Quote(context)
+        << ",\"map\":" << actor->GetMapId() << ",\"instance\":" << actor->GetInstanceId()
+        << ",\"x\":" << actor->GetPositionX() << ",\"y\":" << actor->GetPositionY()
+        << ",\"z\":" << actor->GetPositionZ() << ",\"health\":" << actor->GetHealth() << '}';
+    events.push_back(out.str());
+}
+
+void Observatory::Run()
+{
+    auto start = Clock::now();
+    auto previous = start;
+    auto sampled = start;
+    auto lastWorldTick = start;
+    uint64 readyAt = 0;
+    bool completed = false;
+    uint64 sampledSim = 0;
+    uint64 snapshotSequence = 0;
+    SimulationBudget budget;
+    uint64 maxTickUs = 0;
+    Control applied;
+    std::string problem;
+    bool ready = false;
+    while (!World::IsStopped())
+    {
+        ++World::m_worldLoopCounter; // The real-time watchdog sees a heartbeat even while paused.
+        auto now = Clock::now();
+        auto realUs = std::chrono::duration_cast<Microseconds>(now - previous).count();
+        previous = now;
+        completed = ready && durationMs && SimulationClock::Elapsed().count() >= int64(readyAt + durationMs);
+        budget.Accrue(uint64(realUs), applied.speed, applied.paused || fault.load() || !problem.empty() || completed);
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            applied = pending;
+        }
+        // One normal-sized tick at a time. Debt is retained across speed changes, overload and pauses.
+        if (budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
+        {
+            auto tickStart = Clock::now();
+            uint32 diff =
+                baseline ? uint32(std::chrono::duration_cast<Milliseconds>(tickStart - lastWorldTick).count()) : StepMs;
+            lastWorldTick = tickStart;
+            if (baseline)
+                budget = SimulationBudget();
+            SimulationClock::Advance(Milliseconds(diff));
+            sWorld->Update(diff);
+            maxTickUs =
+                std::max(maxTickUs, uint64(std::chrono::duration_cast<Microseconds>(Clock::now() - tickStart).count()));
+            if (trace)
+                for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+                    if (player->IsInWorld())
+                        Probe(player, "position");
+        }
+        else
+            std::this_thread::sleep_for(1ms);
+
+        auto sampleNow = Clock::now();
+        if (sampleNow - sampled < 250ms)
+            continue;
+        std::set<std::string> online;
+        uint32 inWorld = 0;
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            if (player->GetSession() && !player->GetSession()->IsBot())
+                problem = "human_session";
+            if (player->GetSession() && player->GetSession()->IsBot())
+            {
+                online.insert(guid.ToString()); // Include bots temporarily between maps.
+                if (player->IsInWorld())
+                    ++inWorld;
+            }
+        }
+        if (!ready && inWorld == expectedBots && online.size() == expectedBots)
+        {
+            cohort = online;
+            ready = true;
+            readyAt = SimulationClock::Elapsed().count();
+        }
+        if (online.size() > expectedBots || (ready && online != cohort))
+            problem = "cohort_changed";
+        uint64 sim = SimulationClock::Elapsed().count();
+        double realMs = std::chrono::duration<double, std::milli>(sampleNow - sampled).count();
+        double achieved = (sim - sampledSim) / realMs;
+        std::lock_guard<std::mutex> lock(mutex);
+        uint32 activeBots = 0;
+        for (auto const& id : online)
+            if (totals[id].aiUpdates && sim - totals[id].lastAiMs < 10000)
+                ++activeBots;
+        std::ostringstream out;
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
+        out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence << ",\"simMs\":" << sim
+            << ",\"realMs\":" << std::chrono::duration_cast<Milliseconds>(sampleNow - start).count()
+            << ",\"requestedSpeed\":" << applied.speed << ",\"achievedSpeed\":" << achieved
+            << ",\"baseline\":" << (baseline ? "true" : "false") << ",\"completed\":" << (completed ? "true" : "false")
+            << ",\"readyAtMs\":" << readyAt << ",\"paused\":" << (applied.paused ? "true" : "false")
+            << ",\"controlSeq\":" << applied.sequence << ",\"backlogMs\":" << budget.DebtMicroseconds() / 1000
+            << ",\"maxTickUs\":" << maxTickUs << ",\"activeBots\":" << activeBots
+            << ",\"overloaded\":" << (budget.DebtMicroseconds() > 1000000 ? "true" : "false")
+            << ",\"ready\":" << (ready ? "true" : "false") << ",\"expectedBots\":" << expectedBots
+            << ",\"onlineBots\":" << online.size() << ",\"fault\":" << Quote(fault.load() ? faultReason : problem)
+            << ",\"bots\":" << Players() << '}';
+        latest = out.str();
+        maxTickUs = 0;
+        sampled = sampleNow;
+        sampledSim = sim;
+        wake.notify_one();
+    }
+}

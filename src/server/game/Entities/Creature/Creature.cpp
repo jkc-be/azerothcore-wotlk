@@ -22,7 +22,6 @@
 #include "CreatureAI.h"
 #include "CreatureAISelector.h"
 #include "CreatureGroups.h"
-#include "MoveSpline.h"
 #include "DatabaseEnv.h"
 #include "Formulas.h"
 #include "GameEventMgr.h"
@@ -32,7 +31,9 @@
 #include "GroupMgr.h"
 #include "Log.h"
 #include "LootMgr.h"
+#include "MoveSpline.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"
@@ -1955,6 +1956,8 @@ bool Creature::CanStartAttack(Unit const* who, bool force) const
  */
 void Creature::setDeathState(DeathState state, bool despawn)
 {
+    if (state == DeathState::JustDied || state == DeathState::JustRespawned)
+        Observatory::Probe(this, state == DeathState::JustDied ? "creature_death" : "respawn");
     Unit::setDeathState(state, despawn);
 
     if (state == DeathState::JustDied)

@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "WorldState.h"
 #include "AreaDefines.h"
 #include "CreatureAIImpl.h"
 #include "GameEventMgr.h"
@@ -22,10 +23,10 @@
 #include "MapMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "TC9Sidecar.h"
 #include "UnitAI.h"
 #include "Weather.h"
-#include "WorldState.h"
 #include "WorldConfig.h"
 #include "WorldStateDefines.h"
 #include <chrono>
@@ -342,7 +343,7 @@ void WorldState::Update(uint32 diff)
                         StartNewCityAttackIfTime(SI_TIMER_STORMWIND, zone.second.zoneId);
                 }
 
-                TimePoint now = std::chrono::steady_clock::now();
+                TimePoint now = SimulationClock::Now();
                 for (auto& zone : m_siData.m_activeInvasions)
                     HandleActiveZone(GetTimerIdForZone(zone.second.zoneId), zone.second.zoneId, zone.second.remainingNecropoli, now);
             }
@@ -1076,7 +1077,7 @@ std::string WorldState::GetScourgeInvasionPrintout()
     output += formatRemaining(SI_REMAINING_EASTERN_PLAGUELANDS, "Eastern Plaguelands");
 
     output += "Zone Timers (time until next event):\n";
-    TimePoint now = std::chrono::steady_clock::now();
+    TimePoint now = SimulationClock::Now();
     auto formatTimer = [this](SITimers timerId, char const* name, TimePoint now)
     {
         TimePoint tp = m_siData.m_timers[timerId];
@@ -1620,7 +1621,7 @@ void WorldState::StartZoneEvent(SIZoneIds eventId)
 
 void WorldState::StartNewInvasionIfTime(uint32 attackTimeVar, uint32 zoneId)
 {
-    TimePoint now = std::chrono::steady_clock::now();
+    TimePoint now = SimulationClock::Now();
 
     // Not yet time
     if (now < sWorldState->GetSITimer(SITimers(attackTimeVar)))
@@ -1631,7 +1632,7 @@ void WorldState::StartNewInvasionIfTime(uint32 attackTimeVar, uint32 zoneId)
 
 void WorldState::StartNewCityAttackIfTime(uint32 attackTimeVar, uint32 zoneId)
 {
-    TimePoint now = std::chrono::steady_clock::now();
+    TimePoint now = SimulationClock::Now();
 
     // Not yet time
     if (now < sWorldState->GetSITimer(SITimers(attackTimeVar)))

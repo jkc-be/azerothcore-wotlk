@@ -37,6 +37,7 @@
 #include "ModuleMgr.h"
 #include "ModulesScriptLoader.h"
 #include "MySQLThreading.h"
+#include "Observatory.h"
 #include "OpenSSLCrypto.h"
 #include "OutdoorPvPMgr.h"
 #include "ProcessPriority.h"
@@ -47,6 +48,7 @@
 #include "ScriptMgr.h"
 #include "SecretMgr.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "SteadyTimer.h"
 #include "Systemd.h"
 #include "TC9Sidecar.h"
@@ -91,7 +93,10 @@ class FreezeDetector
 {
 public:
     FreezeDetector(Acore::Asio::IoContext& ioContext, uint32 maxCoreStuckTime)
-        : _timer(ioContext), _worldLoopCounter(0), _lastChangeMsTime(getMSTime()), _maxCoreStuckTimeInMs(maxCoreStuckTime) { }
+        : _timer(ioContext), _worldLoopCounter(0), _lastChangeMsTime(getRealMSTime()),
+          _maxCoreStuckTimeInMs(maxCoreStuckTime)
+    {
+    }
 
     static void Start(std::shared_ptr<FreezeDetector> const& freezeDetector)
     {
@@ -268,6 +273,13 @@ int main(int argc, char** argv)
 
     // Loading modules configs before scripts
     sConfigMgr->LoadModulesConfigs();
+    if (!Observatory::Initialize())
+    {
+        LOG_ERROR("server.worldserver",
+                  "Observatory initialization refused: check isolation settings and new run path");
+        return 1;
+    }
+    std::shared_ptr<void> observatoryHandle(nullptr, [](void*) { Observatory::Stop(); });
 
     sScriptMgr->SetScriptLoader(AddScripts);
     sScriptMgr->SetModulesLoader(AddModulesScripts);
@@ -578,9 +590,15 @@ void ShutdownCLIThread(std::thread* cliThread)
 
 void WorldUpdateLoop()
 {
+    if (SimulationClock::Enabled())
+    {
+        Observatory::Run();
+        return;
+    }
+
     uint32 minUpdateDiff = uint32(sConfigMgr->GetOption<int32>("MinWorldUpdateTime", 1));
     uint32 realCurrTime = 0;
-    uint32 realPrevTime = getMSTime();
+    uint32 realPrevTime = getRealMSTime();
 
     uint32 maxCoreStuckTime = uint32(sConfigMgr->GetOption<int32>("MaxCoreStuckTime", 60)) * 1000;
     uint32 halfMaxCoreStuckTime = maxCoreStuckTime / 2;
@@ -597,7 +615,7 @@ void WorldUpdateLoop()
     while (!World::IsStopped())
     {
         ++World::m_worldLoopCounter;
-        realCurrTime = getMSTime();
+        realCurrTime = getRealMSTime();
 
         uint32 diff = getMSTimeDiff(realPrevTime, realCurrTime);
         if (diff < minUpdateDiff)
@@ -641,7 +659,7 @@ void FreezeDetector::Handler(std::weak_ptr<FreezeDetector> freezeDetectorRef, bo
     {
         if (std::shared_ptr<FreezeDetector> freezeDetector = freezeDetectorRef.lock())
         {
-            uint32 curtime = getMSTime();
+            uint32 curtime = getRealMSTime();
 
             uint32 worldLoopCounter = World::m_worldLoopCounter;
             if (freezeDetector->_worldLoopCounter != worldLoopCounter)

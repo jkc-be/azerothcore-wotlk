@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "TC9Sidecar.h"
 #include "WorldSocket.h"
 #include "AccountMgr.h"
 #include "Config.h"
@@ -26,13 +25,15 @@
 #include "IPLocation.h"
 #include "Opcodes.h"
 #include "PacketLog.h"
+#include "RBAC.h"
 #include "Random.h"
 #include "Realm.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
+#include "TC9Sidecar.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
-#include "RBAC.h"
 #include "zlib.h"
 #include <memory>
 
@@ -530,6 +531,12 @@ void WorldSocket::SendPacket(WorldPacket const& packet)
 
 void WorldSocket::HandleAuthSession(WorldPacket & recvPacket)
 {
+    if (SimulationClock::Enabled())
+    {
+        CloseSocket();
+        return;
+    }
+
     std::shared_ptr<ClientAuthSession> authSession = std::make_shared<ClientAuthSession>();
 
     // Read the content of the packet

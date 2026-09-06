@@ -1,0 +1,3147 @@
+[
+  {
+    "file": "src/server/game/AI/SmartScripts/SmartScriptMgr.cpp",
+    "line": 49,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/AI/SmartScripts/SmartScriptMgr.cpp",
+    "line": 119,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Accounts/AccountMgr.cpp",
+    "line": 402,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 2637,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 2792,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 2819,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 2955,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 3002,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Achievements/AchievementMgr.cpp",
+    "line": 3123,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Addons/AddonMgr.cpp",
+    "line": 41,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Addons/AddonMgr.cpp",
+    "line": 68,
+    "source": "oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/ArenaSpectator/ArenaSpectator.cpp",
+    "line": 269,
+    "source": "if (uint32 cd = (getMSTimeDiff(getMSTime(), itrc->second.end) / 1000))"
+  },
+  {
+    "file": "src/server/game/AuctionHouse/AuctionHouseMgr.cpp",
+    "line": 325,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/AuctionHouse/AuctionHouseMgr.cpp",
+    "line": 380,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Autobroadcast/AutobroadcastMgr.cpp",
+    "line": 32,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Autobroadcast/AutobroadcastMgr.cpp",
+    "line": 71,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Battlegrounds/ArenaTeamMgr.cpp",
+    "line": 170,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Battlegrounds/BattlegroundMgr.cpp",
+    "line": 464,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Battlegrounds/BattlegroundMgr.cpp",
+    "line": 805,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Battlegrounds/ArenaSeason/ArenaSeasonMgr.cpp",
+    "line": 34,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Cache/CharacterCache.cpp",
+    "line": 66,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Chat/Channels/ChannelMgr.cpp",
+    "line": 52,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Chat/Channels/ChannelMgr.cpp",
+    "line": 168,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Conditions/ConditionMgr.cpp",
+    "line": 1125,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Conditions/DisableMgr.cpp",
+    "line": 43,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Conditions/DisableMgr.cpp",
+    "line": 304,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/DataStores/DBCStores.cpp",
+    "line": 277,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/DataStores/M2Stores.cpp",
+    "line": 178,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/DungeonFinding/LFGMgr.cpp",
+    "line": 111,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/DungeonFinding/LFGMgr.cpp",
+    "line": 261,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/DungeonFinding/LFGMgr.cpp",
+    "line": 1078,
+    "source": "if (GetMSTimeDiff(GameTime::GetGameTimeMS(), GetTimeMS()) > 98ms) // prevent lagging"
+  },
+  {
+    "file": "src/server/game/Entities/Creature/CreatureGroups.cpp",
+    "line": 85,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Entities/Item/ItemEnchantmentMgr.cpp",
+    "line": 49,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Entities/Player/Player.cpp",
+    "line": 12033,
+    "source": "itemAura->AddProcCooldown(std::chrono::steady_clock::now() + procEntry->Cooldown);"
+  },
+  {
+    "file": "src/server/game/Entities/Player/Player.cpp",
+    "line": 16710,
+    "source": "return itr != m_spellCooldowns.end() && itr->second.end > getMSTime();"
+  },
+  {
+    "file": "src/server/game/Entities/Player/Player.cpp",
+    "line": 16716,
+    "source": "return itr != m_spellCooldowns.end() && itr->second.end > getMSTime() && itr->second.itemid == itemid;"
+  },
+  {
+    "file": "src/server/game/Entities/Player/Player.cpp",
+    "line": 16722,
+    "source": "return uint32(itr != m_spellCooldowns.end() && itr->second.end > getMSTime() ? itr->second.end - getMSTime() : 0);"
+  },
+  {
+    "file": "src/server/game/Entities/Player/PlayerMisc.cpp",
+    "line": 73,
+    "source": "return  GetSession()->m_muteTime <= time (nullptr);"
+  },
+  {
+    "file": "src/server/game/Entities/Transport/Transport.cpp",
+    "line": 45,
+    "source": "std::chrono::system_clock::time_point currentTime = std::chrono::system_clock::now();"
+  },
+  {
+    "file": "src/server/game/Entities/Transport/Transport.cpp",
+    "line": 154,
+    "source": "int32 millLeftToDeparture = std::chrono::duration_cast<std::chrono::milliseconds>(_firstDepartureTime - std::chrono::system_clock::now()).count();"
+  },
+  {
+    "file": "src/server/game/Entities/Unit/CharmInfo.cpp",
+    "line": 414,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Entities/Unit/Unit.cpp",
+    "line": 12873,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 243,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 330,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 397,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 445,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 498,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 548,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 598,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 657,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 699,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 741,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 785,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 828,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 877,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 917,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 965,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 1004,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 1072,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Events/GameEventMgr.cpp",
+    "line": 1077,
+    "source": "std::chrono::system_clock::time_point const now = std::chrono::system_clock::now();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 396,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 425,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 456,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 496,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 525,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 714,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 766,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 812,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 858,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1264,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1365,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1482,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1560,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1712,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1787,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1846,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 1923,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 2155,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 2241,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 2322,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 2749,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 2922,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 3265,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 3317,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 3941,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 3969,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4053,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4109,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4153,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4209,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4358,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4445,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4516,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4591,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4649,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4707,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4762,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 4921,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 5083,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 5893,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 5929,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6342,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6402,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6472,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6522,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6555,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6606,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6699,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6775,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6810,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6886,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 6940,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7001,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7030,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7059,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7100,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7247,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7297,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7358,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7678,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7766,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 7955,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8034,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8074,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8106,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8158,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8246,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8320,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8437,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8492,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8568,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8668,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8726,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8835,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8936,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 8980,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9039,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9083,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9142,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9389,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9462,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9494,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9554,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9603,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9743,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9883,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 9943,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10072,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10148,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10199,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10236,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10451,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10527,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10612,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10684,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10779,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10815,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10851,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10887,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10923,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 10959,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 11052,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 11097,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/ObjectMgr.cpp",
+    "line": 11142,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Globals/WorldGlobals.cpp",
+    "line": 32,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Groups/GroupMgr.cpp",
+    "line": 107,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Groups/GroupMgr.cpp",
+    "line": 157,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 97,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 139,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 174,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 216,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 251,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 285,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 320,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 355,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Guilds/GuildMgr.cpp",
+    "line": 392,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Handlers/MovementHandler.cpp",
+    "line": 422,
+    "source": "movementInfo.time = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Instances/InstanceSaveMgr.cpp",
+    "line": 266,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootItemStorage.cpp",
+    "line": 41,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 1914,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 1950,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 1984,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2010,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2046,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2072,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2103,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2139,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2170,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2196,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2232,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2275,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Loot/LootMgr.cpp",
+    "line": 2296,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Mails/MailMgr.cpp",
+    "line": 84,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Mails/ServerMailMgr.cpp",
+    "line": 40,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Maps/TransportMgr.cpp",
+    "line": 56,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Maps/TransportMgr.cpp",
+    "line": 429,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Misc/GameGraveyard.cpp",
+    "line": 33,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Misc/GameGraveyard.cpp",
+    "line": 369,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Motd/MotdMgr.cpp",
+    "line": 53,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Motd/MotdMgr.cpp",
+    "line": 82,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Movement/Waypoints/WaypointMgr.cpp",
+    "line": 33,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Movement/Waypoints/WaypointMgr.cpp",
+    "line": 96,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp",
+    "line": 44,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Petitions/PetitionMgr.cpp",
+    "line": 42,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Petitions/PetitionMgr.cpp",
+    "line": 79,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 592,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 626,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 694,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 773,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 879,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Pools/PoolMgr.cpp",
+    "line": 984,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Scripting/ScriptMgr.cpp",
+    "line": 172,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Scripting/ScriptSystem.cpp",
+    "line": 32,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Server/WorldSession.cpp",
+    "line": 1550,
+    "source": "_pendingTimeSyncRequests[_timeSyncNextCounter] = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Server/WorldSocket.cpp",
+    "line": 753,
+    "source": "_LastPingTime = steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/Server/WorldSocket.cpp",
+    "line": 757,
+    "source": "steady_clock::time_point now = steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/Server/Protocol/PacketLog.cpp",
+    "line": 104,
+    "source": "header.SniffStartTicks = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Server/Protocol/PacketLog.cpp",
+    "line": 121,
+    "source": "header.ArrivalTicks = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Skills/SkillDiscovery.cpp",
+    "line": 48,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Skills/SkillExtraItems.cpp",
+    "line": 54,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Skills/SkillExtraItems.cpp",
+    "line": 140,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellInfoCorrections.cpp",
+    "line": 41,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1284,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1392,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1457,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1510,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1615,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1702,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1783,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 1832,
+    "source": "oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2008,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2163,
+    "source": "oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2297,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2338,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2379,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2415,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2437,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2500,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2541,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2586,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2639,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2733,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2767,
+    "source": "oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 2813,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3024,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3055,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3114,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3132,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3168,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3169,
+    "source": "uint32 const customAttrTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/SpellMgr.cpp",
+    "line": 3630,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Spells/Auras/SpellAuras.cpp",
+    "line": 2110,
+    "source": "m_procCooldown = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/Texts/CreatureTextMgr.cpp",
+    "line": 85,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Texts/CreatureTextMgr.cpp",
+    "line": 172,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Texts/CreatureTextMgr.cpp",
+    "line": 203,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Tickets/TicketMgr.cpp",
+    "line": 304,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Tickets/TicketMgr.cpp",
+    "line": 353,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 25,
+    "source": "Seconds const StartTime = GetEpochTime();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 27,
+    "source": "Seconds GameTime = GetEpochTime();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 65,
+    "source": "GameTime = GetEpochTime();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 66,
+    "source": "GameMSTime = GetTimeMS();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 67,
+    "source": "GameTimeSystemPoint = system_clock::now();"
+  },
+  {
+    "file": "src/server/game/Time/GameTime.cpp",
+    "line": 68,
+    "source": "GameTimeSteadyPoint = steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/Time/UpdateTime.cpp",
+    "line": 129,
+    "source": "_recordedTime = GetTimeMS();"
+  },
+  {
+    "file": "src/server/game/Tools/CharacterDatabaseCleaner.cpp",
+    "line": 35,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Tools/PlayerDump.cpp",
+    "line": 255,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/Weather/WeatherMgr.cpp",
+    "line": 46,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/World/World.cpp",
+    "line": 308,
+    "source": "uint32 startupBegin = getMSTime();"
+  },
+  {
+    "file": "src/server/game/World/World.cpp",
+    "line": 459,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/World/WorldState.cpp",
+    "line": 140,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "src/server/game/World/WorldState.cpp",
+    "line": 345,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/World/WorldState.cpp",
+    "line": 1079,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/World/WorldState.cpp",
+    "line": 1623,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/game/World/WorldState.cpp",
+    "line": 1634,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/scripts/Commands/cs_mmaps.cpp",
+    "line": 318,
+    "source": "uint32 uStartTime = getMSTime();"
+  },
+  {
+    "file": "src/server/scripts/Commands/cs_mmaps.cpp",
+    "line": 329,
+    "source": "uint32 uPathLoadTime = getMSTimeDiff(uStartTime, getMSTime());"
+  },
+  {
+    "file": "src/server/scripts/Events/midsummer.cpp",
+    "line": 809,
+    "source": "if ((time(nullptr) - GetApplyTime()) > 60 && target->IsPlayer())"
+  },
+  {
+    "file": "src/server/scripts/Northrend/Ulduar/Ulduar/boss_xt002.cpp",
+    "line": 870,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "src/server/scripts/Northrend/Ulduar/Ulduar/boss_xt002.cpp",
+    "line": 978,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "src/server/scripts/Spells/spell_paladin.cpp",
+    "line": 1885,
+    "source": "std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/server/scripts/World/scourge_invasion.cpp",
+    "line": 922,
+    "source": "TimePoint now = std::chrono::steady_clock::now();"
+  },
+  {
+    "file": "src/common/Utilities/SFMTRand.cpp",
+    "line": 72,
+    "source": "sfmt_init_gen_rand(&_state, uint32(GetEpochTime().count()));"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 237,
+    "source": "time = GetEpochTime().count();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 368,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 378,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 388,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 398,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 408,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 418,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 428,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.cpp",
+    "line": 438,
+    "source": "time = GetEpochTime();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 79,
+    "source": "static const TimePoint ApplicationStartTime = steady_clock::now();"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 84,
+    "source": "inline Milliseconds GetTimeMS()"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 88,
+    "source": "return duration_cast<milliseconds>(steady_clock::now() - GetApplicationStartTime());"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 103,
+    "source": "inline uint32 getMSTime()"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 107,
+    "source": "return uint32(duration_cast<milliseconds>(steady_clock::now() - GetApplicationStartTime()).count());"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 133,
+    "source": "return getMSTimeDiff(oldMSTime, getMSTime());"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 138,
+    "source": "return GetMSTimeDiff(oldMSTime, GetTimeMS());"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 141,
+    "source": "inline Seconds GetEpochTime()"
+  },
+  {
+    "file": "src/common/Utilities/Timer.h",
+    "line": 144,
+    "source": "return duration_cast<Seconds>(system_clock::now().time_since_epoch());"
+  },
+  {
+    "file": "modules/mod-playerbots/src/PlayerbotAIConfig.cpp",
+    "line": 975,
+    "source": "time_t t = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/BattleGroundJoinAction.cpp",
+    "line": 326,
+    "source": "if ((time(nullptr) - bot->GetInGameTime()) < 120)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ChooseRpgTargetAction.cpp",
+    "line": 247,
+    "source": "std::mt19937 gen(time(0));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/EmoteAction.cpp",
+    "line": 739,
+    "source": "->Set(time(nullptr) + urand(1000, sPlayerbotAIConfig.repeatDelay) / 1000);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/EmoteAction.cpp",
+    "line": 786,
+    "source": "return time(nullptr) >= lastEmote;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/GenericSpellActions.cpp",
+    "line": 550,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/GenericSpellActions.cpp",
+    "line": 644,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/LootAction.cpp",
+    "line": 329,
+    "source": "auctionEntry->expireTime = time(nullptr) + auction_time;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MailAction.cpp",
+    "line": 28,
+    "source": "time_t cur_time = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MailAction.cpp",
+    "line": 299,
+    "source": "time_t cur_time = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 893,
+    "source": "if (lastMove.msTime + sPlayerbotAIConfig.maxWaitForMove < getMSTime() ||"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 908,
+    "source": "if (lastMove.lastdelayTime + lastMove.msTime > getMSTime())"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1356,
+    "source": "time_t now = time(0);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1510,
+    "source": "AI_VALUE(LastMovement&, \"last movement\").lastFlee = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1834,
+    "source": "if (getMSTime() - moveInterval < uint32(lastMoveTimer))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1903,
+    "source": "if (sPlayerbotAIConfig.tellWhenAvoidAoe && lastTellTimer < time(NULL) - 10)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1905,
+    "source": "lastTellTimer = time(NULL);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1906,
+    "source": "lastMoveTimer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1971,
+    "source": "if (sPlayerbotAIConfig.tellWhenAvoidAoe && lastTellTimer < time(NULL) - 10)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1973,
+    "source": "lastTellTimer = time(NULL);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 1974,
+    "source": "lastMoveTimer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2038,
+    "source": "if (sPlayerbotAIConfig.tellWhenAvoidAoe && lastTellTimer < time(NULL) - 10)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2040,
+    "source": "lastTellTimer = time(NULL);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2041,
+    "source": "lastMoveTimer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2195,
+    "source": "if (!infoList.empty() && infoList.back().timestamp + minInterval > getMSTime())"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2212,
+    "source": "uint32 curTS = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2233,
+    "source": "uint32 curTS = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2265,
+    "source": "if (getMSTime() - moveInterval < uint32(lastMoveTimer))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/MovementActions.cpp",
+    "line": 2285,
+    "source": "lastMoveTimer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ReleaseSpiritAction.cpp",
+    "line": 122,
+    "source": "const time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ReleaseSpiritAction.cpp",
+    "line": 207,
+    "source": "const time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ReleaseSpiritAction.cpp",
+    "line": 242,
+    "source": "return time(nullptr) - corpse->GetGhostTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ReviveFromCorpseAction.cpp",
+    "line": 115,
+    "source": "int64 deadTime = time(nullptr) - corpse->GetGhostTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/ReviveFromCorpseAction.cpp",
+    "line": 304,
+    "source": "int64 deadTime = time(nullptr) - corpse->GetGhostTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 92,
+    "source": "uint32 nextTime = time(nullptr) + urand(1, 30);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 153,
+    "source": "return (time(nullptr) - lastSaid) > 30;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 246,
+    "source": "GET_PLAYERBOT_AI(bot)->GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 25));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 312,
+    "source": "GET_PLAYERBOT_AI(bot)->GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 60));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 406,
+    "source": "GET_PLAYERBOT_AI(bot)->GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 60));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 492,
+    "source": "GET_PLAYERBOT_AI(bot)->GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 25));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SayAction.cpp",
+    "line": 568,
+    "source": "GET_PLAYERBOT_AI(bot)->GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 25));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/StayActions.cpp",
+    "line": 24,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SuggestWhatToDoAction.cpp",
+    "line": 50,
+    "source": "return (time(0) - lastSaid) > 30;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Actions/SuggestWhatToDoAction.cpp",
+    "line": 60,
+    "source": "botAI->GetAiObjectContext()->GetValue<time_t>(\"last said\", qualifier)->Set(time(nullptr) + urand(1, 60));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Strategy/PullStrategy.cpp",
+    "line": 162,
+    "source": "pullStartTime = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Strategy/WaitForAttackStrategy.cpp",
+    "line": 48,
+    "source": "combatStartTime = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Strategy/WaitForAttackStrategy.cpp",
+    "line": 52,
+    "source": "return time(nullptr) - combatStartTime < GetWaitTime(botAI);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 320,
+    "source": ": Trigger(botAI, name), probability(probability), lastCheck(getMSTime()) {}"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 324,
+    "source": "if (getMSTime() - lastCheck < sPlayerbotAIConfig.repeatDelay)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 327,
+    "source": "lastCheck = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 398,
+    "source": "if (lastSpell.timer + 5 > time(nullptr))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 510,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 523,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/GenericTriggers.cpp",
+    "line": 713,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/PullTriggers.cpp",
+    "line": 40,
+    "source": "time_t const secondsSincePullStarted = time(nullptr) - strategy->GetPullStartTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/StuckTriggers.cpp",
+    "line": 39,
+    "source": "uint32 timePassed = time(0) - tPos.second;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Trigger/StuckTriggers.cpp",
+    "line": 123,
+    "source": "uint32 timePassed = time(0) - tPos.second;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/FishValues.cpp",
+    "line": 47,
+    "source": "if (bobberActiveTime > time(0))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/FishValues.cpp",
+    "line": 48,
+    "source": "botAI->SetNextCheckDelay((bobberActiveTime - time(0)) * IN_MILLISECONDS + 500);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/FishValues.h",
+    "line": 39,
+    "source": "_setTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/FishValues.h",
+    "line": 42,
+    "source": "bool IsStale(uint32 maxDuration) const { return getMSTime() - _setTime > maxDuration; }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/Formations.cpp",
+    "line": 148,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/LastMovementValue.cpp",
+    "line": 64,
+    "source": "msTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/LastSaidValue.h",
+    "line": 18,
+    "source": "LastSaidValue(PlayerbotAI* botAI) : ManualSetValue<time_t>(botAI, time(nullptr) - 120, \"last said\") {}"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/LastSaidValue.h",
+    "line": 24,
+    "source": "LastEmoteValue(PlayerbotAI* botAI) : ManualSetValue<time_t>(botAI, time(nullptr) - 120, \"last emote\") {}"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Base/Value/PossibleTargetsValue.cpp",
+    "line": 115,
+    "source": "time_t timeWindow = time(nullptr) / ATTACK_DECISION_TIME_WINDOW;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Druid/Action/DruidActions.cpp",
+    "line": 72,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Druid/Action/DruidActions.cpp",
+    "line": 105,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Shaman/ShamanTriggers.cpp",
+    "line": 110,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Warlock/WarlockActions.cpp",
+    "line": 256,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Warlock/WarlockActions.cpp",
+    "line": 280,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Warlock/WarlockActions.cpp",
+    "line": 312,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Class/Warlock/WarlockActions.cpp",
+    "line": 380,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Dungeon/Mech/MechActions.cpp",
+    "line": 219,
+    "source": "uint32 const nowMs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Dungeon/UB/UBActions.cpp",
+    "line": 104,
+    "source": "_lastReposition = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Dungeon/UB/UBActions.cpp",
+    "line": 126,
+    "source": "_lastReposition = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Dungeon/UB/UBValueContext.h",
+    "line": 76,
+    "source": "_deadSince = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTActions.cpp",
+    "line": 484,
+    "source": "supremus->GetMap()->GetInstanceId(), std::time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTActions.cpp",
+    "line": 936,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTActions.cpp",
+    "line": 1745,
+    "source": "gathios->GetMap()->GetInstanceId(), std::time(nullptr)).second;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTActions.cpp",
+    "line": 2887,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTHelpers.cpp",
+    "line": 94,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTMultipliers.cpp",
+    "line": 413,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTMultipliers.cpp",
+    "line": 617,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTTriggers.cpp",
+    "line": 131,
+    "source": "const time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/BT/BTTriggers.cpp",
+    "line": 278,
+    "source": "const time_t elapsed = std::time(nullptr) - it->second;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/HyjalActions.cpp",
+    "line": 1143,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalHelpers.cpp",
+    "line": 88,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalHelpers.cpp",
+    "line": 111,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalHelpers.cpp",
+    "line": 195,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalHelpers.cpp",
+    "line": 261,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalScripts.cpp",
+    "line": 71,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalScripts.cpp",
+    "line": 115,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Hyjal/Util/HyjalScripts.cpp",
+    "line": 187,
+    "source": "AirBurstData{ target->GetGUID(), getMSTime() };"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCMultipliers.cpp",
+    "line": 228,
+    "source": "if (it != waitMap.end() && getMSTime() < it->second)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCMultipliers.cpp",
+    "line": 249,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCScripts.cpp",
+    "line": 43,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCScripts.cpp",
+    "line": 75,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCScripts.cpp",
+    "line": 121,
+    "source": "entry.castTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCScripts.cpp",
+    "line": 148,
+    "source": "entry.castTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCScripts.cpp",
+    "line": 163,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCShared.cpp",
+    "line": 54,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCShared.cpp",
+    "line": 129,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCShared.cpp",
+    "line": 154,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCTriggers.cpp",
+    "line": 215,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCTriggers.cpp",
+    "line": 288,
+    "source": "_castEndTime = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCTriggers.cpp",
+    "line": 292,
+    "source": "if (_castEndTime > 0 && time(nullptr) - _castEndTime < 6)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/ICCTriggers.cpp",
+    "line": 305,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_BPC.cpp",
+    "line": 406,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_FG.cpp",
+    "line": 252,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_GSB.cpp",
+    "line": 862,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 472,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 2201,
+    "source": "lastUnsafeTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 2254,
+    "source": "if (lastUnsafeTime != 0 && (getMSTime() - lastUnsafeTime) < UNSAFE_MEM_MS &&"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 3311,
+    "source": "getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 &&"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 3388,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 3553,
+    "source": "if (info.targetGuid.IsEmpty() || getMSTimeDiff(info.castTime, getMSTime()) > 3000)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 3713,
+    "source": "if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 &&"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_LK.cpp",
+    "line": 3907,
+    "source": "if (!defileInfo.targetGuid.IsEmpty() && getMSTimeDiff(defileInfo.castTime, getMSTime()) <= 3000 &&"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_RF.cpp",
+    "line": 773,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_RF.cpp",
+    "line": 905,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_SG.cpp",
+    "line": 1201,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_SG.cpp",
+    "line": 1233,
+    "source": "stamp.timestampMs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ICC/Action/ICCActions_VT.cpp",
+    "line": 971,
+    "source": "uint32 const nowMs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 278,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 697,
+    "source": "_redBeamMoveTimer = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 717,
+    "source": "if (_redBeamTimerWasSet && std::time(nullptr) - _redBeamMoveTimer >= intervalSecs)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 720,
+    "source": "_redBeamMoveTimer = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 1005,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraActions.cpp",
+    "line": 1543,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraMultipliers.cpp",
+    "line": 126,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraMultipliers.cpp",
+    "line": 341,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraMultipliers.cpp",
+    "line": 476,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraMultipliers.cpp",
+    "line": 535,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Kara/KaraTriggers.cpp",
+    "line": 337,
+    "source": "time_t const now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagActions.cpp",
+    "line": 369,
+    "source": "time(nullptr) - timerIt->second >= BLAST_NOVA_INTERIM_SECONDS)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagActions.cpp",
+    "line": 457,
+    "source": "time(nullptr) - timerIt->second < BLAST_NOVA_INTERIM_SECONDS)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagActions.cpp",
+    "line": 590,
+    "source": "const time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagMultipliers.cpp",
+    "line": 40,
+    "source": "time(nullptr) - timerIt->second < BLAST_NOVA_INTERIM_SECONDS)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagMultipliers.cpp",
+    "line": 70,
+    "source": "if (it != dpsWaitTimer.end() && time(nullptr) - it->second > dpsWaitSeconds)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/MagTriggers.cpp",
+    "line": 96,
+    "source": "if (it == dpsWaitTimer.end() || (time(nullptr) - it->second) < dpsWaitSeconds)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/Util/MagHelpers.cpp",
+    "line": 102,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Mag/Util/MagScripts.cpp",
+    "line": 31,
+    "source": "const uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.cpp",
+    "line": 51,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 64,
+    "source": "_timer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 264,
+    "source": "_last_land_ms = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 276,
+    "source": "return getMSTime() - _last_land_ms <= POSITION_TIME_AFTER_LANDED;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 392,
+    "source": "_combat_start_ms = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 422,
+    "source": "bool JustStartCombat() const { return _combat_start_ms != 0 && getMSTime() - _combat_start_ms < 10000; }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 475,
+    "source": "_combat_start_ms = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxBossHelper.h",
+    "line": 514,
+    "source": "uint32 elapsed_ms = _combat_start_ms ? getMSTime() - _combat_start_ms : 0;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Naxx/NaxxTriggers.cpp",
+    "line": 65,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 77,
+    "source": ".portalAddGate.lastAddAliveTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 102,
+    "source": "state.lastShootTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 128,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 149,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 190,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 256,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 323,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 389,
+    "source": "corp.twilightStamp = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 390,
+    "source": "instState.bossHealth = { uint8(creature->GetHealthPct()), getMSTime() };"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 400,
+    "source": "state.encounterStart = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 453,
+    "source": "state.lastCastTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 458,
+    "source": "state.tankMeteorTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 460,
+    "source": "state.tankReturnTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 483,
+    "source": "corp.physicalStamp = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 485,
+    "source": "instState.bossHealth = { uint8(creature->GetHealthPct()), getMSTime() };"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/RSScripts.cpp",
+    "line": 509,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 216,
+    "source": "if (ownStamp == 0 || getMSTimeDiff(ownStamp, getMSTime()) > RS_HALION_CORP_FRESH_MS)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 777,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 797,
+    "source": "uint32 const elapsed = getMSTimeDiff(since, getMSTime());"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 871,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 947,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions.h",
+    "line": 1200,
+    "source": "uint32 const now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/RS/Action/RSActions_HAL.cpp",
+    "line": 381,
+    "source": "seen = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 184,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 266,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 400,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 446,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 663,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 1052,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 1461,
+    "source": "karathress->GetMap()->GetInstanceId(), std::time(nullptr)).second)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 2143,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 2220,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 2236,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 2253,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCActions.cpp",
+    "line": 2270,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCHelpers.cpp",
+    "line": 473,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCMultipliers.cpp",
+    "line": 90,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCMultipliers.cpp",
+    "line": 155,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCMultipliers.cpp",
+    "line": 328,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCMultipliers.cpp",
+    "line": 485,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCTriggers.cpp",
+    "line": 106,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCTriggers.cpp",
+    "line": 121,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/SSC/SSCTriggers.cpp",
+    "line": 137,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/TK/TKActions.cpp",
+    "line": 763,
+    "source": "uint32 currentTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/TK/TKActions.cpp",
+    "line": 1447,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/TK/TKMultipliers.cpp",
+    "line": 193,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/TK/TKTriggers.cpp",
+    "line": 169,
+    "source": "uint32 currentTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/TK/Util/TKScripts.cpp",
+    "line": 35,
+    "source": "uint32 currentTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Uld/Util/UldBossHelper.cpp",
+    "line": 107,
+    "source": "time_t currentTime = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Uld/Util/UldBossHelper.cpp",
+    "line": 121,
+    "source": "time_t currentTime = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Uld/Util/UldBossHelper.cpp",
+    "line": 198,
+    "source": "std::time_t currentTime = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/Uld/Util/UldBossHelper.cpp",
+    "line": 267,
+    "source": "_lastRoleSwapTime[botGuid] = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ZA/ZAActions.cpp",
+    "line": 116,
+    "source": "const time_t now = std::time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ZA/ZAMultipliers.cpp",
+    "line": 52,
+    "source": "!IsInStormWindow(it->second, std::time(nullptr)))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ZA/ZATriggers.cpp",
+    "line": 53,
+    "source": "return !IsInStormWindow(it->second, std::time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/Raid/ZA/ZATriggers.cpp",
+    "line": 65,
+    "source": "return IsInStormWindow(it->second, std::time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 13,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 19,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 25,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 31,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 37,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 46,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 57,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 65,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 71,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/NewRpgInfo.cpp",
+    "line": 83,
+    "source": "startT = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/NewRpgAction.cpp",
+    "line": 401,
+    "source": "data.lastReach = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/NewRpgAction.cpp",
+    "line": 524,
+    "source": "data.lastReachPOI = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/NewRpgAction.cpp",
+    "line": 618,
+    "source": "data.lastReachPOI = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp",
+    "line": 94,
+    "source": "botAI->rpgInfo.stuckTs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp",
+    "line": 102,
+    "source": "botAI->rpgInfo.stuckTs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Ai/World/Rpg/Action/RpgAction.cpp",
+    "line": 129,
+    "source": "std::mt19937 gen(time(0));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/ForceRebuff.cpp",
+    "line": 22,
+    "source": "beginMs = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/ForceRebuff.cpp",
+    "line": 32,
+    "source": "return pending && getMSTimeDiff(beginMs, getMSTime()) < REBUFF_WINDOW_TIMEOUT_MS;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/ForceRebuff.cpp",
+    "line": 60,
+    "source": "getMSTimeDiff(beginMs, getMSTime()) + 5000);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 497,
+    "source": "if (checkTime && time(0) < checkTime)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 513,
+    "source": "bool logout = botWorldSessionPtr->ShouldLogOut(time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 568,
+    "source": "if (checkTime && time(nullptr) < checkTime)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 655,
+    "source": "currentChat = std::pair<ChatMsg, time_t>(i->second, time(0) + 2);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 720,
+    "source": "chatCommands.push_back(ChatCommandHolder(remaining, &fromPlayer, type, time(0) + index));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 860,
+    "source": "bool logout = botWorldSessionPtr->ShouldLogOut(time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 997,
+    "source": "currentChat = std::pair<ChatMsg, time_t>(i->second, time(nullptr) + 2);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 1051,
+    "source": "chatCommands.push_back(ChatCommandHolder(remaining, fromPlayer, type, time(nullptr) + index));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 1226,
+    "source": "bool isPaused = time(0) < lastChat;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 1281,
+    "source": "time(nullptr) + urand(inCombat ? 10 : 5, inCombat ? 25 : 15)});"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 1282,
+    "source": "GetAiObjectContext()->GetValue<time_t>(\"last said\", \"chat\")->Set(time(0) + urand(5, 25));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 1463,
+    "source": "aiObjectContext->GetValue<time_t>(\"combat start time\")->Set(time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3029,
+    "source": "if (!lastSaid || (time(nullptr) - lastSaid) >= sPlayerbotAIConfig.repeatDelay / 1000)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3031,
+    "source": "whispers[text] = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3034,
+    "source": "if (currentChat.second - time(nullptr) >= 1)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3569,
+    "source": "aiObjectContext->GetValue<time_t>(\"last spell cast time\", name)->Set(time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3834,
+    "source": "aiObjectContext->GetValue<LastSpellCast&>(\"last spell cast\")->Get().Set(spellId, target->GetGUID(), time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 3969,
+    "source": "aiObjectContext->GetValue<LastSpellCast&>(\"last spell cast\")->Get().Set(spellId, bot->GetGUID(), time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 4492,
+    "source": "uint32 timeSlot = (getMSTime() / 1000) / sPlayerbotAIConfig.BotActiveAloneDurationSeconds;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 4773,
+    "source": "allowActiveCheckTimer[activityIndex] = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 4778,
+    "source": "if (!checkNow && getMSTime() < (allowActiveCheckTimer[activityIndex] + 4500 + offset))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotAI.cpp",
+    "line": 4783,
+    "source": "allowActiveCheckTimer[activityIndex] = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotMgr.cpp",
+    "line": 382,
+    "source": "bool logout = botWorldSessionPtr->ShouldLogOut(time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotMgr.cpp",
+    "line": 384,
+    "source": "if (masterWorldSessionPtr && masterWorldSessionPtr->ShouldLogOut(time(nullptr)))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/PlayerbotMgr.cpp",
+    "line": 1700,
+    "source": "time_t now = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 338,
+    "source": "RealPlayerLastTimeSeen = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 343,
+    "source": "DelayLoginBotsTimer = time(nullptr) + sPlayerbotAIConfig.disabledWithoutRealPlayerLoginDelay;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 354,
+    "source": "time(nullptr) > RealPlayerLastTimeSeen + sPlayerbotAIConfig.disabledWithoutRealPlayerLogoutDelay)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 363,
+    "source": "(realPlayerIsLogged && DelayLoginBotsTimer != 0 && time(nullptr) >= DelayLoginBotsTimer)))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 375,
+    "source": "if (time(nullptr) > (PlayersCheckTimer + 60))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 381,
+    "source": "if (time(nullptr) > (BgCheckTimer + 35))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 387,
+    "source": "if (time(nullptr) > (LfgCheckTimer + 30))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 392,
+    "source": "time(nullptr) > (printStatsTimer + sPlayerbotAIConfig.randomBotPrintStatsInterval))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 396,
+    "source": "printStatsTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 408,
+    "source": "(realPlayerIsLogged && DelayLoginBotsTimer != 0 && time(nullptr) >= DelayLoginBotsTimer))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 650,
+    "source": "std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 796,
+    "source": "missingBotsTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 798,
+    "source": "if (time(nullptr) - missingBotsTimer >= 10)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 896,
+    "source": "BgCheckTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 900,
+    "source": "if (time(nullptr) < BgCheckTimer)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 906,
+    "source": "BgCheckTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 1253,
+    "source": "if (!LfgCheckTimer || time(nullptr) > (LfgCheckTimer + 30))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 1254,
+    "source": "LfgCheckTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 1291,
+    "source": "if (!PlayersCheckTimer || time(nullptr) > (PlayersCheckTimer + 60))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 1292,
+    "source": "PlayersCheckTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 2272,
+    "source": "if (e.validIn && (NowSeconds() - e.lastChangeTime) >= e.validIn && event != \"specNo\" && event != \"specLink\")"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 2324,
+    "source": "stmt->SetData(2, NowSeconds());"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 2351,
+    "source": "e.lastChangeTime = NowSeconds();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.cpp",
+    "line": 2686,
+    "source": "printStatsTimer = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/RandomPlayerbotMgr.h",
+    "line": 259,
+    "source": "static inline uint32 NowSeconds() { return static_cast<uint32>(GameTime::GetGameTime().count()); }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Debug/PerfMonitor.cpp",
+    "line": 280,
+    "source": "started = (std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now()))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Debug/PerfMonitor.cpp",
+    "line": 287,
+    "source": "(std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now()))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Engine.cpp",
+    "line": 152,
+    "source": "time_t currentTime = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Engine.cpp",
+    "line": 246,
+    "source": "if (time(nullptr) - currentTime > 1)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Engine.cpp",
+    "line": 445,
+    "source": "uint32 now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Action/Action.cpp",
+    "line": 15,
+    "source": ": action(action), relevance(relevance), skipPrerequisites(skipPrerequisites), event(event), created(getMSTime())"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Action/Action.cpp",
+    "line": 19,
+    "source": "bool ActionBasket::isExpired(uint32_t msecs) { return getMSTime() - created >= msecs; }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.cpp",
+    "line": 134,
+    "source": "time_t now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 77,
+    "source": "time_t now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 100,
+    "source": "time_t now = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 132,
+    "source": "time_t now = time(0);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 150,
+    "source": "lastChangeTime = time(0);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 154,
+    "source": "virtual bool CanCheckChange() { return time(0) - lastChangeTime < minChangeInterval || EqualToLast(this->value); }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 161,
+    "source": "lastChangeTime = time(0);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 188,
+    "source": "uint32 LastChangeDelay() { return time(0) - LastChangeOn(); }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 193,
+    "source": "lastChangeTime = time(0);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Engine/Value/Value.h",
+    "line": 216,
+    "source": "valueLog.push_back(std::make_pair(this->value, time(0)));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Factory/RandomPlayerbotFactory.cpp",
+    "line": 571,
+    "source": "uint32 timer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Factory/RandomPlayerbotFactory.cpp",
+    "line": 603,
+    "source": "uint32 timer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Bot/Factory/RandomPlayerbotFactory.cpp",
+    "line": 651,
+    "source": "timer = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Db/PlayerbotDungeonRepository.cpp",
+    "line": 23,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 319,
+    "source": "time_t rawtime = time(nullptr) + secs;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 546,
+    "source": "if ((time(nullptr) - lastChangeTime) >= validIn)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 576,
+    "source": "if ((time(nullptr) - lastChangeTime) >= secs)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 607,
+    "source": "if ((time(nullptr) - lastChangeTime) >= secs)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 630,
+    "source": "stmt->SetData(2, (uint32)time(nullptr));"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 693,
+    "source": "if ((time(nullptr) - lastChangeTime) >= validIn)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 1097,
+    "source": "uint32 deliverTime = time(nullptr) - sPlayerbotAIConfig.minGuildTaskChangeTime;"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Guild/GuildTaskMgr.cpp",
+    "line": 1125,
+    "source": "uint32 deliverTime = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/LootObjectStack.cpp",
+    "line": 16,
+    "source": "LootTarget::LootTarget(ObjectGuid guid) : guid(guid), asOfTime(time(nullptr)) {}"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/LootObjectStack.cpp",
+    "line": 355,
+    "source": "availableLoot.shrink(time(nullptr) - 30);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/LootObjectStack.cpp",
+    "line": 392,
+    "source": "availableLoot.shrink(time(nullptr) - 30);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1695,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1733,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1770,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1826,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1875,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 1969,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 2486,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 2562,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 2633,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 2709,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Item/RandomItemMgr.cpp",
+    "line": 2766,
+    "source": "uint32 const oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Security/PlayerbotSecurity.cpp",
+    "line": 279,
+    "source": "if (!lastSaid || (time(nullptr) - lastSaid) >= sPlayerbotAIConfig.repeatDelay / 1000)"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Security/PlayerbotSecurity.cpp",
+    "line": 281,
+    "source": "whispers[guid][text] = time(nullptr);"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Travel/TravelMgr.cpp",
+    "line": 1551,
+    "source": "startTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Travel/TravelMgr.cpp",
+    "line": 1581,
+    "source": "if ((statusTime > 0 && startTime + statusTime < getMSTime()))"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Travel/TravelMgr.h",
+    "line": 754,
+    "source": "TravelTarget(PlayerbotAI* botAI) : AiObject(botAI), m_status(TRAVEL_STATUS_NONE), startTime(getMSTime()){};"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Travel/TravelMgr.h",
+    "line": 756,
+    "source": ": AiObject(botAI), m_status(TRAVEL_STATUS_NONE), startTime(getMSTime())"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Mgr/Travel/TravelMgr.h",
+    "line": 806,
+    "source": "uint32 getExpiredTime() { return getMSTime() - startTime; }"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Script/Playerbots.cpp",
+    "line": 354,
+    "source": "uint32 oldMSTime = getMSTime();"
+  },
+  {
+    "file": "modules/mod-playerbots/src/Script/WorldThr/PlayerbotWorldThreadProcessor.cpp",
+    "line": 109,
+    "source": "uint32 startTime = getMSTime();"
+  }
+]

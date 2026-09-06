@@ -24,6 +24,7 @@
 #include "GossipDef.h"
 #include "Group.h"
 #include "MapMgr.h"
+#include "Observatory.h"
 #include "Player.h"
 #include "PoolMgr.h"
 #include "QuestPackets.h"
@@ -905,6 +906,7 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
 
 void Player::SetRewardedQuest(uint32 quest_id)
 {
+    Observatory::Event(this, "quest_reward", quest_id);
     m_RewardedQuests.insert(quest_id);
     m_RewardedQuestsSave[quest_id] = true;
 }

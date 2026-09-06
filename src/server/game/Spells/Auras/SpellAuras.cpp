@@ -26,6 +26,7 @@
 #include "Opcodes.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellMgr.h"
@@ -2105,10 +2106,7 @@ void Aura::AddProcCooldown(SpellProcEntry const* procEntry, TimePoint now)
     AddProcCooldown(now + procEntry->Cooldown);
 }
 
-void Aura::ResetProcCooldown()
-{
-    m_procCooldown = std::chrono::steady_clock::now();
-}
+void Aura::ResetProcCooldown() { m_procCooldown = SimulationClock::Now(); }
 
 void Aura::PrepareProcToTrigger(AuraApplication* aurApp, ProcEventInfo& eventInfo, TimePoint now)
 {

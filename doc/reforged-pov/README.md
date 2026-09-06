@@ -8,18 +8,15 @@ The extension is integrated into this fork's Playerbots master. Build with Custo
 The server command path must dispatch permitted commands before the spectator chat restriction, so
 `.pov stop` and target switching remain available while observing.
 
-For mod-playerbots at `b949b50bfcdd4fab937781bac2d7765e39330e4b`, apply the bundled compatibility patch
-before compiling. It keeps a bot with a connected POV observer active despite GM invisibility, including
-movement and nearby-player checks. It also streams successful AI actions to connected observers. The normal activity policy resumes after bind sight is detached.
-The patch is scoped to the watched bot and does not change the global active-bot percentage.
+The pinned `modules/mod-playerbots` submodule already includes the observer compatibility changes and the
+observatory instrumentation. Run `git submodule update --init --recursive` on a clean checkout; do not apply
+the bundled patch again to this pin. The patch remains as a reference for the original upstream module revision
+`b949b50bfcdd4fab937781bac2d7765e39330e4b`. When migrating a deployment with a manually patched module,
+follow [the agent update procedure](../../.agents/docs/systems/observatory.md) and preserve local changes first.
 
-```bash
-git -C modules/mod-playerbots apply --check ../../doc/reforged-pov/mod-playerbots-observer.patch
-git -C modules/mod-playerbots apply ../../doc/reforged-pov/mod-playerbots-observer.patch
-```
-
-Skip applying it again if `git apply --reverse --check` succeeds. Recheck compatibility when updating
-the module; its upstream checkout is separate from the core repository.
+The compatibility code keeps a watched bot active despite GM invisibility and streams its successful AI actions.
+Ordinary activity policy resumes when bind sight is detached. Native-client POV operates with the browser
+observatory disabled, because isolated simulation runs intentionally reject all human sessions.
 
 ## Files and integration
 
