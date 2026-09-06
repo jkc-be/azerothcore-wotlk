@@ -4,9 +4,22 @@ This branch adds a GM spectator prototype with an online character picker and a 
 WoW 3.3.5a client. The client uses native world rendering and bind sight. Online server `Player`
 objects are eligible, including simulated players that use that representation.
 
-**Status: source handoff, not a validated deployment.** C++ has not been compiled or run against
-a worldserver. Client Lua behavior tests and repository style checks pass. The producing machine
-is a client workstation; compilation, integration and live gameplay validation belong on the server side.
+The extension is integrated into this fork's Playerbots master. Build with Custom scripts enabled.
+The server command path must dispatch permitted commands before the spectator chat restriction, so
+`.pov stop` and target switching remain available while observing.
+
+For mod-playerbots at `b949b50bfcdd4fab937781bac2d7765e39330e4b`, apply the bundled compatibility patch
+before compiling. It keeps a bot with a connected POV observer active despite GM invisibility, including
+movement and nearby-player checks. It also streams successful AI actions to connected observers. The normal activity policy resumes after bind sight is detached.
+The patch is scoped to the watched bot and does not change the global active-bot percentage.
+
+```bash
+git -C modules/mod-playerbots apply --check ../../doc/reforged-pov/mod-playerbots-observer.patch
+git -C modules/mod-playerbots apply ../../doc/reforged-pov/mod-playerbots-observer.patch
+```
+
+Skip applying it again if `git apply --reverse --check` succeeds. Recheck compatibility when updating
+the module; its upstream checkout is separate from the core repository.
 
 ## Files and integration
 
@@ -23,7 +36,9 @@ Compile and validate on the server side before installing and restarting worldse
 Copy the supplied `ReforgedPOV` addon folder into the observer client's `Interface/AddOns`, restart
 the client and enable the addon. Log in with a dedicated GM observer and type `/pov`.
 Select a character, use **Choose player** to switch, and **Stop watching** or `/pov stop` to return.
-`/pov Charactername` selects directly.
+`/pov Charactername` selects directly. The HUD shows the latest successful bot action and three recent
+actions, their age, and counts for consecutive repeats. Replace an existing addon and use `/reload`
+to load version 0.2.0. Actions begin arriving after watching; human players have no AI action stream.
 
 ## Commands and requirements
 
@@ -55,6 +70,7 @@ The companion addon accepts server-origin whispers and rejects other player send
 | `END` | more pages (`0` or `1`) |
 | `WATCH` | character name |
 | `STATE` | name, health, max health, power type, power, max power, target name, target health, target max health, spell ID, remaining cast milliseconds, total cast milliseconds, zone ID, activity |
+| `ACTION` | bot name, successful AI action name (maximum 120 bytes); emitted by the module patch |
 | `ERROR` | explanation |
 | `STOP` | none |
 
@@ -65,8 +81,8 @@ the hasted channel duration. The client therefore shows a countdown rather than 
 
 This reconstructs health, resources, target, casts and activity. It does not mirror the player's exact
 camera input, cursor, addon layout, action bars, inventory, quests or NPC/loot windows. Visible world
-effects come from native rendering; snapshots are not a complete interaction log. Bot identification
-is not guessed, and operation with the server's actual bot implementation still needs validation.
+effects come from native rendering; snapshots are not a complete interaction log. AI action entries describe successful engine operations, including movement and interaction tasks;
+they are not a complete spell/combat log. Unpatched modules do not send action entries.
 
 Before treating this as ready to deploy, validate on the actual server with two clients and a bot:
 

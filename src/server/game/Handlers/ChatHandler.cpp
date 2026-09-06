@@ -160,22 +160,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
         }
     }
 
-    // pussywizard:
-    switch (type)
-    {
-        case CHAT_MSG_SAY:
-        case CHAT_MSG_YELL:
-        case CHAT_MSG_EMOTE:
-        case CHAT_MSG_TEXT_EMOTE:
-        case CHAT_MSG_AFK:
-        case CHAT_MSG_DND:
-        if (sender->IsSpectator())
-        {
-            recvData.rfinish();
-            return;
-        }
-    }
-
     if (sender->HasAura(1852) && type != CHAT_MSG_WHISPER)
     {
         ChatHandler(this).SendNotification(LANG_GM_SILENCE, sender->GetName());
@@ -316,6 +300,23 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
         }
     }
 
+    // Spectators must retain access to permitted commands, including stopping their remote view.
+    // Ordinary local chat and presence changes remain blocked after command dispatch.
+    switch (type)
+    {
+        case CHAT_MSG_SAY:
+        case CHAT_MSG_YELL:
+        case CHAT_MSG_EMOTE:
+        case CHAT_MSG_TEXT_EMOTE:
+        case CHAT_MSG_AFK:
+        case CHAT_MSG_DND:
+        if (sender->IsSpectator())
+        {
+            recvData.rfinish();
+            return;
+        }
+    }
+
     // do message validity checks
     if (lang != LANG_ADDON)
     {
@@ -349,10 +350,13 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
             msg.erase(end, msg.end());
         }
 
-        // Validate hyperlinks
-        if (!ValidateHyperlinksAndMaybeKick(msg))
+        // mod_playerbots: skip validation for playerbots module
+        auto playerbotsHyperlink = msg.find("Hfound:") != std::string::npos;
+        if (!playerbotsHyperlink)
         {
-            return;
+            // Validate hyperlinks
+            if (!ValidateHyperlinksAndMaybeKick(msg))
+                return;
         }
     }
 
