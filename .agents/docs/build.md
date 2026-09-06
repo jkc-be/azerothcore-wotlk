@@ -53,3 +53,41 @@ Two traps specific to this checkout:
 Shutting the ordinary realm down can exceed the unit's `TimeoutStopSec` with a large bot population;
 if systemd reports `code=killed, signal=KILL`, the world was not saved cleanly. Prefer
 `printf 'server shutdown 1\n' > var/run/worldserver.stdin` before stopping the unit.
+
+## Dashboard map artwork
+
+Until the bridge is given extracted client artwork the dashboard draws bot positions on bare
+coordinates — no error, the terrain is simply absent. Installing a client is not enough: the tiles
+must be extracted once, and the bridge must be started with `--maps`. See
+`apps/observatory/docs/MAPS.md` for what the extractor produces.
+
+```bash
+python3 -m venv "$TOOLS"
+"$TOOLS/bin/pip" install -r apps/observatory/requirements-map-extractor.txt
+"$TOOLS/bin/python" apps/observatory/extract_maps.py \
+  --client /path/to/World-of-Warcraft \
+  --dbc env/dist/data/dbc/WorldMapArea.dbc \
+  --output "$ART"
+```
+
+`WorldMapOverlay.dbc` must sit beside `WorldMapArea.dbc`; this checkout already has both under
+`env/dist/data/dbc/`. A complete 3.3.5a client yields 76 calibrated maps (~2400 PNGs, ~190 MB);
+fewer means incomplete base maps were skipped and those zones keep coordinate rendering. Keep the
+output outside Git, always pass a fresh `--output` (the extractor refuses an existing directory),
+and re-extract after client data changes. A client carrying custom patch archives yields that custom
+art, because patches take precedence over base assets.
+
+Then add `--maps <art dir>` to the bridge's user unit, `systemctl --user daemon-reload`, and restart
+it. Verify through the API rather than the browser: `/api/maps` must list the areas and
+`/api/maps/<area>-1.png` must return `image/png`. Both need the token as an `Authorization: Bearer`
+header — the `?token=` query form is rejected.
+
+Restarting the bridge drops speed control to manual, so a run that was on Max keeps its last speed
+and stops adapting. Re-select it afterwards with
+`POST /api/control {"run": …, "speed": "max", "paused": false, "backlogLimitMs": …}`; Max re-arms
+from 1× and ramps back up, which restarts its backlog measurement.
+
+If the host has no `pip` and no `python3-venv`, `python3 -m venv` fails with `ensurepip is not
+available`. Bootstrap without touching the system and without `sudo apt`: create the venv with
+`--without-pip`, then run `https://bootstrap.pypa.io/get-pip.py` with that venv's interpreter.
+Never install the extractor's dependencies into an unrelated project's virtualenv.

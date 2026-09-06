@@ -19,6 +19,10 @@ python3 apps/observatory/bridge.py --spool /srv/observatory/runs/run-001 \
   --token-file /srv/observatory/token --maps /srv/observatory/map-art
 ```
 
+On a host without `pip` or `python3-venv` the first line fails with `ensurepip is not available`; create the
+environment with `python3 -m venv --without-pip` and bootstrap pip into it from `https://bootstrap.pypa.io/get-pip.py`
+rather than installing system packages or borrowing an unrelated project's virtualenv.
+
 Use a new output directory. The extractor reads MPQs without modifying them, respects patch precedence, decodes BLP
 textures to PNG, and records coordinates from the server's DBC. `WorldMapOverlay.dbc` must be beside WorldMapArea.dbc;
 its exploration details supply roads, terrain and place labels. The artwork depicts the complete map regardless of
