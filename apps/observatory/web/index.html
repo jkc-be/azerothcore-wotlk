@@ -171,6 +171,7 @@
         <label
           >Window
           <select id="chart-window">
+            <option value="run">Whole run (long term)</option>
             <option value="0">Whole session</option>
             <option value="3600000">Last hour</option>
             <option value="600000">Last 10 minutes</option>
@@ -192,6 +193,7 @@
             <option value="meanHealth">Mean health %</option>
             <option value="money">Total money (copper)</option>
             <option value="questsActive">Quests in logs</option>
+            <option value="records">Journal records per minute (long term)</option>
             <option value="observed" data-python>Observed bots</option>
             <option value="alive" data-python>Alive bots (last observation)</option>
             <option value="combat" data-python>In combat (last observation)</option>
@@ -296,11 +298,16 @@
               <select id="export-file">
                 <option>snapshots.ndjson</option>
                 <option>events.ndjson</option>
+                <option>rollup.ndjson</option>
+                <option>events-rollup.ndjson</option>
+                <option>progression.ndjson</option>
+                <option>milestones.ndjson</option>
                 <option>initial.json</option>
                 <option>manifest.json</option>
               </select></label
             ><button id="export">Download</button>
           </div>
+          <p class="caption" id="retention">Retention: waiting for the bridge.</p>
           <details id="manifest-box">
             <summary>Run manifest</summary>
             <dl id="manifest"></dl>

@@ -13,7 +13,12 @@ The world process creates a new private spool directory. A writer thread maintai
 | `latest.json` | Atomically replaced authoritative snapshot |
 | `snapshots.ndjson` | Timestamped progression/population snapshots for export |
 | `events.ndjson` | Ordered progression, convenience, and optional diagnostic events |
+| `NAME.NNNNNN.ndjson` | Rotated journal segments when `Observatory.JournalSegmentBytes` is set (see retention below) |
 | `control.txt` | Private atomic mailbox: `run sequence speed paused bots` |
+
+The bridge adds its own long-term files beside them: `rollup.ndjson` (snapshot summary buckets), `milestones.ndjson`
+(complete snapshots at fixed simulated times), `events-rollup.ndjson` (per-kind record counts per bucket) and
+`progression.ndjson` (every non-trace event record). See [journal retention](#journal-retention).
 
 Snapshots include `run`, monotonically increasing `seq`, `simMs`, `realMs`, `readyAtMs`, `requestedSpeed`,
 `achievedSpeed`, `paused`, `baseline`, `completed`, `controlSeq`, `backlogMs`, `maxTickUs`, `overloaded`,
@@ -70,8 +75,11 @@ browser. All API endpoints require `Authorization: Bearer TOKEN`; static UI file
 | `GET /api/events` | At most 500 recent events from a bounded journal tail |
 | `GET /api/events?scope=progression` | At most 2,000 recent non-trace events retained by the journal follower |
 | `GET /api/event-stats` | Per-kind record counts since the bridge started following, plus counts for the last minute |
+| `GET /api/event-stats?scope=long-term` | `{bucketMs, points}`: per-kind record counts per bucket, whole run |
 | `GET /api/history` | At most 1,000 complete snapshots from the most recent 4 MiB of the snapshot journal |
-| `GET /api/export/NAME` | Manifest, initial state, snapshots, or event journal; fixed cutoff at request start |
+| `GET /api/history?scope=long-term` | `{bucketMs, points}`: summary buckets, whole run; `limit` folds older ones |
+| `GET /api/retention` | Journal sizes, segments, pruning, rotation availability and long-term tier counts |
+| `GET /api/export/NAME` | Manifest, initial state, a journal (segments then live file) or a long-term file |
 | `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25,"observerMode":1}` → 202 accepted sequence |
 
 A 202 response is mailbox acceptance. Application is acknowledged by a later snapshot's `controlSeq`, speed and pause
@@ -119,7 +127,38 @@ records of every kind and the newest 2,000 progression records, and counts recor
 enabled, per-step trace kinds (`position`, swings, ticks, casts, cooldowns, resource setters, creature deaths) dominate
 the bounded file tail, so the dashboard reads the progression scope for its live feed and inspector while the event
 mix table shows the trace volume. The seed batch read at startup restores the display but is not counted. Counts reset
-when the bridge restarts or the journal file is replaced; the export remains the complete record.
+when the bridge restarts; they continue across journal rotation.
+
+### Journal retention
+
+Each journal has two tiers. The **recent** tier is the raw record: the live journal plus its rotated segments on disk,
+and the bounded deques above in memory. The **long-term** tier folds every record into fixed buckets of `BUCKET_MS`
+(five simulated minutes) that are kept for the whole run, appended to the bridge's own files as each bucket closes and
+reloaded when the bridge restarts:
+
+| Stream | Long-term file | Contents |
+| --- | --- | --- |
+| Snapshots | `rollup.ndjson` | One point per bucket with the dashboard summary keys (see below) |
+| Snapshots | `milestones.ndjson` | The first complete snapshot after every `MILESTONE_MS` (ten minutes) boundary |
+| Events | `events-rollup.ndjson` | Per-kind record counts per bucket (`kinds`, `samples`) |
+| Events | `progression.ndjson` | Every non-trace record, deduplicated by `seq` across bridge restarts |
+
+In a rollup point, counters and distributions (`xp`, `quests`, `deaths`, `money`, `questsActive`, `levels`, `zones`)
+keep the newest value, gauges (`meanLevel`, `meanHealth`, speeds, `backlogMs`, population, `activity`, `pausedShare`)
+are sample-weighted means, `minLevel`/`maxLevel` keep their extremes and `tickMs` its maximum.
+Long-term responses fold consecutive buckets together beyond `limit` points (default 720, at most 5,000);
+`buckets` on a point counts how many were folded and `samples` how many records or snapshots it holds. The open
+bucket is included with `partial: true`.
+Seed snapshots enter the rollup unless it already holds their `seq`; seed events feed `progression.ndjson` but not
+the counts. Snapshots keep the newest 20,000 buckets in memory; the files keep every bucket.
+
+With `Observatory.JournalSegmentBytes` set (at least 1 MiB), the world renames `snapshots.ndjson` and `events.ndjson`
+to `NAME.NNNNNN.ndjson` once a flushed batch takes them past that size and continues in a fresh file. The bridge holds
+each journal's descriptor, drains a renamed segment to its end before reading the successor from its start, then
+deletes the oldest segments it has consumed while their total exceeds `--retain-bytes` (default 2 GiB per journal).
+The live file is never deleted, so a world without rotation keeps growing; `/api/retention` reports `rotation: false`
+in that case and the dashboard's Journal panel says so. Exports of a rotated journal stream the retained segments
+followed by the live file; older records survive only in the long-term files.
 
 Every SSE viewer has an independent connection and a five-second socket deadline. At most 16 streams are accepted.
 Slow viewers skip snapshots and reconnect to the newest state; browser rendering never drives simulation ticks.

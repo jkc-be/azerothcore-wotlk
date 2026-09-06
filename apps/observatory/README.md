@@ -30,6 +30,14 @@ rates are computed from retained history and labelled with their window. It uses
 Python SSE adapter; neither is coupled to simulation tick frequency. Optional local client map artwork is aligned with
 server coordinates; artwork is not bundled in this repository.
 
+History is kept in two tiers. The browser holds up to 4,000 recent samples; the bridge folds every snapshot and
+journal record into five-simulated-minute buckets for the whole run (plus a complete milestone snapshot every ten
+minutes and every progression record), so the timeline's **Whole run (long term)** window and the
+**Journal records per minute** metric cover hours or days without holding the raw journals in memory. With
+`Observatory.JournalSegmentBytes` set in the world, the raw journals rotate into segments and the bridge deletes
+segments it has folded in beyond `--retain-bytes` (2 GiB per journal by default); the Journal panel reports the
+retained and pruned sizes. See [journal retention](docs/INTERFACE.md#journal-retention).
+
 Select **Max** to automatically find a sustainable speed from 1× to 10× in 0.1× steps, such as 2.1× or 3.2×.
 This requires an updated worldserver; older servers retain 1×, 2×, 5× and 10×. **Max backlog (ms)** sets
 the target, defaulting to 100 simulated milliseconds. The bridge backs off only when debt keeps growing for three seconds and retries

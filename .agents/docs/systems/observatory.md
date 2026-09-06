@@ -33,7 +33,11 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    Only disposable simulation databases may be reset. Existing production/human data is outside this reset procedure.
 7. Start the world with the verified configuration, then start/repoint the bridge to the new spool and retain the
    private token file. Preserve the local extracted artwork directory and the bridge `--maps` argument;
-   see `apps/observatory/docs/MAPS.md` for regenerating it after client data changes. Check startup logs, database
+   see `apps/observatory/docs/MAPS.md` for regenerating it after client data changes. Restarting the bridge drops
+   Max speed to manual: re-select Max afterwards if the run was using it. With `Observatory.JournalSegmentBytes`
+   set, the bridge prunes raw journal segments beyond `--retain-bytes`; the long-term files it writes into the run
+   directory (`rollup`, `milestones`, `events-rollup`, `progression`) are then the only record of older history and
+   must be archived with the run. Check startup logs, database
    version, module revision and the authoritative `/api/snapshot`.
    Verify a new run ID, advancing simulated time, complete cohort, increasing per-bot AI counters, pause/resume and
    requested versus achieved speed. Reconnect the browser and test an export. If updating ordinary POV, also test its
@@ -46,6 +50,15 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    correctness/performance limits. If validation fails, keep the new run stopped, retain failure artifacts and restore
    compatible previous binaries/configuration plus the appropriate pre-update DB state. A rollback never reuses virtual
    future timestamps as though a run were resumable. Never claim 100 bots at 10× without benchmark evidence.
+
+## Disk usage
+
+Run directories (`~/.local/share/azeroth-observatory/runs/<run-id>/`) keep growing `snapshots.ndjson`
+files for as long as a run is active, and old runs are not cleaned up automatically. Periodically check
+`du -sh ~/.local/share/azeroth-observatory/runs/*/snapshots.ndjson` for stale or abandoned runs (no longer
+the active run, not needed for a pending comparison/benchmark) and flag or archive/remove them before disk
+space becomes a problem. Never delete a run whose results are still referenced by an open PR, handoff note,
+or comparison in progress; ask before removing anything you're unsure is stale.
 
 ## Updating dependencies or merging a PR
 
