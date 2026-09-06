@@ -53,3 +53,8 @@ Push core work to a feature branch of the same `jkc-be/azerothcore-wotlk` reposi
 Merge only within the user's authorization and after review findings and required checks are resolved. GitHub may not
 allow the author to formally approve their own PR; do not impersonate an independent reviewer or bypass required review.
 Record source/build checks separately from pending in-game and performance validation in the PR and handoff.
+
+For population-control updates, deploy core, module pin and bridge together. Equal MinRandomBots/MaxRandomBots
+provision the pool; Observatory.BotCount is now the initial online target. Preserve an explicit BotGuids allowlist:
+it caps the available target and must not be silently widened. Exercise `tests/population_live.py` on an exclusive
+disposable run and check pending/matched state, zero bots and pause before declaring the browser control deployed.

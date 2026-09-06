@@ -86,3 +86,18 @@ performance logs and server CPU/DB profiling beside the report. Profile world/ma
 queues with the server's normal profiler; do not infer a bottleneck from fixed simulated world-diff statistics.
 A throughput result alone does not establish correctness. Fill `artifacts/server-results.template.json` only with
 measured data and link each correctness claim to its scenario and journal window.
+
+## Population changes on a disposable live run
+
+Provision at least three eligible bots, keep the run exclusive during the check, then run:
+
+```sh
+python3 apps/observatory/tests/population_live.py --url http://127.0.0.1:8787 \
+  --token-file /srv/observatory/token --output /srv/observatory/results/population.json
+```
+
+This changes the actual run through 1→3→1→0→3, verifies resize waits during pause, checks each bot's increasing AI
+counter with no humans, verifies observation at zero, and checks cumulative progression survives departure.
+It restores original requested controls; elapsed gameplay cannot be undone. It fails on a fault, changed run, or
+bounded real-time timeout. Browser fixture coverage separately checks the form and pending/matched messages.
+This small population proof does not establish 100-bot performance or equal-duration gameplay equivalence.

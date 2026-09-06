@@ -2,6 +2,7 @@
 PlayerbotsDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_playerbots"
 AiPlayerbot.Enabled = 1
 AiPlayerbot.RandomBotAutologin = 1
+# In observatory mode these equal values provision the pool/upper limit; BotCount is the online target.
 AiPlayerbot.MinRandomBots = 100
 AiPlayerbot.MaxRandomBots = 100
 AiPlayerbot.DisabledWithoutRealPlayer = 0

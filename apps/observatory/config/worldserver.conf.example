@@ -8,8 +8,10 @@ Observatory.Enable = 1
 Observatory.DisposableAcknowledgement = "DISPOSABLE_BOTS_ONLY"
 # Parent directory must exist. This run directory MUST NOT already exist.
 Observatory.Directory = "/srv/observatory/runs/run-001"
+# Initial online target (0..AiPlayerbot.MaxRandomBots); adjustable in the browser.
 Observatory.BotCount = 100
-# Optional exact character GUID counters, comma-separated without spaces; must contain BotCount identities.
+# Optional eligible GUID pool, comma-separated without spaces; size must be between BotCount and MaxRandomBots.
+# With exactly BotCount GUIDs, shrinking/rejoining works but growth beyond this pool is rejected.
 Observatory.BotGuids = ""
 Observatory.Trace = 0
 Observatory.RealTimeBaseline = 0

@@ -14,6 +14,7 @@ export function summarize(snapshot) {
     result.levels[level] = (result.levels[level] || 0) + 1;
     result.zones[zone] = (result.zones[zone] || 0) + 1;
   }
+  if (snapshot.runTotals) Object.assign(result, snapshot.runTotals);
   return result;
 }
 
