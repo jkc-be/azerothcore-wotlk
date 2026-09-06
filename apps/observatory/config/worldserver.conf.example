@@ -5,6 +5,9 @@ WorldDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_world"
 CharacterDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_characters"
 
 Observatory.Enable = 1
+# Opt-in native GM-only POV; connections force unpaused 1x until all disconnect.
+# Keep disabled for timing comparisons and benchmarks. Requires the Custom POV script.
+Observatory.AllowGmObservers = 0
 Observatory.DisposableAcknowledgement = "DISPOSABLE_BOTS_ONLY"
 # Parent directory must exist. This run directory MUST NOT already exist.
 Observatory.Directory = "/srv/observatory/runs/run-001"

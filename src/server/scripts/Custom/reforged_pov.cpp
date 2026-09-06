@@ -4,6 +4,7 @@
 #include "CommandScript.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
+#include "Observatory.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "RBAC.h"
@@ -61,6 +62,7 @@ namespace ReforgedPOV
     {
         return target && target != observer && target->IsInWorld() && !target->IsBeingTeleported() &&
             !target->IsSpectator() && observations.find(target->GetGUID()) == observations.end() &&
+            (!Observatory::IsObserver(observer->GetSession()) || target->GetSession()->IsBot()) &&
             target->GetSession()->GetSecurity() <= observer->GetSession()->GetSecurity();
     }
 
@@ -76,7 +78,7 @@ namespace ReforgedPOV
     void Restore(Player* player, Observation const& state)
     {
         Detach(player);
-        player->SetClientControl(player, true);
+        player->SetClientControl(player, !Observatory::IsObserver(player->GetSession()));
         player->SetGameMaster(state.gm);
         player->SetGMVisible(state.visible);
         player->SetGMSpectator(state.gmSpectator);
@@ -326,7 +328,18 @@ private:
 class reforged_pov_player : public PlayerScript
 {
 public:
-    reforged_pov_player() : PlayerScript("reforged_pov_player", {PLAYERHOOK_ON_BEFORE_LOGOUT}) { }
+    reforged_pov_player() : PlayerScript("reforged_pov_player", {PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGIN}) { }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        if (!Observatory::IsObserver(player->GetSession()))
+            return;
+        player->SetGameMaster(true);
+        player->SetGMVisible(false);
+        player->SetGMSpectator(true);
+        player->SetClientControl(player, false);
+        ChatHandler(player->GetSession()).SendSysMessage("GM observer: use /pov. Simulation is locked to 1x until disconnect.");
+    }
 
     void OnPlayerBeforeLogout(Player* player) override
     {
@@ -344,6 +357,7 @@ public:
 
 void AddSC_reforged_pov()
 {
+    Observatory::ObserverSupportReady();
     new reforged_pov_commands();
     new reforged_pov_world();
     new reforged_pov_player();

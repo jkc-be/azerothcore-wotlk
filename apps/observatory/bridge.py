@@ -40,6 +40,8 @@ class Spool:
                 raise ValueError('Run changed; reconnect before controlling')
             if current.get('baseline') and (request['speed'] != 1 or request['paused']):
                 raise ValueError('Real-time baseline supports 1x without pause only')
+            if current.get('observers', 0) and (request['speed'] != 1 or request['paused']):
+                raise ValueError('GM POV requires 1x without pause until all observers disconnect')
             if current.get('completed'):
                 raise ValueError('The configured simulated duration has completed')
             if current['fault']:
@@ -48,7 +50,8 @@ class Spool:
             try:
                 fields = (self.directory / 'control.txt').read_text().split()
                 run, sequence = fields[:2]
-                if run == current['run'] and len(fields) == 5:
+                if (run == current['run'] and len(fields) == 5
+                        and (int(sequence) > current['controlSeq'] or not current.get('controlError'))):
                     bots = int(fields[4])
                 if run == current['run']:
                     self.sequence = max(self.sequence, int(sequence))

@@ -23,6 +23,7 @@
 #include <string_view>
 
 class Player;
+class WorldSession;
 class Unit;
 namespace Observatory
 {
@@ -31,6 +32,12 @@ namespace Observatory
     AC_GAME_API void Stop();
     AC_GAME_API void Fail(std::string_view reason);
     AC_GAME_API bool AllowsBot(uint32 characterId);
+    AC_GAME_API bool AllowsObservers();
+    AC_GAME_API void ObserverSupportReady();
+    AC_GAME_API bool RegisterObserver(WorldSession const* session);
+    AC_GAME_API void UnregisterObserver(WorldSession const* session);
+    AC_GAME_API bool IsObserver(WorldSession const* session);
+    AC_GAME_API bool AllowsObserverOpcode(uint32 opcode);
     // World-thread-only population contract with the Playerbots module.
     AC_GAME_API uint32 TargetBotCount();
     AC_GAME_API void PopulationSettled(bool settled);

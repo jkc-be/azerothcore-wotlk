@@ -367,3 +367,13 @@ P2, covered via `apps/observatory/tests/population_live.py`: authenticated contr
 paused resize, 1→3→1→0→3 and active AI without humans. AzerothGhost coverage is blocked by its lack of an observatory
 HTTP-control/telemetry client and by the deliberate rejection of human world sessions in simulation mode. The
 committed Python live-stack driver provides the feature oracle; frontend and bridge validation cover form/parser logic.
+
+### Observatory GM POV coverage
+
+P1, covered by `suites/observatory/TestObservatory_GmPovConnectionLock`: native GM-only admission, POV state,
+read-only actions, connection-lifetime 1× locking, multi-observer and abrupt-disconnect cleanup. Requires an exclusive
+observatory run; opt in using `E2E_OBSERVATORY_URL`, `E2E_OBSERVATORY_TOKEN_FILE` and `E2E_OBSERVATORY_SPOOL`.
+See [the validation instructions](../apps/observatory/docs/VALIDATION.md#gm-only-native-pov-exclusive-disposable-run).
+Without that opt-in the special-realm test is excluded from ordinary realm suites. Addon visual rendering and
+cinematic exit remain manual-only. The pinned harness OS FourCC issue is handled in test account setup, without
+changing the harness pin or disabling Warden.

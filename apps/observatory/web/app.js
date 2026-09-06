@@ -116,8 +116,9 @@ function ingest(snapshot) {
   if (!history.length || history.at(-1).simMs !== state.simMs) history.push(summarize(state));
   if (history.length > 4000) history.splice(0, history.length - 4000);
   updateMaps();
-  $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline);
-  $("bot-count").disabled = $("set-bots").disabled = $("pause").disabled || state.maxBots === undefined;
+  $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline || state.observers);
+  $("bot-count").disabled = $("set-bots").disabled =
+    Boolean(state.fault || state.completed || state.baseline || state.maxBots === undefined);
   $("bot-count").max = state.maxBots ?? 100;
   if (previousTarget !== state.expectedBots) $("bot-count").value = state.expectedBots;
   $("population-status").textContent = state.maxBots === undefined
@@ -131,7 +132,7 @@ function ingest(snapshot) {
   $("control-status").textContent =
     pendingControl && state.controlSeq < pendingControl
       ? `Request ${pendingControl} awaiting world acknowledgement`
-      : `Applied request ${state.controlSeq}`;
+      : state.controlError || `Applied request ${state.controlSeq}`;
   const metrics = [
     ["Simulated", duration(state.simMs)],
     ["Real elapsed", duration(state.realMs)],
@@ -159,9 +160,11 @@ function ingest(snapshot) {
         ? `RUN FROZEN: ${state.fault}. Export the evidence and inspect the server.`
         : state.paused
           ? "Gameplay paused. Observation and controls remain available."
-          : state.overloaded
-            ? "Capacity shortfall: simulation debt is growing; gameplay steps are retained."
-            : `Connected · run ${state.run} · authoritative in-memory telemetry`,
+          : state.observers
+            ? `GM POV connected (${state.observers}) · speed locked to 1×; pause unlocks after all observers disconnect.`
+            : state.overloaded
+              ? "Capacity shortfall: simulation debt is growing; gameplay steps are retained."
+              : `Connected · run ${state.run} · authoritative in-memory telemetry`,
   );
   renderDetails();
   drawChart();

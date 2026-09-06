@@ -19,6 +19,8 @@
 #include "ScriptMgr.h"
 #include "ScriptMgrMacros.h"
 #include "ServerScript.h"
+#include "Observatory.h"
+#include "WorldPacket.h"
 
 void ScriptMgr::OnNetworkStart(Acore::Asio::IoContext& ioContext)
 {
@@ -65,6 +67,8 @@ bool ScriptMgr::CanPacketSend(WorldSession* session, WorldPacket const& packet)
 
 bool ScriptMgr::CanPacketReceive(WorldSession* session, WorldPacket const& packet)
 {
+    if (Observatory::IsObserver(session) && !Observatory::AllowsObserverOpcode(packet.GetOpcode()))
+        return false;
     if (ScriptRegistry<ServerScript>::ScriptPointerList.empty())
         return true;
 

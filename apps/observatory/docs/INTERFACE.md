@@ -111,3 +111,29 @@ changes and automatic recovery; compare event times with snapshots and the effec
 `runTotals` contains cumulative `xp`, `quests`, and `deaths` across all bots seen during the run, including departed
 bots. The charts use these totals, so shrinking does not erase earned progression. Distribution charts still
 reflect the currently online population. Logout/rejoin does not reset the per-bot in-memory run counters.
+
+## Native GM POV
+
+`Observatory.AllowGmObservers = 1` admits authenticated realm GMs (security 2 or above) only when the
+Custom `reforged_pov` script is loaded. Default is 0; ordinary accounts remain rejected at any speed.
+Baseline mode refuses this option. No second world or realm is required.
+
+Authentication acquires an observer lease and requests unpaused 1× before character login. It lasts until the
+world session is destroyed, including character selection, `/pov stop`, and disconnect cleanup. Observers bypass
+the normal one-minute offline reconnect grace period and clean up on the next world session update. The last departure
+leaves 1× selected; the operator can then accelerate or pause again. Accumulated simulation debt is retained,
+but catch-up bursts are suppressed while an observer is connected. Requested 1× can still fall short under load.
+
+Snapshots add `observersAllowed` (effective support), `observers` (connected leases), and `controlError`.
+The bridge rejects acceleration/pause with HTTP 400 while `observers > 0`. If a connection races an already
+accepted mailbox request, the world consumes its sequence without applying it and publishes `controlError`.
+Clients must check the resulting state and error as well as `controlSeq`. Population changes at unpaused 1× remain
+available. `observer_connect` and `observer_disconnect` journal events put the account ID in `value` (not a bot GUID).
+
+Observers enter invisible GM spectator mode with client movement disabled. A core opcode allowlist permits
+character creation/login, session bookkeeping, read-only queries, selection, POV chat and server teleport ACKs.
+Only `.pov` commands through SAY chat are permitted; movement, casts, attacks, loot and other GM commands are
+blocked. Install the addon described in `doc/reforged-pov/README.md` to use `/pov` in the client.
+The observer can load extra grids and affect visibility/workload: disable admission during scientific comparisons
+and benchmarks. These remain disposable databases: provision observer accounts/characters in the clean fixture
+if they must survive a future run reset. Never resume virtual-time database output to retain an observer character.

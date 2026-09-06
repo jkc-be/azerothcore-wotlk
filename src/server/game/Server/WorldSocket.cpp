@@ -24,6 +24,7 @@
 #include "GameTime.h"
 #include "IPLocation.h"
 #include "Opcodes.h"
+#include "Observatory.h"
 #include "PacketLog.h"
 #include "RBAC.h"
 #include "Random.h"
@@ -531,7 +532,7 @@ void WorldSocket::SendPacket(WorldPacket const& packet)
 
 void WorldSocket::HandleAuthSession(WorldPacket & recvPacket)
 {
-    if (SimulationClock::Enabled())
+    if (SimulationClock::Enabled() && !Observatory::AllowsObservers())
     {
         CloseSocket();
         return;
@@ -710,6 +711,13 @@ void WorldSocket::HandleAuthSessionCallback(std::shared_ptr<ClientAuthSession> a
         LoginDatabase.Execute(stmt);
     }
 
+    if (SimulationClock::Enabled() && account.Security < SEC_GAMEMASTER)
+    {
+        SendAuthResponseError(AUTH_REJECT);
+        DelayedCloseSocket();
+        return;
+    }
+
     // At this point, we can safely hook a successful login
     sScriptMgr->OnAccountLogin(account.Id);
 
@@ -719,6 +727,15 @@ void WorldSocket::HandleAuthSessionCallback(std::shared_ptr<ClientAuthSession> a
 
     _worldSession = new WorldSession(account.Id, std::move(authSession->Account), account.Flags, shared_from_this(), account.Security,
         account.Expansion, account.MuteTime, account.Locale, account.Recruiter, account.IsRectuiter, account.Security ? true : false, account.TotalTime);
+
+    if (SimulationClock::Enabled() && !Observatory::RegisterObserver(_worldSession))
+    {
+        delete _worldSession;
+        _worldSession = nullptr;
+        SendAuthResponseError(AUTH_REJECT);
+        DelayedCloseSocket();
+        return;
+    }
 
     _worldSession->ReadAddonsInfo(authSession->AddonInfo);
 
