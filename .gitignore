@@ -6,6 +6,7 @@
 /conf/*
 !/conf/dist
 /modules/*
+!/modules/mod-python-api/
 !/modules/*.md
 !/modules/*.sh
 !/modules/CMakeLists.txt
@@ -49,6 +50,7 @@
 CMakeLists.txt.user
 *.bak
 *.patch
+!/modules/mod-python-api/integrations/playerbots/playerbots-external-control.patch
 *.diff
 *.REMOTE.*
 *.BACKUP.*
