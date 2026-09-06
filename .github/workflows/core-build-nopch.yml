@@ -1,8 +1,10 @@
 name: nopch-build
+
 on:
   push:
     branches:
       - 'master'
+      - 'test-staging'
   pull_request:
     types:
       - opened
@@ -73,7 +75,7 @@ jobs:
               CXX: clang++-21
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }}-${{ matrix.compiler.CC }}-nopch
-    if: github.repository == 'azerothcore/azerothcore-wotlk' && !github.event.pull_request.draft
+    if: github.repository == 'mod-playerbots/azerothcore-wotlk' && !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/linux-build
@@ -81,6 +83,7 @@ jobs:
           CC: ${{ matrix.compiler.CC }}
           CXX: ${{ matrix.compiler.CXX }}
           pch: false
+          modules: true  # optional: include module compilation if desired
 
   e2e:
     name: e2e ${{ inputs.scope || 'full' }}

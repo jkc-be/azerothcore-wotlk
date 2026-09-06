@@ -1,12 +1,10 @@
 name: windows-build
+
 on:
   push:
-    branches:
-      - 'master'
+    branches: [ "Playerbot", "test-staging" ]
   pull_request:
-    types:
-      - labeled
-      - synchronize
+    branches: [ "Playerbot", "test-staging" ]
 
 concurrency:
   # One concurrency group per workflow + ref.
@@ -30,12 +28,17 @@ jobs:
     name: ${{ matrix.os }}
     env:
       BOOST_ROOT: C:\local\boost_1_87_0
-    if: |
-      github.repository == 'azerothcore/azerothcore-wotlk'
-      && !github.event.pull_request.draft
-      && (github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'run-build') || github.event.label.name == 'run-build')
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout AzerothCore
+        uses: actions/checkout@v7
+
+      - name: Checkout Playerbot Module
+        uses: actions/checkout@v7
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ github.ref_name == 'Playerbot' && 'master' || 'test-staging' }}
+          path: modules/mod-playerbots
+
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2.13
       # Cache the fetched Boost + MySQL client so we don't re-download ~350 MB
