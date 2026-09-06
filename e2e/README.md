@@ -360,3 +360,10 @@ Details live in the workflow files only:
 Day-to-day development and agent debugging should use a **local** stack + `e2e/local/` or the committed suites — not CI setup docs.
 
 Greppable failure prefixes: `precondition:`, `AC#N CONFIRMED BUG:`, `harness:`, `WARNING:`.
+
+### Observatory population coverage
+
+P2, covered via `apps/observatory/tests/population_live.py`: authenticated controls drive actual bot logins/logouts,
+paused resize, 1→3→1→0→3 and active AI without humans. AzerothGhost coverage is blocked by its lack of an observatory
+HTTP-control/telemetry client and by the deliberate rejection of human world sessions in simulation mode. The
+committed Python live-stack driver provides the feature oracle; frontend and bridge validation cover form/parser logic.

@@ -22,3 +22,5 @@ Subsequent documentation-only commits do not change the tested source.
 Reproduce source/frontend checks using the README. Build and CTest commands are in `../docs/HANDOFF.md`.
 The local build used an out-of-source directory with `-G Ninja -DCMAKE_CXX_COMPILER=clang++
 -DCMAKE_C_COMPILER=clang -DTOOLS_BUILD=none` in addition to those documented options.
+
+Subsequent authorized live execution and map checks are recorded separately in [local-runtime.md](local-runtime.md).

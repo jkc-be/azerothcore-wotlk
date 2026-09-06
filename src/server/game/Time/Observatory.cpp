@@ -60,9 +60,12 @@ namespace
         uint64 sequence = 0;
         uint32 speed = 1;
         bool paused = false;
+        uint32 bots = 100;
     };
     Control pending;
-    uint32 expectedBots = 100;
+    std::atomic<uint32> expectedBots{100};
+    uint32 maxBots = 100;
+    bool populationSettled = false;
     bool trace = false;
     bool baseline = false;
     uint64 durationMs = 0;
@@ -150,14 +153,16 @@ namespace
                 uint64 sequence;
                 uint32 speed;
                 uint32 paused;
-                if (control >> requestedRun >> sequence >> speed >> paused)
+                uint32 bots = 0;
+                if (control >> requestedRun >> sequence >> speed >> paused >> bots)
                 {
-                    if ((!baseline || (speed == 1 && paused == 0)) && requestedRun == runId &&
+                    if ((!baseline || (speed == 1 && paused == 0 && bots == pending.bots)) &&
+                        bots <= maxBots && requestedRun == runId &&
                         (speed == 1 || speed == 2 || speed == 5 || speed == 10) && paused <= 1)
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         if (sequence > pending.sequence)
-                            pending = {sequence, speed, paused != 0};
+                            pending = {sequence, speed, paused != 0, bots};
                     }
                 }
                 if (stopping.load())
@@ -260,12 +265,13 @@ bool Observatory::Initialize()
             return false;
     }
     expectedBots = sConfigMgr->GetOption<uint32>("Observatory.BotCount", 100);
-    if (!expectedBots || expectedBots > 100 || !sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", false) ||
+    maxBots = sConfigMgr->GetOption<uint32>("AiPlayerbot.MaxRandomBots", 0);
+    if (!maxBots || maxBots > 100 || expectedBots > maxBots ||
+        !sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", false) ||
         !sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotAutologin", false) ||
         sConfigMgr->GetOption<bool>("AiPlayerbot.DisabledWithoutRealPlayer", true) ||
         sConfigMgr->GetOption<bool>("AiPlayerbot.EnablePeriodicOnlineOffline", true) ||
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.MinRandomBots", 0) != expectedBots ||
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.MaxRandomBots", 0) != expectedBots ||
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.MinRandomBots", 0) != maxBots ||
         sConfigMgr->GetOption<uint32>("AiPlayerbot.CommandServerPort", 8888) != 0 ||
         sConfigMgr->GetOption<bool>("SOAP.Enabled", false) || sConfigMgr->GetOption<bool>("Ra.Enable", false) ||
         sConfigMgr->GetOption<bool>("Console.Enable", true))
@@ -287,8 +293,13 @@ bool Observatory::Initialize()
             !configuredBots.insert(id).second)
             return false;
     }
-    if (!configuredBots.empty() && configuredBots.size() != expectedBots)
-        return false;
+    if (!configuredBots.empty())
+    {
+        if (configuredBots.size() < expectedBots || configuredBots.size() > maxBots)
+            return false;
+        maxBots = configuredBots.size();
+    }
+    pending.bots = expectedBots;
 
     directory = sConfigMgr->GetOption<std::string>("Observatory.Directory", "");
     try
@@ -331,6 +342,16 @@ bool Observatory::AllowsBot(uint32 characterId)
     return !SimulationClock::Enabled() || configuredBots.empty() || configuredBots.contains(characterId);
 }
 
+uint32 Observatory::TargetBotCount()
+{
+    return expectedBots;
+}
+
+void Observatory::PopulationSettled(bool settled)
+{
+    populationSettled = settled;
+}
+
 void Observatory::Fail(std::string_view reason)
 {
     if (!SimulationClock::Enabled())
@@ -365,10 +386,11 @@ Observatory::Context::~Context()
 
 void Observatory::Event(Player const* player, std::string_view kind, uint64 value, std::string_view detail)
 {
-    if (!SimulationClock::Enabled() || !player || !player->GetSession() || !player->GetSession()->IsBot())
+    if (!SimulationClock::Enabled() ||
+        (player && (!player->GetSession() || !player->GetSession()->IsBot())))
         return;
     std::lock_guard<std::mutex> lock(mutex);
-    auto id = player->GetGUID().ToString();
+    auto id = player ? player->GetGUID().ToString() : "";
     auto& count = totals[id];
     if (kind == "ai_update")
     {
@@ -392,8 +414,8 @@ void Observatory::Event(Player const* player, std::string_view kind, uint64 valu
     out << "{\"run\":" << Quote(runId) << ",\"seq\":" << ++eventSequence
         << ",\"simMs\":" << SimulationClock::Elapsed().count() << ",\"bot\":" << Quote(id)
         << ",\"kind\":" << Quote(kind) << ",\"value\":" << value << ",\"detail\":" << Quote(detail)
-        << ",\"context\":" << Quote(context) << ",\"map\":" << player->GetMapId()
-        << ",\"instance\":" << player->GetInstanceId() << '}';
+        << ",\"context\":" << Quote(context) << ",\"map\":" << (player ? player->GetMapId() : 0)
+        << ",\"instance\":" << (player ? player->GetInstanceId() : 0) << '}';
     events.push_back(out.str());
 }
 
@@ -443,6 +465,8 @@ void Observatory::Run()
     SimulationBudget budget;
     uint64 maxTickUs = 0;
     Control applied;
+    applied.bots = expectedBots;
+    uint64 populationSince = 0;
     std::string problem;
     bool ready = false;
     while (!World::IsStopped())
@@ -456,6 +480,13 @@ void Observatory::Run()
         {
             std::lock_guard<std::mutex> lock(mutex);
             applied = pending;
+        }
+        if (applied.bots != expectedBots)
+        {
+            expectedBots = applied.bots;
+            populationSettled = false;
+            populationSince = SimulationClock::Elapsed().count();
+            Event(nullptr, "population_target", expectedBots, std::to_string(applied.sequence));
         }
         // One normal-sized tick at a time. Debt is retained across speed changes, overload and pauses.
         if (budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
@@ -494,15 +525,24 @@ void Observatory::Run()
                     ++inWorld;
             }
         }
-        if (!ready && inWorld == expectedBots && online.size() == expectedBots)
+        bool populationReady = populationSettled && inWorld == expectedBots && online.size() == expectedBots;
+        uint64 sim = SimulationClock::Elapsed().count();
+        if (populationReady)
+            populationSince = sim;
+        else if (sim - populationSince > 600000)
+            problem = "population_timeout";
+        for (auto const& id : online)
+            if (!cohort.contains(id))
+                Event(nullptr, "population_join", 0, id);
+        for (auto const& id : cohort)
+            if (!online.contains(id))
+                Event(nullptr, "population_leave", 0, id);
+        cohort = online;
+        if (!ready && populationReady)
         {
-            cohort = online;
             ready = true;
             readyAt = SimulationClock::Elapsed().count();
         }
-        if (online.size() > expectedBots || (ready && online != cohort))
-            problem = "cohort_changed";
-        uint64 sim = SimulationClock::Elapsed().count();
         double realMs = std::chrono::duration<double, std::milli>(sampleNow - sampled).count();
         double achieved = (sim - sampledSim) / realMs;
         std::lock_guard<std::mutex> lock(mutex);
@@ -510,6 +550,13 @@ void Observatory::Run()
         for (auto const& id : online)
             if (totals[id].aiUpdates && sim - totals[id].lastAiMs < 10000)
                 ++activeBots;
+        Totals runTotals;
+        for (auto const& [id, count] : totals)
+        {
+            runTotals.xp += count.xp;
+            runTotals.quests += count.quests;
+            runTotals.deaths += count.deaths;
+        }
         std::ostringstream out;
         out << std::setprecision(std::numeric_limits<float>::max_digits10);
         out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence << ",\"simMs\":" << sim
@@ -521,6 +568,9 @@ void Observatory::Run()
             << ",\"maxTickUs\":" << maxTickUs << ",\"activeBots\":" << activeBots
             << ",\"overloaded\":" << (budget.DebtMicroseconds() > 1000000 ? "true" : "false")
             << ",\"ready\":" << (ready ? "true" : "false") << ",\"expectedBots\":" << expectedBots
+            << ",\"maxBots\":" << maxBots << ",\"populationPending\":" << (populationReady ? "false" : "true")
+            << ",\"runTotals\":{\"xp\":" << runTotals.xp << ",\"quests\":" << runTotals.quests
+            << ",\"deaths\":" << runTotals.deaths << '}'
             << ",\"onlineBots\":" << online.size() << ",\"fault\":" << Quote(fault.load() ? faultReason : problem)
             << ",\"bots\":" << Players() << '}';
         latest = out.str();

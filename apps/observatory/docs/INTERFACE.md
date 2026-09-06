@@ -13,11 +13,11 @@ The world process creates a new private spool directory. A writer thread maintai
 | `latest.json` | Atomically replaced authoritative snapshot |
 | `snapshots.ndjson` | Timestamped progression/population snapshots for export |
 | `events.ndjson` | Ordered progression, convenience, and optional diagnostic events |
-| `control.txt` | Private atomic mailbox: `run sequence speed paused` |
+| `control.txt` | Private atomic mailbox: `run sequence speed paused bots` |
 
 Snapshots include `run`, monotonically increasing `seq`, `simMs`, `realMs`, `readyAtMs`, `requestedSpeed`,
 `achievedSpeed`, `paused`, `baseline`, `completed`, `controlSeq`, `backlogMs`, `maxTickUs`, `overloaded`,
-`ready`, `expectedBots`, `onlineBots`, `activeBots`, `fault`, and `bots`.
+`ready`, `expectedBots`, `maxBots`, `populationPending`, `runTotals`, `onlineBots`, `activeBots`, `fault`, and `bots`.
 `achievedSpeed` is the simulated/real delta since the previous sample, including pauses; it is not the requested rate.
 `maxTickUs` measures actual world-update CPU/wall cost in the sample interval, excluding snapshot serialization.
 `activeBots` counts identified online bots with an AI update within 10 simulated seconds. Natural AI decision delays,
@@ -30,7 +30,8 @@ Each bot has stable string `id`, `name`, `map`, `instance`, `zone`, `x`, `y`, `z
 `activity`, `lastAiMs`, `aiUpdates`, equipped item entries in `gear`, and quest-log IDs, states, creature/object
 counters (`objectives`) and item counters (`items`).
 The enclosing snapshot supplies the run and simulation timestamp for every bot. Map and zone selectors use server IDs;
-the map is a coordinate plot without proprietary map tiles. Different instances share the same coordinate plane;
+optional local client artwork is calibrated from WorldMapArea and WorldMapOverlay DBC data.
+Different instances share the same coordinate plane;
 the selected-bot detail identifies the instance.
 
 Events contain run, global event `seq`, `simMs`, bot/actor GUID, kind, value, detail/context and map/instance.
@@ -58,7 +59,7 @@ browser. All API endpoints require `Authorization: Bearer TOKEN`; static UI file
 | `GET /api/snapshot` | Latest snapshot or 503 while starting |
 | `GET /api/events` | At most 500 recent events from a bounded journal tail |
 | `GET /api/export/NAME` | Manifest, initial state, snapshots, or event journal; fixed cutoff at request start |
-| `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false}` → 202 accepted sequence |
+| `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25}` → 202 accepted sequence |
 
 A 202 response is mailbox acceptance. Application is acknowledged by a later snapshot's `controlSeq`, speed and pause
 state. Controls are validated again by the writer, applied by the world thread between joined updates, and scoped to
@@ -73,3 +74,40 @@ never silently yielding a trustworthy-looking incomplete run. A full bot-operati
 with `bot_operation_queue_overflow`; its dropped operation makes that run invalid. If the disk itself fails, the last
 visible snapshot may remain unchanged: the UI reports it stale after three seconds. Exports taken during a write may end in one partial
 NDJSON line; export after shutdown for a complete final journal.
+
+Optional map endpoints also require the bearer token: `GET /api/maps` returns the extracted area catalog, and
+`GET /api/maps/<numeric-tile-name>.png` returns local artwork. The bridge reads these from `--maps`; no client archive
+is exposed. Map assets are decoded and cached by the browser independently of simulation updates. See `MAPS.md`.
+
+## Population controls
+
+`bots` is optional for existing HTTP clients. It is an integer from zero through `maxBots` (at most 100).
+Omitting it preserves the latest accepted target, including a target still awaiting world acknowledgement.
+The bridge rejects unknown keys, invalid types, out-of-pool targets and population changes in baseline mode.
+An old worldserver without `maxBots` keeps speed/pause compatibility, but the population field is disabled.
+The updated world requires the five-field private mailbox; update the bridge together with the core and module.
+
+`expectedBots` is the requested online population; `populationPending` stays true until the module has no pending
+logins, its roster matches, and all requested bots are in the world. HTTP acceptance and `controlSeq` acknowledge the
+request, not successful logins. While paused the target can change, but login/logout work waits for Resume.
+`ready` and `readyAtMs` retain the first complete population's run-start milestone. Benchmarks must also require
+`populationPending == false` and keep the target fixed throughout their comparison window.
+
+The startup `AiPlayerbot.MinRandomBots` and `MaxRandomBots` must be equal and between 1 and 100; these provision the
+eligible pool. `Observatory.BotCount` sets the initial online target, including zero. Optional `BotGuids` now limits
+eligibility to a pool whose size is at least the initial target and no larger than MaxRandomBots. Its size further
+caps the browser control. Empty BotGuids uses eligible random-bot accounts prepared by the normal module factory.
+No human or add-class account is selected. No accounts or characters are deleted when shrinking.
+
+The module uses normal asynchronous login and save/logout paths. Surplus GUIDs are removed in descending order,
+waiting for pending logins first. Missing online bots are reconciled by the normal random manager; login failures
+remain visible. A mismatch lasting ten simulated minutes freezes the run with `population_timeout`, rather than
+claiming that the requested population is active. This timer does not advance while paused.
+
+The journal records `population_target` (value = target, detail = control sequence), `population_logout` on each
+removed bot, and sampled `population_join`/`population_leave` (detail = GUID). Run-level records have empty `bot`;
+new arrivals' level, gear and quest state are retained in snapshots. These population events identify operator
+changes and automatic recovery; compare event times with snapshots and the effective initial settings.
+`runTotals` contains cumulative `xp`, `quests`, and `deaths` across all bots seen during the run, including departed
+bots. The charts use these totals, so shrinking does not erase earned progression. Distribution charts still
+reflect the currently online population. Logout/rejoin does not reset the per-bot in-memory run counters.

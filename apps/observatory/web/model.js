@@ -14,11 +14,14 @@ export function summarize(snapshot) {
     result.levels[level] = (result.levels[level] || 0) + 1;
     result.zones[zone] = (result.zones[zone] || 0) + 1;
   }
+  if (snapshot.runTotals) Object.assign(result, snapshot.runTotals);
   return result;
 }
 
 export function visibleBots(snapshot, map, zone) {
-  return snapshot.bots.filter((bot) => String(bot.map) === map && (zone === "all" || String(bot.zone) === zone));
+  return snapshot.bots.filter(
+    (bot) => String(bot.map) === map && (zone === "all" || zone === "0" || String(bot.zone) === zone),
+  );
 }
 
 export function worldToScreen(bot, view, width, height) {
@@ -34,5 +37,38 @@ export function fitView(bots) {
     y: (Math.min(...ys) + Math.max(...ys)) / 2,
     spanX: Math.max(100, Math.max(...xs) - Math.min(...xs)),
     spanY: Math.max(100, Math.max(...ys) - Math.min(...ys)),
+  };
+}
+
+export function chooseMap(areas, map, zone, bots, selected) {
+  const candidates = areas.filter((area) => String(area.map) === map);
+  const focus = bots.find((bot) => bot.id === selected) || bots[0];
+  const wanted = zone === "all" ? focus?.zone : Number(zone);
+  return candidates.find((area) => area.zone === wanted) || candidates.find((area) => area.zone === 0);
+}
+
+export function mapView(area) {
+  return { x: (area.x1 + area.x2) / 2, y: (area.y1 + area.y2) / 2, spanX: area.x1 - area.x2, spanY: area.y1 - area.y2 };
+}
+
+export function mapTile(area, index, view, width, height) {
+  const column = index % 4,
+    row = Math.floor(index / 4);
+  const tileWidth = Math.min(area.tileSize, area.width - column * area.tileSize);
+  const tileHeight = Math.min(area.tileSize, area.height - row * area.tileSize);
+  return {
+    ...mapRect(area, column * area.tileSize, row * area.tileSize, tileWidth, tileHeight, view, width, height),
+    cropX: tileWidth / area.tileSize,
+    cropY: tileHeight / area.tileSize,
+  };
+}
+
+export function mapRect(area, left, top, tileWidth, tileHeight, view, width, height) {
+  const y = area.y1 - (left / area.width) * (area.y1 - area.y2);
+  const x = area.x1 - (top / area.height) * (area.x1 - area.x2);
+  return {
+    ...worldToScreen({ x, y }, view, width, height),
+    width: (tileWidth / area.width) * (area.y1 - area.y2) * view.scale,
+    height: (tileHeight / area.height) * (area.x1 - area.x2) * view.scale,
   };
 }

@@ -31,6 +31,11 @@
         </select>
         ×</label
       >
+      <form id="population">
+        <label>Target bots <input id="bot-count" type="number" min="0" max="100" step="1" required disabled /></label>
+        <button id="set-bots" disabled>Set bots</button>
+      </form>
+      <span id="population-status" role="status"></span>
       <span id="control-status"></span>
       <label
         >Export
@@ -45,7 +50,7 @@
     <main>
       <section class="map-panel">
         <div class="panel-heading">
-          <h2>World coordinates</h2>
+          <h2>World map</h2>
           <label
             >Map
             <select id="map"></select></label
@@ -54,10 +59,12 @@
             <select id="zone"></select
           ></label>
           <button id="fit">Fit bots</button>
+          <button id="fit-map">Fit map</button>
+          <label><input id="map-art" type="checkbox" checked /> Artwork</label>
         </div>
         <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
         <p class="caption">
-          Drag to pan · scroll to zoom · select a marker. Coordinates in world yards; map IDs from server.
+          Drag to pan · scroll to zoom · select a marker. <span id="map-art-status">Loading local map artwork…</span>
         </p>
       </section>
       <aside>

@@ -4,6 +4,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import threading
@@ -27,10 +28,12 @@ class Spool:
         return json.loads((self.directory / 'latest.json').read_text())
 
     def control(self, request):
-        if (set(request) != {'run', 'speed', 'paused'}
+        if (set(request) not in ({'run', 'speed', 'paused'}, {'run', 'speed', 'paused', 'bots'})
                 or type(request['speed']) is not int or request['speed'] not in (1, 2, 5, 10)
                 or type(request['paused']) is not bool):
             raise ValueError('Expected run, speed (1, 2, 5, 10), and paused (boolean)')
+        if 'bots' in request and (type(request['bots']) is not int or not 0 <= request['bots'] <= 100):
+            raise ValueError('bots must be an integer from 0 to 100')
         with self.lock:
             current = self.snapshot()
             if request['run'] != current['run']:
@@ -41,15 +44,29 @@ class Spool:
                 raise ValueError('The configured simulated duration has completed')
             if current['fault']:
                 raise ValueError('Run is invalid; inspect server and start a fresh run')
+            bots = current.get('expectedBots', 100)
             try:
-                run, sequence, _, _ = (self.directory / 'control.txt').read_text().split()
+                fields = (self.directory / 'control.txt').read_text().split()
+                run, sequence = fields[:2]
+                if run == current['run'] and len(fields) == 5:
+                    bots = int(fields[4])
                 if run == current['run']:
                     self.sequence = max(self.sequence, int(sequence))
             except (OSError, ValueError):
                 pass
+            bots = request.get('bots', bots)
+            if 'bots' in request and 'maxBots' not in current:
+                raise ValueError('Update the worldserver before controlling population')
+            if bots > current.get('maxBots', 100):
+                raise ValueError('Target exceeds the configured bot pool')
+            if current.get('baseline') and bots != current.get('expectedBots'):
+                raise ValueError('Real-time baseline has a fixed population')
             self.sequence = max(self.sequence, current['controlSeq']) + 1
             # The world acknowledges application in subsequent snapshots; HTTP 202 is acceptance only.
-            text = f"{request['run']} {self.sequence} {request['speed']} {int(request['paused'])}\n"
+            text = f"{request['run']} {self.sequence} {request['speed']} {int(request['paused'])}"
+            if 'maxBots' in current:
+                text += f" {bots}"
+            text += "\n"
             temporary = self.directory / 'control.txt.tmp'
             temporary.write_text(text)
             os.replace(temporary, self.directory / 'control.txt')
@@ -89,7 +106,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(401, {'error': 'Bearer token required'})
             return
         spool = self.server.spool
-        if path == '/api/stream':
+        maps = getattr(self.server, 'maps', None)
+        if path == '/api/maps':
+            try:
+                self.reply(200, json.loads((maps / 'manifest.json').read_text()) if maps else {'areas': []})
+            except (OSError, ValueError):
+                self.reply(503, {'error': 'Map artwork is unavailable'})
+        elif re.fullmatch(r'/api/maps/\d+-\d+(?:-\d+)?\.png', path):
+            try:
+                if not maps:
+                    raise FileNotFoundError()
+                self.reply(200, (maps / path.rsplit('/', 1)[-1]).read_bytes(), 'image/png')
+            except OSError:
+                self.reply(404, {'error': 'Map tile unavailable'})
+        elif path == '/api/stream':
             self.stream()
         elif path == '/api/snapshot':
             try:
@@ -197,6 +227,7 @@ def main():
     parser.add_argument('--spool', required=True)
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--token-file', type=Path, required=True)
+    parser.add_argument('--maps', type=Path, help='Local artwork directory created by extract_maps.py')
     args = parser.parse_args()
     if not args.token_file.exists():
         descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -208,6 +239,7 @@ def main():
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.daemon_threads = True
     server.spool = Spool(args.spool, token)
+    server.maps = args.maps
     print(f'Observatory: http://127.0.0.1:{args.port}; token: {args.token_file}')
     server.serve_forever()
 

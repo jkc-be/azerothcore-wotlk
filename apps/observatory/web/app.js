@@ -1,4 +1,14 @@
-import { duration, summarize, visibleBots, worldToScreen, fitView } from "./model.js";
+import {
+  duration,
+  summarize,
+  visibleBots,
+  worldToScreen,
+  fitView,
+  chooseMap,
+  mapView,
+  mapTile,
+  mapRect,
+} from "./model.js";
 const $ = (id) => document.getElementById(id);
 let token = "",
   state = null,
@@ -11,6 +21,54 @@ let view = { x: 0, y: 0, scale: 0.03 },
   needsFit = true,
   pendingControl = 0;
 const colors = ["#79d8bc", "#70b7ff", "#f4c774", "#c89cf6", "#ee91a2", "#accb71"];
+let mapAreas = [],
+  fitArtwork = true,
+  artwork = null,
+  loadingArtwork = null;
+const mapImages = new Map();
+const continentNames = {
+  0: "Eastern Kingdoms",
+  1: "Kalimdor (western continent)",
+  530: "Outland & draenei isles",
+  571: "Northrend",
+};
+
+async function loadMaps() {
+  mapAreas = (await (await api("/api/maps")).json()).areas;
+  if (state) updateMaps();
+  $("map-art-status").textContent = mapAreas.length
+    ? "Local client artwork · calibrated to world coordinates."
+    : "No local artwork installed; showing world coordinates.";
+}
+
+function updateMaps() {
+  options("map", [...state.bots.map((bot) => String(bot.map)), ...mapAreas.map((area) => String(area.map))]);
+  updateZones();
+}
+
+async function loadArtwork(area) {
+  loadingArtwork = area.id;
+  try {
+    const tiles = await Promise.all(
+      [...area.tiles, ...(area.overlays || []).map((layer) => layer.file)].map(async (file) =>
+        createImageBitmap(await (await api(`/api/maps/${file}`)).blob()),
+      ),
+    );
+    mapImages.set(area.id, tiles);
+    // Bound decoded image memory as viewers browse zones. The current area stays available.
+    while (mapImages.size > 4) {
+      const oldest = mapImages.keys().next().value;
+      mapImages.get(oldest).forEach((tile) => tile.close());
+      mapImages.delete(oldest);
+    }
+    $("map-art-status").textContent = `${area.name} · local client artwork, aligned to world coordinates.`;
+  } catch {
+    mapImages.set(area.id, []);
+    $("map-art-status").textContent = "Map artwork unavailable; world coordinates remain live.";
+  } finally {
+    loadingArtwork = null;
+  }
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { Authorization: `Bearer ${token}`, ...options.headers } });
@@ -25,7 +83,22 @@ function options(id, values, all = false) {
     old = element.value;
   const desired = (all ? ["all"] : []).concat([...new Set(values)].sort((a, b) => Number(a) - Number(b)));
   if ([...element.options].map((option) => option.value).join() === desired.join()) return;
-  element.replaceChildren(...desired.map((value) => new Option(value === "all" ? "All zones" : value, value)));
+  element.replaceChildren(
+    ...desired.map((value) => {
+      const area = mapAreas.find((area) => String(area.map) === $("map").value && String(area.zone) === value);
+      const label =
+        id === "map"
+          ? continentNames[value] || `Map ${value}`
+          : value === "all"
+            ? "Bot zone (automatic)"
+            : value === "0"
+              ? "Whole continent"
+              : area
+                ? area.name.replace(/([a-z])([A-Z])/g, "$1 $2")
+                : `Zone ${value}`;
+      return new Option(label, value);
+    }),
+  );
   if (desired.includes(old)) element.value = old;
 }
 function ingest(snapshot) {
@@ -37,16 +110,22 @@ function ingest(snapshot) {
     pendingControl = 0;
   }
   if (state?.run === snapshot.run && state.seq >= snapshot.seq) return;
+  const previousTarget = state?.expectedBots;
   state = snapshot;
   freshAt = performance.now();
   if (!history.length || history.at(-1).simMs !== state.simMs) history.push(summarize(state));
   if (history.length > 4000) history.splice(0, history.length - 4000);
-  options(
-    "map",
-    state.bots.map((bot) => String(bot.map)),
-  );
-  updateZones();
+  updateMaps();
   $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline);
+  $("bot-count").disabled = $("set-bots").disabled = $("pause").disabled || state.maxBots === undefined;
+  $("bot-count").max = state.maxBots ?? 100;
+  if (previousTarget !== state.expectedBots) $("bot-count").value = state.expectedBots;
+  $("population-status").textContent = state.maxBots === undefined
+    ? "Server update required to change bot count"
+    : state.populationPending
+    ? `${state.onlineBots} / ${state.expectedBots} bots · ` +
+      (state.paused ? "waiting for Resume" : "adjusting population…")
+    : `${state.onlineBots} / ${state.expectedBots} bots · matched`;
   $("pause").textContent = state.paused ? "Resume" : "Pause";
   $("speed").value = state.requestedSpeed;
   $("control-status").textContent =
@@ -58,7 +137,7 @@ function ingest(snapshot) {
     ["Real elapsed", duration(state.realMs)],
     ["Requested / achieved", `${state.requestedSpeed}× / ${state.achievedSpeed.toFixed(2)}×`],
     ["Active / online / in world", `${state.activeBots} / ${state.onlineBots} / ${state.bots.length}`],
-    ["Cohort", state.ready ? `${state.expectedBots} identified` : `Starting ${state.expectedBots}`],
+    ["Target bots", `${state.expectedBots} (limit ${state.maxBots ?? state.expectedBots})`],
     ["Backlog", `${(state.backlogMs / 1000).toFixed(2)}s`],
   ];
   $("metrics").replaceChildren(
@@ -91,7 +170,10 @@ function updateZones() {
   if (state)
     options(
       "zone",
-      state.bots.filter((bot) => String(bot.map) === $("map").value).map((bot) => String(bot.zone)),
+      [
+        ...state.bots.filter((bot) => String(bot.map) === $("map").value).map((bot) => String(bot.zone)),
+        ...mapAreas.filter((area) => String(area.map) === $("map").value).map((area) => String(area.zone)),
+      ],
       true,
     );
 }
@@ -124,15 +206,18 @@ async function connect() {
 $("connect").addEventListener("submit", (event) => {
   event.preventDefault();
   token = $("token").value;
+  loadMaps().catch(() => {
+    $("map-art-status").textContent = "Map artwork unavailable.";
+  });
   connect();
 });
-async function control(paused, speed) {
+async function control(paused, speed, bots) {
   if (!state) return;
   try {
     const response = await api("/api/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ run: state.run, speed, paused }),
+      body: JSON.stringify({ run: state.run, speed, paused, ...(bots === undefined ? {} : { bots }) }),
     });
     pendingControl = (await response.json()).sequence;
     $("control-status").textContent = `Request ${pendingControl} awaiting world acknowledgement`;
@@ -140,14 +225,30 @@ async function control(paused, speed) {
     notice(error.message);
   }
 }
+$("population").onsubmit = (event) => {
+  event.preventDefault();
+  if ($("population").reportValidity()) control(state.paused, state.requestedSpeed, Number($("bot-count").value));
+};
 $("pause").onclick = () => control(!state.paused, state.requestedSpeed);
 $("speed").onchange = () => control(state.paused, Number($("speed").value));
 $("map").onchange = () => {
   updateZones();
   needsFit = true;
+  fitArtwork = true;
 };
-$("zone").onchange = $("fit").onclick = () => {
+$("zone").onchange = $("fit-map").onclick = () => {
   needsFit = true;
+  fitArtwork = true;
+};
+$("fit").onclick = () => {
+  needsFit = true;
+  fitArtwork = false;
+};
+$("map-art").onchange = () => {
+  if ($("map-art").checked) {
+    needsFit = true;
+    fitArtwork = true;
+  }
 };
 $("chart-metric").onchange = drawChart;
 $("export").onclick = async () => {
@@ -177,7 +278,12 @@ function row(label, value) {
 }
 function renderDetails() {
   const bot = state?.bots.find((bot) => bot.id === selected);
-  if (!bot) return;
+  if (!bot) {
+    $("bot-name").textContent = selected ? "Bot is offline" : "Select a bot";
+    $("bot-details").textContent = selected ? "This bot has left the simulated population." : "Choose a marker.";
+    $("events").replaceChildren();
+    return;
+  }
   $("bot-name").textContent = `${bot.name} · level ${bot.level}`;
   $("bot-details").replaceChildren(
     ...[
@@ -261,13 +367,42 @@ function drawMap() {
   ctx.fillRect(0, 0, width, height);
   if (state) {
     const bots = visibleBots(state, $("map").value, $("zone").value);
-    if (needsFit && bots.length) {
-      const fit = fitView(bots);
+    const area = $("map-art").checked ? chooseMap(mapAreas, $("map").value, $("zone").value, bots, selected) : null;
+    if (area?.id !== artwork) {
+      artwork = area?.id;
+      if (area && mapImages.get(area.id)?.length)
+        $("map-art-status").textContent = `${area.name} · local client artwork, aligned to world coordinates.`;
+      if (fitArtwork) needsFit = true;
+    }
+    if (area && !mapImages.has(area.id) && loadingArtwork === null) loadArtwork(area);
+    if (needsFit && (bots.length || area)) {
+      const fit = area && (fitArtwork || !bots.length) ? mapView(area) : fitView(bots);
       view = { ...fit, scale: Math.min((width - 60) / fit.spanY, (height - 60) / fit.spanX) };
       needsFit = false;
     }
+    const tiles = area && mapImages.get(area.id);
+    if (tiles?.length) {
+      tiles.forEach((tile, index) => {
+        const layer = area.overlays?.[index - 12];
+        const rect = layer
+          ? { ...layer, ...mapRect(area, layer.left, layer.top, layer.width, layer.height, view, width, height) }
+          : mapTile(area, index, view, width, height);
+        ctx.drawImage(
+          tile,
+          0,
+          0,
+          tile.width * rect.cropX,
+          tile.height * rect.cropY,
+          rect.x,
+          rect.y,
+          rect.width,
+          rect.height,
+        );
+      });
+    }
     ctx.strokeStyle = "#263640";
     ctx.lineWidth = 1;
+    ctx.globalAlpha = tiles?.length ? 0.18 : 1;
     for (let x = 0; x < width; x += 50) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -280,16 +415,37 @@ function drawMap() {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
     for (const bot of bots) {
       const point = worldToScreen(bot, view, width, height);
-      ctx.fillStyle = bot.health === 0 ? "#ee91a2" : colors[bot.level % colors.length];
+      const radius = bot.id === selected ? 11 : 9;
+      ctx.save();
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 5;
+      ctx.fillStyle = bot.health === 0 ? "#a52649" : "#1267cb";
+      ctx.strokeStyle = bot.id === selected ? "#ffe08a" : "#fff";
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, bot.id === selected ? 7 : 4, 0, 2 * Math.PI);
+      ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
       ctx.fill();
-      if (bot.id === selected) {
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(point.x, point.y - 3, 2.3, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(point.x, point.y + 4, 4.5, Math.PI, 0);
+      ctx.fill();
+      if (bot.id === selected || bots.length <= 5) {
+        ctx.font = "bold 12px sans-serif";
+        const labelWidth = ctx.measureText(bot.name).width;
+        ctx.fillStyle = "#102033";
+        ctx.fillRect(point.x + 14, point.y - 12, labelWidth + 10, 19);
         ctx.fillStyle = "#fff";
-        ctx.fillText(bot.name, point.x + 10, point.y - 8);
+        ctx.fillText(bot.name, point.x + 19, point.y + 2);
       }
+      ctx.restore();
     }
     ctx.fillStyle = "#90a3b0";
     ctx.fillText(`50 px ≈ ${(50 / view.scale).toFixed(0)} yards`, 12, height - 12);

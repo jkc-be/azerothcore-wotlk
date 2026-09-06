@@ -32,7 +32,9 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    the export, restore all four `obs_` databases from the recorded clean pre-run fixture, and select a new run directory.
    Only disposable simulation databases may be reset. Existing production/human data is outside this reset procedure.
 7. Start the world with the verified configuration, then start/repoint the bridge to the new spool and retain the
-   private token file. Check startup logs, database version, module revision and the authoritative `/api/snapshot`.
+   private token file. Preserve the local extracted artwork directory and the bridge `--maps` argument;
+   see `apps/observatory/docs/MAPS.md` for regenerating it after client data changes. Check startup logs, database
+   version, module revision and the authoritative `/api/snapshot`.
    Verify a new run ID, advancing simulated time, complete cohort, increasing per-bot AI counters, pause/resume and
    requested versus achieved speed. Reconnect the browser and test an export. If updating ordinary POV, also test its
    watch/switch/stop and successful-action feed with simulation disabled. Do not enable humans in simulation mode.
@@ -51,3 +53,8 @@ Push core work to a feature branch of the same `jkc-be/azerothcore-wotlk` reposi
 Merge only within the user's authorization and after review findings and required checks are resolved. GitHub may not
 allow the author to formally approve their own PR; do not impersonate an independent reviewer or bypass required review.
 Record source/build checks separately from pending in-game and performance validation in the PR and handoff.
+
+For population-control updates, deploy core, module pin and bridge together. Equal MinRandomBots/MaxRandomBots
+provision the pool; Observatory.BotCount is now the initial online target. Preserve an explicit BotGuids allowlist:
+it caps the available target and must not be silently widened. Exercise `tests/population_live.py` on an exclusive
+disposable run and check pending/matched state, zero bots and pause before declaring the browser control deployed.

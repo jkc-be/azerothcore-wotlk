@@ -89,6 +89,14 @@ try {
     'document.querySelector("#speed").value = "10"; document.querySelector("#speed").dispatchEvent(new Event("change"))',
   );
   await waitFor('document.querySelector("#metrics").textContent.includes("10×")');
+  await evaluate(
+    'document.querySelector("#bot-count").value = "3"; document.querySelector("#population").requestSubmit()',
+  );
+  await waitFor(
+    'document.querySelector("#population-status").textContent.includes("100 / 3 bots · waiting for Resume")',
+  );
+  await evaluate('document.querySelector("#pause").click()');
+  await waitFor('document.querySelector("#population-status").textContent.includes("3 / 3 bots · matched")');
   const image = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   await writeFile(screenshot, Buffer.from(image.data, "base64"));
   assert.deepEqual(errors, []);
