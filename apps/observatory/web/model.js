@@ -234,8 +234,14 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
       });
     if (state.observers)
       list.push({
-        level: "info",
-        text: `${state.observers} GM observer${state.observers === 1 ? "" : "s"} connected, speed locked at 1×.`,
+        level: state.observerMode === 2 ? "warn" : "info",
+        text:
+          `${state.observers} GM observer${state.observers === 1 ? "" : "s"} connected, speed locked at 1×` +
+          (state.observerMode === 2
+            ? "; full GM control is enabled, so this run is not a clean comparison."
+            : state.observerMode === 1
+              ? "; observers may move."
+              : "."),
       });
     if (state.baseline) list.push({ level: "info", text: "Real-time baseline: 1× without pause only." });
     // The speed instrument already shows the shortfall while overloaded; one alert is enough.

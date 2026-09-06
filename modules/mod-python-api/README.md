@@ -113,7 +113,7 @@ Integration validation: the full static server/module build, CTest, all 18 Pytho
 and file-format checks passed. The SQL style check uses `origin/main` and passed. The full core C++ style check
 reports existing violations. Enabled Python-control gameplay scenarios below still need validation.
 
-On the separate server, validate these integration scenarios before using training results:
+On a running worldserver, validate these integration scenarios before using training results:
 
 1. With no registrations, list is empty and an arbitrary player GUID is rejected. Human players remain unaffected.
 2. Register two bots, claim both through one client, and verify normal AI stops only for those bots. Release one and

@@ -1,16 +1,13 @@
-# Separate-server handoff
+# Server integration and startup
 
 For subsequent updates, agents must follow [the update procedure](../../../.agents/docs/systems/observatory.md).
-
-This checkout is prepared on a client-only workstation. Everything below that configures, compiles, provisions,
-runs or profiles AzerothCore is for the separate disposable test server. No server access is needed to review the source.
 
 The simulation branch is based on the compatible `mod-playerbots/azerothcore-wotlk` **Playerbot** revision recorded in
 `../dependencies.json`. The fork at `jkc-be/mod-playerbots` is a pinned submodule with its own simulation commit.
 The upstream histories and AUTHORS/LICENSE files remain intact. Existing main/remotes/local work are preserved.
 The carried-over AGENTS instructions continue to apply. No historical SQL file is edited.
 
-On the separate server, with AzerothCore's documented compiler/MySQL/Boost/OpenSSL dependencies already provisioned:
+With AzerothCore's documented compiler/MySQL/Boost/OpenSSL dependencies already provisioned:
 
 ```sh
 git clone --branch main --recurse-submodules \
@@ -37,7 +34,7 @@ Create a dedicated OS service account and **four new disposable** databases: `ob
 the normal core/module updater and clean test fixtures on the server. Keep the auth realm configuration consistent with
 this test world. Bots use internal sessions; no human client is required. Native clients are rejected by default;
 optional GM-only POV admission is documented in `INTERFACE.md`.
-If a provisioning pass is needed before test fixtures exist, do that on the isolated server using ordinary 1× mode;
+If a provisioning pass is needed before test fixtures exist, do that on the disposable observatory world using ordinary 1× mode;
 then take a clean offline fixture before enabling virtual time. Preserve its revision, dump hashes, bot GUIDs,
 equipment/levels, known NPC/route/spell setup and effective configuration for every comparison.
 
@@ -60,24 +57,26 @@ The run directory itself must not exist: worldserver creates it atomically at st
 checks also require `DISPOSABLE_BOTS_ONLY`, `obs_` database names, bounded population, no periodic logouts, and disabled
 console/RA/SOAP/bot command listeners. Ordinary accounts are rejected in world authentication independently of
 bind address.
-Keep `Observatory.AllowGmObservers = 0` for comparisons and benchmarks.
+Keep `Observatory.AllowGmObservers = 0` for comparisons and benchmarks. When observers are allowed, keep
+`Observatory.ObserverMode = 0` (locked) unless a human needs to walk around (1) or run GM commands (2); the dashboard
+can switch the mode live and the journal records `observer_mode` and `observer_command` for provenance.
 The observatory starts at requested 1×. Set speed in the UI or benchmark controller after reviewing initial state.
 Signals still stop the process; after normal shutdown the writer drains and closes the journal.
 
-Run the observation adapter as the same OS user (or a deliberately granted local reader/writer) on that server:
+Run the observation adapter as the same OS user (or a deliberately granted local reader/writer) beside the spool:
 
 ```sh
 python3 apps/observatory/bridge.py --spool /srv/observatory/runs/run-001 \
   --token-file /srv/observatory/token --port 8787
 ```
 
-It creates a private token file on first use and binds only to loopback. Use your existing secure tunnel to forward
-server port 8787 to the browser machine. Open `http://127.0.0.1:8787`, paste the token into the access field, and connect.
+It creates a private token file on first use and binds only to loopback. Open `http://127.0.0.1:8787`, paste the token
+into the access field, and connect. If the browser is remote, tunnel port 8787 to that machine first.
 No token is persisted by the browser. Static frontend assets and the Python adapter have no third-party dependencies.
 The browser can reconnect freely; it never owns the world loop or queries the character database.
 
 Follow `VALIDATION.md`: baseline clocks → virtual 1× → accelerated small-cohort timing proof → 100-bot 24-simulated-hour
-benchmark. Runtime/build failures must be fixed and recorded on the server before claiming the feature validated.
+benchmark. Runtime/build failures must be fixed and recorded before claiming the feature validated.
 See `INTERFACE.md` for controls, data semantics, backpressure and exports; `TIMING.md` for persistence behavior and audit.
 
 After any run or crash, archive the spool and logs, then recreate all test databases from the clean pre-run fixture.

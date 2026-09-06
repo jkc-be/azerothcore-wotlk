@@ -145,7 +145,12 @@ try {
     assert.match(await evaluate('document.querySelector("#feed").textContent'), /SYNTHETIC UI TEST/);
     assert.equal(
       await evaluate('document.querySelector("#control-log").textContent'),
-      "No control requests yet. Pause, speed and bot count changes appear here.",
+      "No control requests yet. Pause, speed, bot count and observer mode changes appear here.",
+    );
+    assert.match(await evaluate('document.querySelector("#observer-status").textContent'), /^Locked/);
+    assert.equal(
+      await evaluate('document.querySelector("#observer-mode button[data-mode=\'0\']").getAttribute("aria-pressed")'),
+      "true",
     );
     const rect = await evaluate(
       'JSON.stringify(document.querySelector("#map-canvas").getBoundingClientRect().toJSON())',
@@ -183,6 +188,18 @@ try {
     assert.match(await evaluate('document.querySelector("#lamps").textContent'), /Population adjusting/);
     await evaluate('document.querySelector("#pause").click()');
     await waitFor('document.querySelector("#population-status").textContent.includes("3 of 3 bots online, matched")');
+    // Observer mode is a run-level control acknowledged by the world like speed and population.
+    await evaluate("document.querySelector(\"#observer-mode button[data-mode='1']\").click()");
+    await waitFor('document.querySelector("#observer-status").textContent.startsWith("Roam")');
+    assert.equal(
+      await evaluate('document.querySelector("#observer-mode button[data-mode=\'1\']").getAttribute("aria-pressed")'),
+      "true",
+    );
+    assert.match(await evaluate('document.querySelector("#lamps").textContent'), /GM observers allowed, roam/);
+    assert.match(await evaluate('document.querySelector("#control-log").textContent'), /GM observers roam/);
+    assert.equal(await evaluate('document.querySelector("#bot-range").value'), "3");
+    await evaluate("document.querySelector(\"#observer-mode button[data-mode='0']\").click()");
+    await waitFor('document.querySelector("#observer-status").textContent.startsWith("Locked")');
     assert.equal(await evaluate('document.querySelector("#bot-range").value'), "3");
     await waitFor('document.querySelector("#speed-requested").textContent.includes("Max · requested 2×")');
     // Max belongs to the bridge: disconnecting/reloading the browser must not cancel it.

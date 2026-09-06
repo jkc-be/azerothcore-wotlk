@@ -1,0 +1,31 @@
+
+module my-sshdsession 1.0;
+
+require {
+	type sshd_session_t;
+	type unreserved_port_t;
+	type ephemeral_port_t;
+	type gnome_remote_desktop_port_t;
+	type http_port_t;
+	type jboss_debug_port_t;
+	type tor_port_t;
+	type soundd_port_t;
+	type ntop_port_t;
+	class tcp_socket name_connect;
+}
+
+#============= sshd_session_t ==============
+
+#!!!! This avc is allowed in the current policy
+allow sshd_session_t ephemeral_port_t:tcp_socket name_connect;
+allow sshd_session_t gnome_remote_desktop_port_t:tcp_socket name_connect;
+
+#!!!! This avc is allowed in the current policy
+allow sshd_session_t http_port_t:tcp_socket name_connect;
+allow sshd_session_t jboss_debug_port_t:tcp_socket name_connect;
+allow sshd_session_t ntop_port_t:tcp_socket name_connect;
+allow sshd_session_t soundd_port_t:tcp_socket name_connect;
+allow sshd_session_t tor_port_t:tcp_socket name_connect;
+
+#!!!! This avc is allowed in the current policy
+allow sshd_session_t unreserved_port_t:tcp_socket name_connect;

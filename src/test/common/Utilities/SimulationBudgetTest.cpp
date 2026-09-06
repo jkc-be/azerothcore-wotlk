@@ -17,6 +17,7 @@
 
 #include "SimulationBudget.h"
 #include <gtest/gtest.h>
+#include <limits>
 
 TEST(SimulationBudget, AccelerationChangesNumberOfNormalSteps)
 {
@@ -56,4 +57,53 @@ TEST(SimulationBudget, SpeedChangesAndOverloadNeverDiscardFractionalOrOutstandin
         ++ticks;
     EXPECT_EQ(ticks, 1000);
     EXPECT_EQ(budget.DebtMicroseconds(), 1000);
+}
+
+TEST(SimulationBudget, DecimalRatesKeepNormalTenMillisecondSteps)
+{
+    for (double speed : {1.1, 2.1, 3.2, 9.9})
+    {
+        SimulationBudget budget;
+        budget.Accrue(1000000, speed, false);
+        uint32 ticks = 0;
+        while (budget.Consume(false))
+            ++ticks;
+        EXPECT_EQ(ticks, uint32(std::lround(speed * 100)));
+        EXPECT_EQ(budget.DebtMicroseconds(), 0);
+    }
+}
+
+TEST(SimulationBudget, DecimalFractionsSurvivePauseAndSpeedChanges)
+{
+    SimulationBudget budget;
+    budget.Accrue(1, 2.1, false);
+    EXPECT_EQ(budget.DebtMicroseconds(), 2);
+    budget.Accrue(1000000, 10, true);
+    EXPECT_FALSE(budget.Consume(true));
+    budget.Accrue(1, 1, false);
+    for (uint32 i = 0; i < 3; ++i)
+        budget.Accrue(1, 1.3, false);
+    EXPECT_EQ(budget.DebtMicroseconds(), 7);
+}
+
+TEST(SimulationBudget, FrequentAccrualDoesNotLoseFractionalTime)
+{
+    SimulationBudget budget;
+    for (uint32 i = 0; i < 100000; ++i)
+        budget.Accrue(1, 3.2, false);
+    EXPECT_EQ(budget.DebtMicroseconds(), 320000);
+    uint32 ticks = 0;
+    while (budget.Consume(false))
+        ++ticks;
+    EXPECT_EQ(ticks, 32);
+    EXPECT_EQ(budget.DebtMicroseconds(), 0);
+}
+
+TEST(SimulationBudget, OnlyFiniteTenthsWithinRangeAreValid)
+{
+    for (uint32 tenths = 10; tenths <= 100; ++tenths)
+        EXPECT_TRUE(SimulationBudget::IsValidSpeed(tenths / 10.0));
+    for (double speed : {0.0, 0.9, 10.1, 2.15, -1.0, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()})
+        EXPECT_FALSE(SimulationBudget::IsValidSpeed(speed));
 }

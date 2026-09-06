@@ -37,7 +37,17 @@ namespace Observatory
     AC_GAME_API bool RegisterObserver(WorldSession const* session);
     AC_GAME_API void UnregisterObserver(WorldSession const* session);
     AC_GAME_API bool IsObserver(WorldSession const* session);
+    // Run-level GM observer control level: locked spectator, free movement, or full GM commands.
+    enum ObserverModes : uint32
+    {
+        OBSERVER_LOCKED = 0,
+        OBSERVER_ROAM = 1,
+        OBSERVER_FULL_GM = 2
+    };
+    AC_GAME_API uint32 ObserverMode();
     AC_GAME_API bool AllowsObserverOpcode(uint32 opcode);
+    AC_GAME_API bool AllowsObserverChat(uint32 type, uint32 lang, std::string const& msg);
+    AC_GAME_API void ObserverCommand(WorldSession const* session, std::string const& command);
     // World-thread-only population contract with the Playerbots module.
     AC_GAME_API uint32 TargetBotCount();
     AC_GAME_API void PopulationSettled(bool settled);

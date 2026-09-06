@@ -273,11 +273,15 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (Observatory::IsObserver(this) &&
-        (type != CHAT_MSG_SAY || lang == LANG_ADDON || (msg != ".pov" && msg.rfind(".pov ", 0) != 0)))
+    if (Observatory::IsObserver(this))
     {
-        ChatHandler(this).SendSysMessage("This observatory connection permits /pov only.");
-        return;
+        if (!Observatory::AllowsObserverChat(type, lang, msg))
+        {
+            ChatHandler(this).SendSysMessage("This observatory connection permits /pov only.");
+            return;
+        }
+        if (lang != LANG_ADDON && msg.rfind('.', 0) == 0)
+            Observatory::ObserverCommand(this, msg);
     }
 
     // pussywizard:

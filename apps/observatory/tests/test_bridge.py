@@ -82,6 +82,34 @@ class Controls(unittest.TestCase):
         self.spool.control({'run': 'run-a', 'speed': 10, 'paused': False})
         self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 7 10 0 3\n')
 
+    def test_observer_mode_is_validated_retained_and_changeable_under_gm_lock(self):
+        self.snapshot.update(observers=1, expectedBots=1, maxBots=100, observerMode=0)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        for mode in (-1, 3, True, 1.0, '1', None):
+            with self.assertRaises(ValueError):
+                self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'observerMode': mode})
+        self.assertFalse((self.path / 'control.txt').exists())
+        # The speed lock does not block a mode change while observers are connected.
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'observerMode': 2})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 6 1 0 1 2\n')
+        # A later population request keeps the pending mode; a bridge restart reads it back from the mailbox.
+        restarted = bridge.Spool(self.path, 'test-token', follow=False)
+        restarted.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 3})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 7 1 0 3 2\n')
+        self.snapshot.update(controlSeq=7, observerMode=2)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        restarted.control({'run': 'run-a', 'speed': 1, 'paused': False, 'observerMode': 0})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 8 1 0 3 0\n')
+
+    def test_old_world_rejects_observer_mode_and_gets_no_extra_field(self):
+        self.snapshot.update(expectedBots=1, maxBots=100)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        with self.assertRaises(ValueError):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'observerMode': 1})
+        self.assertFalse((self.path / 'control.txt').exists())
+        self.spool.control({'run': 'run-a', 'speed': 2, 'paused': False})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 6 2 0 1\n')
+
     def test_rejected_mailbox_target_is_not_reapplied(self):
         self.snapshot.update(expectedBots=1, maxBots=100, controlError='GM POV requires 1x')
         (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
@@ -135,7 +163,7 @@ class AdaptiveSpeed(unittest.TestCase):
     def advance(self, now, acknowledge=True, **extra):
         if acknowledge:
             fields = (self.path / 'control.txt').read_text().split()
-            self.frame.update(controlSeq=int(fields[1]), requestedSpeed=int(fields[2]),
+            self.frame.update(controlSeq=int(fields[1]), requestedSpeed=float(fields[2]),
                               paused=bool(int(fields[3])), expectedBots=int(fields[4]))
         self.frame.update(extra)
         self.frame['seq'] += 1
@@ -143,40 +171,116 @@ class AdaptiveSpeed(unittest.TestCase):
         self.spool.adjust_speed(now)
 
     def requested(self):
-        return int((self.path / 'control.txt').read_text().split()[2])
+        return float((self.path / 'control.txt').read_text().split()[2])
 
-    def test_max_starts_at_one_then_probes_after_stable_samples(self):
+    def sample(self, start, end, backlog=lambda now: 0):
+        for tick in range(round(start * 4), round(end * 4) + 1):
+            self.advance(tick / 4, backlogMs=backlog(tick / 4))
+
+    def test_max_starts_at_one_then_keeps_probing_with_stable_backlog(self):
         self.frame['requestedSpeed'] = 10
         self.publish()
         self.enable()
         self.assertEqual(self.requested(), 1)
-        self.advance(0)
-        self.advance(4)
+        self.sample(0, 4.75, lambda now: 60)
         self.assertEqual(self.requested(), 1)
-        self.advance(5)
+        self.sample(5, 5, lambda now: 60)
         self.assertEqual(self.requested(), 2)
-        self.advance(6)
-        self.advance(11)
+        self.sample(5.25, 10.25, lambda now: 60)
         self.assertEqual(self.requested(), 5)
-        self.advance(12)
-        self.advance(17)
+        self.sample(10.5, 15.5, lambda now: 60)
         self.assertEqual(self.requested(), 10)
-        self.advance(18)
-        self.assertEqual(self.spool.snapshot()['speedControl']['mode'], 'max')
+        self.sample(15.75, 19, lambda now: 60)
         self.assertIn('highest available', self.spool.snapshot()['speedControl']['status'])
 
-    def test_growth_backs_off_before_limit_and_prevents_immediate_reprobe(self):
+    def test_repeated_brief_spikes_do_not_throttle_or_block_probes(self):
         self.enable()
-        self.advance(0)
-        self.advance(5)
-        self.advance(6)
-        self.advance(6.25, backlogMs=40)
-        self.assertEqual(self.requested(), 1)  # 40 ms with 160 ms/s growth projects past the limit.
-        self.advance(7, backlogMs=0)
-        self.advance(20)
-        self.assertEqual(self.requested(), 1)
-        self.advance(37)
+        self.sample(0, 5)
         self.assertEqual(self.requested(), 2)
+        self.sample(5.25, 10.25, lambda now: 2000 if now % 1 == 0 else 0)
+        self.assertEqual(self.requested(), 5)
+        self.sample(10.5, 15.5, lambda now: 2000 if now % 1 == 0 else 0)
+        self.assertEqual(self.requested(), 10)
+
+    def test_sustained_growth_throttles_then_reprobes_after_recovery(self):
+        self.enable()
+        self.sample(0, 5)
+        self.sample(5.25, 8, lambda now: (now - 5.25) * 100)
+        self.assertEqual(self.requested(), 2)
+        self.sample(8.25, 8.25, lambda now: 300)
+        self.assertEqual(self.requested(), 1)
+        self.sample(8.5, 13.25)
+        self.assertEqual(self.requested(), 1)
+        self.sample(13.5, 13.5)
+        self.assertEqual(self.requested(), 2)
+
+    def test_falling_backlog_drains_without_throttling_then_probes(self):
+        self.enable()
+        self.sample(0, 5)
+        self.sample(5.25, 13.25, lambda now: 1000 - (now - 5.25) * 100)
+        self.assertEqual(self.requested(), 2)
+        self.assertIn('drains', self.spool.max_speed.status)
+        self.sample(13.5, 20.5, lambda now: max(0, 1000 - (now - 5.25) * 100))
+        self.assertEqual(self.requested(), 5)
+
+    def test_flat_backlog_above_target_still_probes_instead_of_getting_stuck(self):
+        self.enable()
+        self.sample(0, 5, lambda now: 200)
+        self.assertEqual(self.requested(), 2)
+
+    def test_decimal_max_visits_intermediate_rates_and_stops_at_ten(self):
+        self.frame['speedStep'] = 0.1
+        self.publish()
+        self.enable()
+        rates = {self.requested()}
+        for tick in range(2001):
+            self.advance(tick / 4)
+            rates.add(self.requested())
+        self.assertEqual(rates, set(bridge.DECIMAL_SPEEDS))
+        self.assertEqual(self.requested(), 10)
+
+    def test_decimal_manual_control_and_pause_preserve_exact_rate(self):
+        self.frame['speedStep'] = 0.1
+        self.publish()
+        for speed in (2.1, 3.2):
+            for paused in (False, True):
+                self.spool.control({'run': 'adaptive', 'speed': speed, 'paused': paused})
+                self.assertEqual(self.requested(), speed)
+                self.assertEqual((self.path / 'control.txt').read_text().split()[3], str(int(paused)))
+
+    def test_old_world_rejects_decimal_rates_without_writing(self):
+        for speed in (1.1, 2.1, 3.2, 3):
+            with self.subTest(speed=speed), self.assertRaisesRegex(ValueError, 'Update the worldserver'):
+                self.spool.control({'run': 'adaptive', 'speed': speed, 'paused': False})
+        self.assertFalse((self.path / 'control.txt').exists())
+        self.spool.control({'run': 'adaptive', 'speed': 2.0, 'paused': False})
+        self.assertEqual((self.path / 'control.txt').read_text().split()[2], '2')
+
+    def test_invalid_decimal_rates_do_not_reach_mailbox(self):
+        self.frame['speedStep'] = 0.1
+        self.publish()
+        for speed in (0.9, 10.1, 2.15, float('nan'), float('inf'), True, '2.1'):
+            with self.subTest(speed=speed), self.assertRaises(ValueError):
+                self.spool.control({'run': 'adaptive', 'speed': speed, 'paused': False})
+        self.assertFalse((self.path / 'control.txt').exists())
+
+    def test_decimal_capacity_drop_uses_larger_backoff_and_recovers(self):
+        self.frame['speedStep'] = 0.1
+        self.publish()
+        self.enable()
+        backlog, rates, debts = 0, [], []
+        for tick in range(1601):
+            capacity = 3.25 if tick < 800 else 1.7
+            backlog = max(0, backlog + (self.requested() - capacity) * 250)
+            self.advance(tick / 4, backlogMs=backlog)
+            rates.append(self.requested())
+            debts.append(backlog)
+        self.assertIn(2.1, rates[:800])
+        self.assertIn(3.2, rates[:800])
+        self.assertLess(max(debts), 15000)
+        self.assertLessEqual(max(rates[1000:]), 1.8)
+        self.assertGreaterEqual(min(rates[1000:]), 1.5)
+        self.assertIn(0, debts[1000:])
 
     def test_waits_for_ack_and_stops_on_rejected_or_external_control(self):
         self.enable()
@@ -206,7 +310,7 @@ class AdaptiveSpeed(unittest.TestCase):
         self.advance(20, populationPending=True)
         self.assertEqual(self.requested(), 1)
         self.advance(21, populationPending=False)
-        self.advance(26)
+        self.sample(21.25, 26)
         self.assertEqual(self.requested(), 2)
         self.assertEqual((self.path / 'control.txt').read_text().split()[4], '12')
 
@@ -226,9 +330,19 @@ class AdaptiveSpeed(unittest.TestCase):
         self.advance(11)
         self.assertEqual(self.requested(), 1)
 
+    def test_gap_between_new_frames_restarts_measurement(self):
+        self.enable()
+        self.sample(0, 2)
+        self.advance(10)
+        self.assertEqual(self.requested(), 1)
+        self.sample(10.25, 14.75)
+        self.assertEqual(self.requested(), 1)
+        self.advance(15)
+        self.assertEqual(self.requested(), 2)
+
     def test_unachievable_limit_reports_floor_instead_of_pausing(self):
         self.enable()
-        self.advance(0, backlogMs=200)
+        self.sample(0, 3, lambda now: 200 + now * 100)
         self.assertEqual(self.requested(), 1)
         self.assertIn('At 1×', self.spool.max_speed.status)
         self.assertEqual((self.path / 'control.txt').read_text().split()[3], '0')
@@ -270,18 +384,24 @@ class AdaptiveSpeed(unittest.TestCase):
             self.frame = original
             self.publish()
 
-    def test_converges_to_highest_sustainable_preset_when_capacity_changes(self):
+    def test_capacity_drop_recovers_and_continues_probing_without_runaway_debt(self):
         self.enable()
-        backlog, speeds = 0, []
+        backlog, speeds, debts = 0, [], []
         for tick in range(1, 481):
             speed = self.requested()
             capacity = 7 if tick <= 240 else 3
             backlog = max(0, backlog + (speed - capacity) * 250)
             self.advance(tick / 4, backlogMs=backlog)
             speeds.append(self.requested())
-        self.assertEqual(speeds[230:240], [5] * 10)
-        self.assertEqual(speeds[-10:], [2] * 10)
-        self.assertEqual(backlog, 0)
+            debts.append(backlog)
+        # Faster probes are expected throughout, so do not assume the final frame is at the floor.
+        self.assertGreater(speeds[60:240].count(5), speeds[60:240].count(10))
+        self.assertEqual(set(speeds[280:]), {2, 5})
+        self.assertGreater(speeds[280:].count(2), speeds[280:].count(5))
+        self.assertGreater(debts[280:].count(0), 20)
+        # Two successive three-second observations cover the drop from 10x through 5x to 2x.
+        self.assertLess(max(debts), 20000)
+        self.assertLess(max(debts[360:]), 7000)
 
 
 class EventFollower(unittest.TestCase):

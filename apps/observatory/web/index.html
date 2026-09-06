@@ -70,6 +70,15 @@
           <button id="set-bots" disabled>Set bots</button>
         </form>
         <span id="population-status" role="status"></span>
+        <div class="observer-mode">
+          <span class="label">GM observer</span>
+          <div id="observer-mode" class="segmented" role="group" aria-label="GM observer control level">
+            <button data-mode="0" disabled title="Spectator only: /pov, no movement, no commands">Locked</button>
+            <button data-mode="1" disabled title="Observer may walk around; commands stay /pov only">Roam</button>
+            <button data-mode="2" disabled title="All GM commands and movement; the run is no longer a clean comparison">Full GM</button>
+          </div>
+        </div>
+        <span id="observer-status" role="status"></span>
       </div>
       <div class="status-line">
         <span id="notice" role="status">Enter the access token to connect to a run or a Python observation feed.</span>

@@ -40,6 +40,8 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    watch/switch/stop and successful-action feed with simulation disabled. Keep GM observer admission disabled for
    timing comparisons and benchmarks. If explicitly enabling native GM POV,
    follow `INTERFACE.md`: verify ordinary-account rejection, connection-lifetime 1× lock and watch/stop/disconnect.
+   Leave `Observatory.ObserverMode` at 0 (locked) for any run whose results will be compared; roam and full GM are
+   exploration settings and the journal marks their use.
 8. Report the deployed commit IDs, exact services changed, checks performed, dashboard address and any remaining
    correctness/performance limits. If validation fails, keep the new run stopped, retain failure artifacts and restore
    compatible previous binaries/configuration plus the appropriate pre-update DB state. A rollback never reuses virtual

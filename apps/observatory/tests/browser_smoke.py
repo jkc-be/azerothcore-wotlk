@@ -21,7 +21,8 @@ def main():
                  'readyAtMs': 0, 'requestedSpeed': 1, 'achievedSpeed': 1, 'paused': False, 'baseline': False,
                  'completed': False, 'controlSeq': 0, 'backlogMs': 0, 'maxTickUs': 500, 'activeBots': 100,
                  'overloaded': False, 'ready': True, 'expectedBots': 100, 'onlineBots': 100,
-                 'maxBots': 100, 'populationPending': False, 'fault': '', 'bots': []}
+                 'maxBots': 100, 'populationPending': False, 'fault': '', 'observersAllowed': True,
+                 'observers': 0, 'observerMode': 0, 'bots': []}
         for i in range(100):
             frame['bots'].append({'id': f'fixture-{i}', 'name': f'FixtureBot{i}', 'map': 0 if i == 0 else 1,
                                  'instance': 0, 'zone': 12, 'x': i * 10, 'y': i * 20, 'z': 0, 'level': i % 10 + 1,
@@ -41,9 +42,9 @@ def main():
         def updates():
             while not stopped.wait(0.1):
                 try:
-                    run, sequence, speed, paused, bots = (spool / 'control.txt').read_text().split()
+                    run, sequence, speed, paused, bots, mode = (spool / 'control.txt').read_text().split()
                     frame.update(controlSeq=int(sequence), requestedSpeed=int(speed), paused=bool(int(paused)),
-                                 expectedBots=int(bots))
+                                 expectedBots=int(bots), observerMode=int(mode))
                     if not frame['paused']:
                         frame['bots'] = bot_pool[:int(bots)]
                         frame['onlineBots'] = frame['activeBots'] = int(bots)

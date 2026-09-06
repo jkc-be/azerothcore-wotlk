@@ -38,6 +38,27 @@ namespace ReforgedPOV
     // Commands, logout and world updates run outside map worker updates.
     // Never retain pointers to players across updates.
     std::map<ObjectGuid, Observation> observations;
+    uint32 appliedObserverMode = Observatory::OBSERVER_LOCKED;
+
+    // Observatory observers own their mover only while the run-level mode permits movement.
+    bool ObserverMayMove(Player* player)
+    {
+        return !Observatory::IsObserver(player->GetSession()) ||
+            Observatory::ObserverMode() != Observatory::OBSERVER_LOCKED;
+    }
+
+    char const* ObserverModeHint()
+    {
+        switch (Observatory::ObserverMode())
+        {
+            case Observatory::OBSERVER_FULL_GM:
+                return "GM observer: full GM commands and movement enabled; this run is no longer a clean comparison.";
+            case Observatory::OBSERVER_ROAM:
+                return "GM observer: movement enabled, commands limited to /pov.";
+            default:
+                return "GM observer: use /pov. Movement and other commands are locked.";
+        }
+    }
 
     std::string Field(std::string value)
     {
@@ -78,7 +99,7 @@ namespace ReforgedPOV
     void Restore(Player* player, Observation const& state)
     {
         Detach(player);
-        player->SetClientControl(player, !Observatory::IsObserver(player->GetSession()));
+        player->SetClientControl(player, ObserverMayMove(player));
         player->SetGameMaster(state.gm);
         player->SetGMVisible(state.visible);
         player->SetGMSpectator(state.gmSpectator);
@@ -121,8 +142,27 @@ namespace ReforgedPOV
             duration, target->GetZoneId(), activity));
     }
 
+    // A dashboard mode change applies live to connected observers that are not bound to a POV target.
+    void ApplyObserverMode()
+    {
+        uint32 mode = Observatory::ObserverMode();
+        if (mode == appliedObserverMode)
+            return;
+        appliedObserverMode = mode;
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            if (!player->IsInWorld() || player->IsBeingTeleported() ||
+                !Observatory::IsObserver(player->GetSession()))
+                continue;
+            if (observations.find(guid) == observations.end())
+                player->SetClientControl(player, mode != Observatory::OBSERVER_LOCKED);
+            ChatHandler(player->GetSession()).SendSysMessage(ObserverModeHint());
+        }
+    }
+
     void Update()
     {
+        ApplyObserverMode();
         for (auto itr = observations.begin(); itr != observations.end();)
         {
             Player* observer = ObjectAccessor::FindConnectedPlayer(itr->first);
@@ -337,9 +377,10 @@ public:
         player->SetGameMaster(true);
         player->SetGMVisible(false);
         player->SetGMSpectator(true);
-        player->SetClientControl(player, false);
-        ChatHandler(player->GetSession()).SendSysMessage(
-            "GM observer: use /pov. Simulation is locked to 1x until disconnect.");
+        if (!ReforgedPOV::ObserverMayMove(player))
+            player->SetClientControl(player, false);
+        ChatHandler(player->GetSession()).SendSysMessage("Simulation is locked to 1x until disconnect.");
+        ChatHandler(player->GetSession()).SendSysMessage(ReforgedPOV::ObserverModeHint());
     }
 
     void OnPlayerBeforeLogout(Player* player) override

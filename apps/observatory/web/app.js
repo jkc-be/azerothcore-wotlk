@@ -307,7 +307,8 @@ function renderHeader() {
           : state.paused
             ? "Paused. Observation and controls stay available."
             : state.observers
-              ? `GM POV connected (${state.observers}), 1× locked until all observers disconnect.`
+              ? `GM POV connected (${state.observers}, ${observerModeLabel(state.observerMode)}), ` +
+                "1× locked until all observers disconnect."
               : state.overloaded
                 ? `Running behind: ${backlog} of simulated steps queued, none dropped.`
                 : `Run ${state.run} live at ${state.requestedSpeed}×.`,
@@ -393,7 +394,9 @@ function renderInstruments(previousTarget) {
     ? `${state.speedControl.status}. Backlog target: ${state.speedControl.backlogLimitMs} ms; ` +
       "brief spikes may occur while speed adjusts."
     : state.speedControl
-      ? "Max automatically selects 1×, 2×, 5× or 10× to stay within the backlog target."
+      ? state.speedStep === 0.1
+        ? "Max adjusts from 1× to 10× in 0.1× steps using the backlog trend."
+        : "Max selects 1×, 2×, 5× or 10×. Update the worldserver to enable 0.1× steps."
       : "Bridge update required for Max speed.";
   const populationLocked = Boolean(
     readOnly || state.fault || state.completed || state.baseline || state.maxBots === undefined,
@@ -401,6 +404,24 @@ function renderInstruments(previousTarget) {
   $("bot-count").disabled = $("set-bots").disabled = $("bot-range").disabled = populationLocked;
   $("bot-count").max = $("bot-range").max = state.maxBots ?? 100;
   if (previousTarget !== state.expectedBots) $("bot-count").value = $("bot-range").value = state.expectedBots;
+  const observerLocked = Boolean(
+    readOnly || state.fault || state.completed || state.baseline || state.observerMode === undefined,
+  );
+  for (const button of $("observer-mode").querySelectorAll("button")) {
+    button.disabled = observerLocked;
+    button.setAttribute("aria-pressed", String(Number(button.dataset.mode) === state.observerMode));
+  }
+  $("observer-status").textContent = readOnly
+    ? ""
+    : state.observerMode === undefined
+      ? "Observer mode needs a newer server"
+      : !state.observersAllowed
+        ? "GM observers are refused by this run's configuration."
+        : state.observerMode === 2
+          ? "Full GM: commands and movement are journaled; this run is not a clean comparison."
+          : state.observerMode === 1
+            ? "Roam: observers may move; commands stay limited to /pov. Grid load may differ."
+            : "Locked: observers only use /pov. Applies at login and live to connected GMs.";
   $("population-status").textContent = readOnly
     ? ""
     : state.maxBots === undefined
@@ -440,11 +461,12 @@ function renderInstruments(previousTarget) {
         [
           state.observers ? "warn" : "ok",
           state.observers
-            ? `${state.observers} GM observer${state.observers === 1 ? "" : "s"} connected`
+            ? `${state.observers} GM observer${state.observers === 1 ? "" : "s"} connected, ` +
+              observerModeLabel(state.observerMode)
             : state.observersAllowed
-              ? "GM observers allowed"
+              ? `GM observers allowed, ${observerModeLabel(state.observerMode)}`
               : "GM observers refused",
-          !state.observers,
+          !state.observers && !state.observerMode,
         ],
         [
           state.baseline ? "warn" : state.completed ? "off" : "ok",
@@ -556,14 +578,20 @@ function renderMetrics() {
 
 // ---------------------------------------------------------------------------------------------- controls
 
-async function control(paused, speed, bots) {
+function observerModeLabel(mode) {
+  return mode === 2 ? "full GM" : mode === 1 ? "roam" : "locked";
+}
+
+async function control(paused, speed, bots, observerMode) {
   if (!state || isReadOnly()) return;
   if (speed === "max" && !$("max-speed-settings").reportValidity()) return;
   const speedLabel = speed === "max" ? `Max (backlog target ${$("backlog-limit").value} ms)` : `${speed}×`;
   const text =
-    bots === undefined
-      ? `${paused ? "pause" : "resume"} at ${speedLabel}`
-      : `${bots} bots at ${speedLabel}${paused ? ", paused" : ""}`;
+    observerMode !== undefined
+      ? `GM observers ${observerModeLabel(observerMode)}`
+      : bots === undefined
+        ? `${paused ? "pause" : "resume"} at ${speedLabel}`
+        : `${bots} bots at ${speedLabel}${paused ? ", paused" : ""}`;
   try {
     const response = await api("/api/control", {
       method: "POST",
@@ -573,6 +601,7 @@ async function control(paused, speed, bots) {
         speed,
         paused,
         ...(bots === undefined ? {} : { bots }),
+        ...(observerMode === undefined ? {} : { observerMode }),
         ...(speed === "max" ? { backlogLimitMs: Number($("backlog-limit").value) } : {}),
       }),
     });
@@ -610,7 +639,7 @@ function renderControlLog() {
   );
   if (!controlLog.length) {
     const li = document.createElement("li");
-    li.textContent = "No control requests yet. Pause, speed and bot count changes appear here.";
+    li.textContent = "No control requests yet. Pause, speed, bot count and observer mode changes appear here.";
     $("control-log").replaceChildren(li);
   }
 }
@@ -643,6 +672,9 @@ $("max-speed-settings").onsubmit = (event) => {
 };
 for (const button of $("speed-control").querySelectorAll("button"))
   button.onclick = () => control(state.paused, button.dataset.speed === "max" ? "max" : Number(button.dataset.speed));
+// Observer mode is independent of the speed lock: it may change while GMs are connected.
+for (const button of $("observer-mode").querySelectorAll("button"))
+  button.onclick = () => control(state.paused, selectedSpeed(), undefined, Number(button.dataset.mode));
 $("export").onclick = async () => {
   try {
     const name = $("export-file").value;
