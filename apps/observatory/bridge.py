@@ -16,6 +16,30 @@ WEB = Path(__file__).with_name('web')
 EXPORTS = {'manifest.json', 'initial.json', 'snapshots.ndjson', 'events.ndjson'}
 
 
+def journal_tail(path, limit, byte_limit):
+    """Read complete JSON objects from a bounded journal tail, tolerating an in-flight append."""
+    try:
+        with path.open('rb') as source:
+            size = os.fstat(source.fileno()).st_size
+            start = max(0, size - byte_limit)
+            source.seek(start)
+            data = source.read(byte_limit)
+        lines = data.split(b'\n')[:-1]
+        if start:
+            lines = lines[1:]
+        result = []
+        for line in lines[-limit:]:
+            try:
+                value = json.loads(line)
+                if isinstance(value, dict):
+                    result.append(value)
+            except ValueError:
+                pass
+        return result
+    except OSError:
+        return []
+
+
 class Spool:
     def __init__(self, directory, token):
         self.directory = Path(directory)
@@ -36,6 +60,8 @@ class Spool:
             raise ValueError('bots must be an integer from 0 to 100')
         with self.lock:
             current = self.snapshot()
+            if current.get('readOnly') or current.get('source') == 'python-api':
+                raise ValueError('This observation feed is read-only; use the Python controller for actions')
             if request['run'] != current['run']:
                 raise ValueError('Run changed; reconnect before controlling')
             if current.get('baseline') and (request['speed'] != 1 or request['paused']):
@@ -150,22 +176,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.close_connection = True
         elif path == '/api/events':
-            # Read a bounded tail. Full history stays in the exportable journal.
-            try:
-                with (spool.directory / 'events.ndjson').open('rb') as source:
-                    size = os.fstat(source.fileno()).st_size
-                    source.seek(max(0, size - 262144))
-                    data = source.read(262144)
-                lines = data.splitlines()[1:] if size > 262144 else data.splitlines()
-                result = []
-                for line in lines[-500:]:
-                    try:
-                        result.append(json.loads(line))
-                    except ValueError:
-                        pass  # The writer may still be finishing the last journal record.
-                self.reply(200, result)
-            except OSError:
-                self.reply(200, [])
+            self.reply(200, journal_tail(spool.directory / 'events.ndjson', 500, 262144))
+        elif path == '/api/history':
+            self.reply(200, journal_tail(spool.directory / 'snapshots.ndjson', 1000, 4 * 1024 * 1024))
         else:
             self.reply(404, {'error': 'Not found'})
 

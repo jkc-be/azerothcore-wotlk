@@ -14,11 +14,16 @@ population benchmarks remain pending.
 - [Build validation record](artifacts/local-checks.md)
 - [Local runtime and map checks](artifacts/local-runtime.md)
 - [Local map artwork setup](docs/MAPS.md)
+- [Python controller dashboard and synthetic preview](docs/PYTHON.md)
 
 The dashboard plots authoritative world coordinates, inspects bots and quests, charts progression against simulated
 time, controls target population, pause and requested speed, and exports timestamped events. It uses plain browser
 JavaScript and a local Python SSE adapter; neither is coupled to simulation tick frequency. Optional local client map artwork is aligned
 with server coordinates; artwork is not bundled in this repository.
+
+The same browser accepts read-only observation feeds from `mod-python-api` controllers via
+`acore_api.ObservatoryPublisher`: searchable bots, map/instance selection, health and combat charts, detailed
+inspection, recent history restoration and full journal exports. See the Python dashboard guide above.
 
 Permitted local checks (no server build):
 

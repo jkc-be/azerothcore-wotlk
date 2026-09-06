@@ -8,6 +8,8 @@ import {
   mapView,
   mapTile,
   mapRect,
+  observationAge,
+  retainedHistory,
 } from "./model.js";
 const $ = (id) => document.getElementById(id);
 let token = "",
@@ -44,6 +46,7 @@ async function loadMaps() {
 function updateMaps() {
   options("map", [...state.bots.map((bot) => String(bot.map)), ...mapAreas.map((area) => String(area.map))]);
   updateZones();
+  updateInstances();
 }
 
 async function loadArtwork(area) {
@@ -101,7 +104,7 @@ function options(id, values, all = false) {
   );
   if (desired.includes(old)) element.value = old;
 }
-function ingest(snapshot) {
+function ingest(snapshot, restoring = false) {
   if (state && state.run !== snapshot.run) {
     history = [];
     events = [];
@@ -113,35 +116,52 @@ function ingest(snapshot) {
   const previousTarget = state?.expectedBots;
   state = snapshot;
   freshAt = performance.now();
-  if (!history.length || history.at(-1).simMs !== state.simMs) history.push(summarize(state));
+  if (!restoring && (!history.length || history.at(-1).simMs !== state.simMs)) history.push(summarize(state));
   if (history.length > 4000) history.splice(0, history.length - 4000);
   updateMaps();
-  $("pause").disabled = $("speed").disabled =
-    Boolean(state.fault || state.completed || state.baseline || state.observers);
-  $("bot-count").disabled = $("set-bots").disabled =
-    Boolean(state.fault || state.completed || state.baseline || state.maxBots === undefined);
+  const python = state.source === "python-api";
+  const readOnly = python || state.readOnly;
+  $("pause").hidden = $("speed-control").hidden = $("population").hidden = Boolean(readOnly);
+  $("pause").disabled = $("speed").disabled = Boolean(
+    readOnly || state.fault || state.completed || state.baseline || state.observers,
+  );
+  $("bot-count").disabled = $("set-bots").disabled = Boolean(
+    readOnly || state.fault || state.completed || state.baseline || state.maxBots === undefined,
+  );
   $("bot-count").max = state.maxBots ?? 100;
   if (previousTarget !== state.expectedBots) $("bot-count").value = state.expectedBots;
-  $("population-status").textContent = state.maxBots === undefined
-    ? "Server update required to change bot count"
-    : state.populationPending
-    ? `${state.onlineBots} / ${state.expectedBots} bots · ` +
-      (state.paused ? "waiting for Resume" : "adjusting population…")
-    : `${state.onlineBots} / ${state.expectedBots} bots · matched`;
+  $("population-status").textContent = readOnly
+    ? `${state.bots.length} observed bots · read-only feed`
+    : state.maxBots === undefined
+      ? "Server update required to change bot count"
+      : state.populationPending
+        ? `${state.onlineBots} / ${state.expectedBots} bots · ` +
+          (state.paused ? "waiting for Resume" : "adjusting population…")
+        : `${state.onlineBots} / ${state.expectedBots} bots · matched`;
   $("pause").textContent = state.paused ? "Resume" : "Pause";
   $("speed").value = state.requestedSpeed;
-  $("control-status").textContent =
-    pendingControl && state.controlSeq < pendingControl
+  $("control-status").textContent = readOnly
+    ? ""
+    : pendingControl && state.controlSeq < pendingControl
       ? `Request ${pendingControl} awaiting world acknowledgement`
       : state.controlError || `Applied request ${state.controlSeq}`;
-  const metrics = [
-    ["Simulated", duration(state.simMs)],
-    ["Real elapsed", duration(state.realMs)],
-    ["Requested / achieved", `${state.requestedSpeed}× / ${state.achievedSpeed.toFixed(2)}×`],
-    ["Active / online / in world", `${state.activeBots} / ${state.onlineBots} / ${state.bots.length}`],
-    ["Target bots", `${state.expectedBots} (limit ${state.maxBots ?? state.expectedBots})`],
-    ["Backlog", `${(state.backlogMs / 1000).toFixed(2)}s`],
-  ];
+  const metrics = python
+    ? [
+        ["Elapsed", duration(state.realMs)],
+        ["Observed bots", state.bots.length],
+        ["Alive · last observed", state.bots.filter((bot) => bot.alive).length],
+        ["Combat · last observed", state.bots.filter((bot) => bot.combat).length],
+        ["Kills since baselines", state.runTotals.kills],
+        ["Deaths since baselines", state.runTotals.deaths],
+      ]
+    : [
+        ["Simulated", duration(state.simMs)],
+        ["Real elapsed", duration(state.realMs)],
+        ["Requested / achieved", `${state.requestedSpeed}× / ${state.achievedSpeed.toFixed(2)}×`],
+        ["Active / online / in world", `${state.activeBots} / ${state.onlineBots} / ${state.bots.length}`],
+        ["Target bots", `${state.expectedBots} (limit ${state.maxBots ?? state.expectedBots})`],
+        ["Backlog", `${(state.backlogMs / 1000).toFixed(2)}s`],
+      ];
   $("metrics").replaceChildren(
     ...metrics.map(([label, value]) => {
       const div = document.createElement("div");
@@ -155,18 +175,28 @@ function ingest(snapshot) {
     }),
   );
   notice(
-    state.completed
-      ? "Configured simulated duration completed. Export this run for comparison."
-      : state.fault
-        ? `RUN FROZEN: ${state.fault}. Export the evidence and inspect the server.`
-        : state.paused
-          ? "Gameplay paused. Observation and controls remain available."
-          : state.observers
-            ? `GM POV connected (${state.observers}) · 1× locked until all observers disconnect.`
-            : state.overloaded
-              ? "Capacity shortfall: simulation debt is growing; gameplay steps are retained."
-              : `Connected · run ${state.run} · authoritative in-memory telemetry`,
+    python
+      ? `${state.label} · ${state.completed ? "Feed closed · recorded history" : "Python observations · read-only"}`
+      : state.completed
+        ? "Configured simulated duration completed. Export this run for comparison."
+        : state.fault
+          ? `RUN FROZEN: ${state.fault}. Export the evidence and inspect the server.`
+          : state.paused
+            ? "Gameplay paused. Observation and controls remain available."
+            : state.observers
+              ? `GM POV connected (${state.observers}) · 1× locked until all observers disconnect.`
+              : state.overloaded
+                ? "Capacity shortfall: simulation debt is growing; gameplay steps are retained."
+                : `Connected · run ${state.run} · authoritative in-memory telemetry`,
   );
+  $("chart-title").textContent = python ? "Population over elapsed real time" : "Population over simulated time";
+  for (const option of $("chart-metric").options) {
+    option.disabled = option.hidden = python
+      ? ["zones", "xp", "quests"].includes(option.value)
+      : option.hasAttribute("data-python");
+  }
+  if ($("chart-metric").selectedOptions[0].disabled) $("chart-metric").value = "levels";
+  renderRoster();
   renderDetails();
   drawChart();
 }
@@ -175,11 +205,22 @@ function updateZones() {
     options(
       "zone",
       [
-        ...state.bots.filter((bot) => String(bot.map) === $("map").value).map((bot) => String(bot.zone)),
+        ...state.bots
+          .filter((bot) => String(bot.map) === $("map").value && bot.zone != null)
+          .map((bot) => String(bot.zone)),
         ...mapAreas.filter((area) => String(area.map) === $("map").value).map((area) => String(area.zone)),
       ],
       true,
     );
+}
+function updateInstances() {
+  const element = $("instance"),
+    old = element.value;
+  const values = [
+    ...new Set(state.bots.filter((bot) => String(bot.map) === $("map").value).map((bot) => String(bot.instance))),
+  ].sort((a, b) => Number(a) - Number(b));
+  element.replaceChildren(new Option("All instances", "all"), ...values.map((id) => new Option(`Instance ${id}`, id)));
+  element.value = values.includes(old) ? old : "all";
 }
 async function connect() {
   abort?.abort();
@@ -187,6 +228,29 @@ async function connect() {
   const signal = abort.signal;
   while (!signal.aborted) {
     try {
+      // Older bridges still support live snapshots; history becomes available when the bridge is updated.
+      let frames = [];
+      try {
+        frames = await (await api("/api/history", { signal })).json();
+      } catch (error) {
+        if (signal.aborted) return;
+      }
+      const snapshot = await (await api("/api/snapshot", { signal })).json();
+      if (signal.aborted) return;
+      // Restore once per connection; the snapshot establishes a cutoff before live SSE resumes.
+      const restored = retainedHistory(frames, snapshot);
+      const sameRun = state?.run === snapshot.run;
+      history = (sameRun ? history.filter((point) => point.simMs < restored[0].simMs) : [])
+        .concat(restored)
+        .slice(-4000);
+      if (!sameRun) {
+        selected = "";
+        needsFit = true;
+        pendingControl = 0;
+      }
+      state = null;
+      events = [];
+      ingest(snapshot, true);
       const response = await api("/api/stream", { signal });
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = "";
@@ -216,7 +280,7 @@ $("connect").addEventListener("submit", (event) => {
   connect();
 });
 async function control(paused, speed, bots) {
-  if (!state) return;
+  if (!state || state.readOnly || state.source === "python-api") return;
   try {
     const response = await api("/api/control", {
       method: "POST",
@@ -237,8 +301,12 @@ $("pause").onclick = () => control(!state.paused, state.requestedSpeed);
 $("speed").onchange = () => control(state.paused, Number($("speed").value));
 $("map").onchange = () => {
   updateZones();
+  updateInstances();
   needsFit = true;
   fitArtwork = true;
+};
+$("instance").onchange = () => {
+  needsFit = true;
 };
 $("zone").onchange = $("fit-map").onclick = () => {
   needsFit = true;
@@ -283,8 +351,10 @@ function row(label, value) {
 function renderDetails() {
   const bot = state?.bots.find((bot) => bot.id === selected);
   if (!bot) {
-    $("bot-name").textContent = selected ? "Bot is offline" : "Select a bot";
-    $("bot-details").textContent = selected ? "This bot has left the simulated population." : "Choose a marker.";
+    $("bot-name").textContent = selected ? "Bot is no longer in this feed" : "Select a bot";
+    $("bot-details").textContent = selected
+      ? "Its recorded events remain available in exports."
+      : "Choose a marker or list entry.";
     $("events").replaceChildren();
     return;
   }
@@ -292,13 +362,28 @@ function renderDetails() {
   $("bot-details").replaceChildren(
     ...[
       ["Identity", bot.id],
-      ["Map / instance / zone", `${bot.map} / ${bot.instance} / ${bot.zone}`],
-      ["XP", `${bot.xp} / ${bot.nextLevelXp}`],
-      ["Earned XP", bot.earnedXp],
+      ["Map / instance / zone", `${bot.map} / ${bot.instance} / ${bot.zone ?? "unavailable"}`],
+      ["Position (x, y, z)", [bot.x, bot.y, bot.z].map((value) => value.toFixed(2)).join(", ")],
+      ...(state.source === "python-api"
+        ? [
+            ["Power / type", `${bot.power} / ${bot.maxPower} · ${bot.powerType}`],
+            ["World tick", bot.worldTick],
+            ["Registration / episode", `${bot.registration} / ${bot.episode}`],
+            ["API elapsed world time", duration(bot.apiElapsedMs)],
+            [
+              "Observation age",
+              `${(observationAge(bot) / 1000).toFixed(1)}s` + (observationAge(bot) > 3000 ? " · stale" : ""),
+            ],
+            ["Registration kills / deaths / levels", `${bot.kills} / ${bot.deaths} / ${bot.levelGains}`],
+          ]
+        : [
+            ["XP", `${bot.xp} / ${bot.nextLevelXp}`],
+            ["Earned XP", bot.earnedXp],
+            ["Deaths / completed quests", `${bot.deaths} / ${bot.questCompletions}`],
+          ]),
       ["Health", `${bot.health} / ${bot.maxHealth}`],
       ["Activity", bot.activity],
-      ["Deaths / completed quests", `${bot.deaths} / ${bot.questCompletions}`],
-      ...bot.quests.map((quest) => [
+      ...(bot.quests || []).map((quest) => [
         `Quest ${quest.id}`,
         `state ${quest.state}: ${quest.objectives.join(" / ")}; items ${(quest.items || []).join(" / ")}`,
       ]),
@@ -306,7 +391,7 @@ function renderDetails() {
   );
   $("events").replaceChildren(
     ...events
-      .filter((event) => event.bot === selected)
+      .filter((event) => event.run === state.run && event.bot === selected)
       .slice(-40)
       .reverse()
       .map((event) => {
@@ -318,6 +403,37 @@ function renderDetails() {
       }),
   );
 }
+function renderRoster() {
+  const search = $("bot-search").value.toLowerCase();
+  const bots = (state?.bots || [])
+    .filter((bot) => `${bot.name} ${bot.id}`.toLowerCase().includes(search))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  $("roster-count").textContent = `(${bots.length} / ${state?.bots.length || 0})`;
+  $("bot-list").replaceChildren(
+    ...bots.map(
+      (bot) =>
+        new Option(
+          `${bot.name} · L${bot.level} · ${bot.activity}${observationAge(bot) > 3000 ? " · stale" : ""}`,
+          bot.id,
+        ),
+    ),
+  );
+  $("bot-list").value = selected;
+}
+$("bot-search").oninput = renderRoster;
+$("bot-list").onchange = () => {
+  selected = $("bot-list").value;
+  const bot = state.bots.find((bot) => bot.id === selected);
+  if (!bot) return;
+  $("map").value = String(bot.map);
+  updateZones();
+  updateInstances();
+  $("zone").value = "all";
+  $("instance").value = String(bot.instance);
+  view = { x: bot.x, y: bot.y, scale: Math.max(view.scale, 0.1) };
+  needsFit = fitArtwork = false;
+  renderDetails();
+};
 const canvas = $("map-canvas");
 let drag = null;
 canvas.onpointerdown = (event) => {
@@ -335,12 +451,13 @@ canvas.onpointermove = (event) => {
 canvas.onpointerup = (event) => {
   if (drag && !drag.moved && state) {
     const rect = canvas.getBoundingClientRect();
-    const bots = visibleBots(state, $("map").value, $("zone").value);
+    const bots = visibleBots(state, $("map").value, $("zone").value, $("instance").value);
     const hit = bots
       .map((bot) => ({ bot, point: worldToScreen(bot, view, rect.width, rect.height) }))
       .find(({ point }) => Math.hypot(point.x - event.clientX + rect.left, point.y - event.clientY + rect.top) < 12);
     if (hit) {
       selected = hit.bot.id;
+      renderRoster();
       renderDetails();
     }
   }
@@ -370,7 +487,7 @@ function drawMap() {
   ctx.fillStyle = "#111d25";
   ctx.fillRect(0, 0, width, height);
   if (state) {
-    const bots = visibleBots(state, $("map").value, $("zone").value);
+    const bots = visibleBots(state, $("map").value, $("zone").value, $("instance").value);
     const area = $("map-art").checked ? chooseMap(mapAreas, $("map").value, $("zone").value, bots, selected) : null;
     if (area?.id !== artwork) {
       artwork = area?.id;
@@ -424,6 +541,7 @@ function drawMap() {
       const point = worldToScreen(bot, view, width, height);
       const radius = bot.id === selected ? 11 : 9;
       ctx.save();
+      ctx.globalAlpha = observationAge(bot) > 3000 ? 0.4 : 1;
       ctx.shadowColor = "#000";
       ctx.shadowBlur = 5;
       ctx.fillStyle = bot.health === 0 ? "#a52649" : "#1267cb";
@@ -458,6 +576,7 @@ function drawMap() {
 }
 function drawChart() {
   const { ctx, width, height } = surface($("chart-canvas"));
+  $("history-status").textContent = `${history.length.toLocaleString()} samples loaded.`;
   if (!history.length) return;
   const metric = $("chart-metric").value,
     distributions = metric === "levels" || metric === "zones";
@@ -473,12 +592,18 @@ function drawChart() {
     ctx.strokeStyle = colors[index % colors.length];
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    history.forEach((point, i) => {
+    let connected = false;
+    history.forEach((point) => {
       const value = distributions ? point[metric][key] || 0 : point[metric];
+      if (value == null || !Number.isFinite(value)) {
+        connected = false;
+        return;
+      }
       const x = 45 + ((point.simMs - start) / span) * (width - 60),
         y = height - 28 - (value / max) * (height - 45);
-      if (i) ctx.lineTo(x, y);
+      if (connected) ctx.lineTo(x, y);
       else ctx.moveTo(x, y);
+      connected = true;
     });
     ctx.stroke();
     const item = document.createElement("span");
@@ -493,7 +618,14 @@ function drawChart() {
   ctx.fillText(duration(start + span), width - 115, height - 6);
 }
 setInterval(async () => {
-  if (state && performance.now() - freshAt > 3000) notice("STALE: no new world snapshot for over 3 seconds.");
+  if (
+    state &&
+    !state.completed &&
+    (performance.now() - freshAt > 3000 ||
+      (state.publishedUnixMs !== undefined && Date.now() - state.publishedUnixMs > 3000))
+  )
+    notice("STALE: no new observation snapshot for over 3 seconds.");
+  renderRoster();
   if (!token) return;
   try {
     events = await (await api("/api/events")).json();
