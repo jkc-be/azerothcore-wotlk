@@ -58,6 +58,7 @@ browser. All API endpoints require `Authorization: Bearer TOKEN`; static UI file
 | `GET /api/stream` | SSE `data: SNAPSHOT` records; real-time heartbeats; no replay on reconnect |
 | `GET /api/snapshot` | Latest snapshot or 503 while starting |
 | `GET /api/events` | At most 500 recent events from a bounded journal tail |
+| `GET /api/history` | At most 1,000 complete snapshots from the most recent 4 MiB of the snapshot journal |
 | `GET /api/export/NAME` | Manifest, initial state, snapshots, or event journal; fixed cutoff at request start |
 | `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25}` → 202 accepted sequence |
 

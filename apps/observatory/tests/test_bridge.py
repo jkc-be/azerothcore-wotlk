@@ -93,6 +93,21 @@ class Controls(unittest.TestCase):
             self.assertTrue(self.spool.viewers.acquire(blocking=False))
         self.assertFalse(self.spool.viewers.acquire(blocking=False))
 
+    def test_python_feed_cannot_create_a_control_mailbox(self):
+        (self.path / 'latest.json').write_text(json.dumps({'source': 'python-api', 'run': 'run-a'}))
+        with self.assertRaisesRegex(ValueError, 'read-only'):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 0})
+        self.assertFalse((self.path / 'control.txt').exists())
+
+    def test_history_tail_ignores_partial_records_and_bounds_reads(self):
+        path = self.path / 'snapshots.ndjson'
+        lines = [json.dumps({'seq': i}) + '\n' for i in range(10)]
+        path.write_text(''.join(lines) + '{"seq": 10')
+        self.assertEqual(bridge.journal_tail(path, 3, 4096), [{'seq': i} for i in (7, 8, 9)])
+        self.assertEqual(bridge.journal_tail(path, 100, 35), [{'seq': 8}, {'seq': 9}])
+        path.write_text('null\n[]\nbad\n' + lines[0])
+        self.assertEqual(bridge.journal_tail(path, 100, 4096), [{'seq': 0}])
+
 
 if __name__ == '__main__':
     unittest.main()

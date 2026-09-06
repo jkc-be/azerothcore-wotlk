@@ -6,8 +6,8 @@ export function duration(ms) {
 export function summarize(snapshot) {
   const result = { simMs: snapshot.simMs, xp: 0, quests: 0, deaths: 0, levels: {}, zones: {} };
   for (const bot of snapshot.bots) {
-    result.xp += bot.earnedXp;
-    result.quests += bot.questCompletions;
+    result.xp += bot.earnedXp ?? 0;
+    result.quests += bot.questCompletions ?? 0;
     result.deaths += bot.deaths;
     const level = `Level ${bot.level}`;
     const zone = `${bot.map}/${bot.zone}`;
@@ -15,13 +15,41 @@ export function summarize(snapshot) {
     result.zones[zone] = (result.zones[zone] || 0) + 1;
   }
   if (snapshot.runTotals) Object.assign(result, snapshot.runTotals);
+  if (snapshot.source === "python-api") {
+    result.xp = result.quests = null;
+    result.observed = snapshot.bots.length;
+    result.combat = snapshot.bots.filter((bot) => bot.combat).length;
+    result.alive = snapshot.bots.filter((bot) => bot.alive).length;
+    result.health = snapshot.bots.length
+      ? snapshot.bots.reduce((sum, bot) => sum + (100 * bot.health) / Math.max(1, bot.maxHealth), 0) /
+        snapshot.bots.length
+      : null;
+  }
   return result;
 }
 
-export function visibleBots(snapshot, map, zone) {
+export function visibleBots(snapshot, map, zone, instance = "all") {
   return snapshot.bots.filter(
-    (bot) => String(bot.map) === map && (zone === "all" || zone === "0" || String(bot.zone) === zone),
+    (bot) =>
+      String(bot.map) === map &&
+      (zone === "all" || zone === "0" || bot.zone == null || String(bot.zone) === zone) &&
+      (instance === "all" || String(bot.instance) === instance),
   );
+}
+
+export function observationAge(bot, now = Date.now()) {
+  return bot.observedUnixMs === undefined ? null : Math.max(0, now - bot.observedUnixMs);
+}
+
+export function retainedHistory(frames, snapshot) {
+  const bySequence = new Map();
+  for (const frame of [...frames, snapshot]) {
+    if (frame.run === snapshot.run && frame.seq <= snapshot.seq) bySequence.set(frame.seq, frame);
+  }
+  return [...bySequence.values()]
+    .sort((a, b) => a.seq - b.seq)
+    .slice(-4000)
+    .map(summarize);
 }
 
 export function worldToScreen(bot, view, width, height) {

@@ -93,6 +93,13 @@ pathfinding request limited to 50 yards; acknowledgment does not guarantee arriv
 All `LiveEnvironment` instances sharing a `Client` serialize requests. Do not use multiple environments for the same
 bot or concurrently mutate one environment. This is not a simultaneous multi-agent batch-step implementation.
 
+## Browser visualization
+
+`acore_api.ObservatoryPublisher` publishes existing controller observations to the browser Observatory without
+opening another API connection or changing bot ownership. It provides a read-only map, searchable population,
+charts, history and per-bot inspection. See the
+[dashboard setup and synthetic preview](../../apps/observatory/docs/PYTHON.md) for controller integration and startup.
+
 ## Verification
 
 Local transport/model tests use socket pairs and fake replies, with no game server or database:

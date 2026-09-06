@@ -17,11 +17,11 @@
         <button>Connect</button>
       </form>
     </header>
-    <div id="notice" role="status">Connect to an isolated test run to observe authoritative gameplay.</div>
+    <div id="notice" role="status">Connect to an Observatory run or Python observation feed.</div>
     <section class="metrics" id="metrics" aria-label="Simulation status"></section>
     <nav aria-label="Simulation controls">
       <button id="pause" disabled>Pause</button>
-      <label
+      <label id="speed-control"
         >Requested speed
         <select id="speed" disabled>
           <option>1</option>
@@ -58,16 +58,26 @@
             >Zone
             <select id="zone"></select
           ></label>
+          <label
+            >Instance
+            <select id="instance">
+              <option value="all">All instances</option>
+            </select></label
+          >
           <button id="fit">Fit bots</button>
           <button id="fit-map">Fit map</button>
           <label><input id="map-art" type="checkbox" checked /> Artwork</label>
         </div>
         <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
         <p class="caption">
-          Drag to pan · scroll to zoom · select a marker. <span id="map-art-status">Loading local map artwork…</span>
+          Drag to pan · scroll to zoom · select a marker.
+          <span id="map-art-status">Loading local map artwork…</span>
         </p>
       </section>
       <aside>
+        <label>Find a bot <input id="bot-search" type="search" placeholder="Name or GUID" /></label>
+        <label for="bot-list">Observed population <span id="roster-count"></span></label>
+        <select id="bot-list" size="5" aria-label="Observed bots"></select>
         <h2 id="bot-name">Select a bot</h2>
         <div id="bot-details">Choose a marker to inspect progression.</div>
         <h3>Recent events</h3>
@@ -75,7 +85,7 @@
       </aside>
       <section class="charts">
         <div class="panel-heading">
-          <h2>Population over simulated time</h2>
+          <h2 id="chart-title">Population over simulated time</h2>
           <label
             >Metric
             <select id="chart-metric">
@@ -84,14 +94,21 @@
               <option value="xp">XP gained</option>
               <option value="quests">Quest completions</option>
               <option value="deaths">Deaths</option>
+              <option value="observed" data-python>Observed bots</option>
+              <option value="alive" data-python>Alive bots (last observation)</option>
+              <option value="combat" data-python>In combat (last observation)</option>
+              <option value="health" data-python>Mean health % (last observation)</option>
+              <option value="kills" data-python>Kills since observation baselines</option>
+              <option value="levelGains" data-python>Levels gained since observation baselines</option>
             </select></label
           >
         </div>
         <canvas id="chart-canvas" aria-label="Population history chart"></canvas>
         <div id="legend"></div>
         <p class="caption">
-          Session history, up to 4,000 samples. Full timestamped history is retained in exports. Generated progression
-          and bot shortcuts appear in the event journal.
+          <span id="history-status">No history loaded.</span>
+          Up to 4,000 samples in this session; recent recorded history loads on connect. Full timestamped history is
+          retained in exports. Python observations are sampled independently for each bot.
         </p>
       </section>
     </main>
