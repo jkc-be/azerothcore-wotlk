@@ -4,6 +4,7 @@ AzerothCore is a C++ MMORPG server emulator for World of Warcraft 3.3.5a (WotLK)
 
 ## Agent rules
 
+- **Local machine role: client only.** This machine runs the WoW client, not the game server. This checkout is for preparing server-side handoffs. Server code written here is for the separate server side to implement; do not build, execute, install, restart or deploy server components here unless the user explicitly overrides this instruction. Deliver source changes and integration notes instead of requesting server SSH access or deployment approval as a routine next step.
 - **Do not configure or build unless explicitly asked.** Builds are slow and rarely needed for code changes.
 - **Never edit SQL files outside `data/sql/updates/pending_db_*/` unless explicitly requested.** `data/sql/base/`, `data/sql/archive/`, and `data/sql/updates/db_*/` are immutable.
 - Formatting follows `.editorconfig`: UTF-8, LF, max 120 cols, trailing newline, no trailing whitespace; 4-space indent for C++ (tabs forbidden), 2-space for JSON/YAML/sh/ts/js.
@@ -24,6 +25,7 @@ Read the matching doc(s) BEFORE starting the task:
 - Reviewing a changeset or PR → `.agents/docs/code-review.md`
 - Self-reviewing, or opening or updating a PR → also `.agents/docs/self-review-rules.md`
 - Touching a subsystem that has a doc in `.agents/docs/systems/` → read that doc too
+- Database/gameplay interaction or concurrent movement → `.agents/docs/systems/gameplay-persistence.md`
 - Writing, debugging, or changing live-stack e2e (`e2e/`) → `e2e/README.md`, `.agents/docs/e2e-policy.md`, and AzerothGhost `e2e/LLM_GUIDE.md` (scratch work → `e2e/local/`)
 - Capturing a lesson or adding/updating agent docs → `.agents/docs/README.md`
 
