@@ -19,16 +19,28 @@
 #define AC_SIMULATION_BUDGET_H
 
 #include "Define.h"
+#include <cmath>
 
 class SimulationBudget
 {
 public:
     static constexpr uint32 StepMs = 10;
 
-    void Accrue(uint64 realMicroseconds, uint32 speed, bool paused)
+    static bool IsValidSpeed(double speed)
+    {
+        return std::isfinite(speed) && speed >= 1 && speed <= 10 &&
+            std::abs(speed * 10 - std::round(speed * 10)) < 1e-9;
+    }
+
+    void Accrue(uint64 realMicroseconds, double speed, bool paused)
     {
         if (!paused)
-            _debt += realMicroseconds * speed;
+        {
+            // Controls are validated in tenths. Retain sub-microsecond debt across calls and speed changes.
+            uint64 scaled = realMicroseconds * uint32(std::lround(speed * 10)) + _remainder;
+            _debt += scaled / 10;
+            _remainder = scaled % 10;
+        }
     }
 
     bool Consume(bool paused)
@@ -46,6 +58,7 @@ public:
 
 private:
     uint64 _debt = 0;
+    uint64 _remainder = 0;
 };
 
 #endif

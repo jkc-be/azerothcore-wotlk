@@ -43,6 +43,16 @@ for example, restoring a temporary shopping balance is also labelled. Factory an
 core events. Initial equipment and generated levels are baseline state, never reconstructed as earned XP.
 Teleport attempts are not successful travel distance. Standard taxis, hearthstones and transports remain gameplay.
 
+With `AiPlayerbot.AutoDestroyJunk = 1`, autonomous random bots discard the cheapest unneeded grey-quality stack
+when normal bags exceed 80% occupancy. Each `junk_discarded` event records the stack count in `value` and item ID in
+`detail`. Equipped/banked items, quest requirements (including completed quests awaiting turn-in), quest starters,
+explicitly retained loot, upgrades and useful supplies are protected. The option defaults off in the module and
+excludes player-controlled bots. It is separate from the older, broader `smart destroy item` maintenance action.
+Looting checks actual storage capacity, including existing stack space. A source with items that cannot fit is
+deferred for 30 simulated seconds and emits `loot_inventory_blocked`, with the source GUID in `detail`, so an
+inventory-full gathering loop does not keep taking priority over other activities. No useful items are deleted
+when the bot has no discardable junk; vendor/bag acquisition behavior remains necessary for that case.
+
 `Observatory.Trace = 1` adds per-step positions, melee swings (including misses), aura ticks, damage inputs/final damage,
 cast start/finish/cancel, cooldown durations, resource changes, and deaths/respawns of creatures interacting with bots.
 Use these records for small timing comparisons, not the default throughput benchmark. Damage records report core damage
@@ -62,7 +72,7 @@ browser. All API endpoints require `Authorization: Bearer TOKEN`; static UI file
 | `GET /api/event-stats` | Per-kind record counts since the bridge started following, plus counts for the last minute |
 | `GET /api/history` | At most 1,000 complete snapshots from the most recent 4 MiB of the snapshot journal |
 | `GET /api/export/NAME` | Manifest, initial state, snapshots, or event journal; fixed cutoff at request start |
-| `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25}` → 202 accepted sequence |
+| `POST /api/control` | JSON `{"run":"…","speed":10,"paused":false,"bots":25,"observerMode":1}` → 202 accepted sequence |
 
 A 202 response is mailbox acceptance. Application is acknowledged by a later snapshot's `controlSeq`, speed and pause
 state. Controls are validated again by the writer, applied by the world thread between joined updates, and scoped to
@@ -72,16 +82,30 @@ Baseline mode permits 1× without pause only. Completed/faulted runs cannot be r
 ## Adaptive Max speed
 
 `POST /api/control` also accepts `"speed":"max"` with optional `"backlogLimitMs":100` (integer, 10–60,000).
-Max selects among the existing 1×, 2×, 5× and 10× rates. The backlog limit is outstanding **simulated** milliseconds,
+World snapshots advertise `"speedStep":0.1` when decimal controls are supported. Max then selects from 1× to 10×
+in 0.1× steps (including 2.1× and 3.2×); numeric API requests accept that same range and precision. Without this
+capability, Max retains the legacy 1×, 2×, 5× and 10× rates and rejects unsupported numeric requests before writing
+the mailbox. Manual dashboard buttons remain shortcuts to those four speeds.
+The backlog limit is outstanding **simulated** milliseconds,
 not a wall-clock delay. Selecting a numeric speed returns to manual control. Pause/resume and population changes can
 retain Max by sending `"speed":"max"` again. The default backlog target is 100 ms; the dashboard allows editing it.
 
 The bridge runs the controller every 250 ms, independently of browser connections. Max starts at 1×, waits for world
-acknowledgement and a settled population, then probes one faster preset after five seconds below 25% of the target.
-It steps down if debt or projected growth reaches 80% of the target, and waits 30 seconds before retrying a faster
-rate. Falling backlog is allowed to drain at the current speed. These margins reduce oscillation; the limit is a
-feedback target, not a hard cap. Sampling, mailbox latency and sudden load spikes can briefly exceed it. If even 1×
-cannot meet the target, Max reports that it is waiting at 1×; it never discards debt or pauses gameplay automatically.
+acknowledgement and a settled population, then measures three seconds of backlog using one-second medians.
+It steps down only when backlog grows across all three windows and the latest median exceeds the target.
+Brief spikes and flat backlog do not trigger throttling. Max probes one faster step after five seconds without
+sustained growth; there is no additional retry cooldown. Falling backlog above the target is allowed to drain before
+probing again. Measurements restart after speed changes, pause, stale telemetry or pending acknowledgements.
+The limit is a feedback target, not a hard cap: the trend window, mailbox latency and load spikes can exceed it.
+If debt keeps accumulating at 1×, Max reports that condition; it never discards debt or pauses gameplay automatically.
+On a server supporting decimals, sustained overload can reduce speed by more than 0.1×: backlog growth estimates
+available capacity, rounded down with 0.1× headroom to clear debt. This avoids a long series of tiny reductions after
+a large capacity loss. Legacy servers still reduce by one preset.
+
+The mailbox speed field accepts decimal text on updated servers. Pacing accumulates integer tenths of a microsecond,
+preserving the remainder across speed changes and pause; gameplay continues to consume ordinary 10 ms steps.
+Decimal support requires rebuilding and installing worldserver. Updating only the bridge cannot enable it in an
+already running legacy simulation.
 
 HTTP/SSE snapshots add `speedControl: {mode, backlogLimitMs, status}` from the bridge. `requestedSpeed`, `backlogMs`
 and `controlSeq` remain the world's authoritative values; the private mailbox format and world journal are unchanged.
@@ -161,10 +185,21 @@ accepted mailbox request, the world consumes its sequence without applying it an
 Clients must check the resulting state and error as well as `controlSeq`. Population changes at unpaused 1× remain
 available. `observer_connect` and `observer_disconnect` journal events put the account ID in `value` (not a bot GUID).
 
-Observers enter invisible GM spectator mode with client movement disabled. A core opcode allowlist permits
-character creation/login, session bookkeeping, read-only queries, selection, POV chat and server teleport ACKs.
-Only `.pov` commands through SAY chat are permitted; movement, casts, attacks, loot and other GM commands are
-blocked. Install the addon described in `doc/reforged-pov/README.md` to use `/pov` in the client.
+Observers enter invisible GM spectator mode. What else they may do is the run-level **observer mode**, set initially by
+`Observatory.ObserverMode` and changed live with `"observerMode"` in `POST /api/control` (the dashboard's Locked / Roam /
+Full GM buttons). It is applied automatically to every observer at login and to connected observers on the next POV
+update; it is independent of the 1× speed lock and may change while GMs are connected. Snapshots report it as
+`observerMode`; the mailbox gains a sixth field that older worlds ignore and older bridges omit. Each applied change
+journals `observer_mode` (value = mode, detail = control sequence).
+
+| Mode | Behaviour |
+| --- | --- |
+| 0 locked (default) | Client movement disabled. A core opcode allowlist permits character creation/login, session bookkeeping, read-only queries, selection, POV chat and server teleport ACKs. Only `.pov` through SAY chat; movement, casts, attacks, loot and other GM commands are blocked |
+| 1 roam | The observer's own movement opcodes and their acknowledgements are also accepted. Commands stay `.pov` only. The observer's position now affects grid load and visibility workload |
+| 2 full GM | The opcode allowlist and chat filter are bypassed: any GM command and action is permitted. Every observer command is journaled as `observer_command` (value = account ID, detail = text). Such a run mutates the disposable databases and is not a clean comparison |
+
+Install the addon described in `doc/reforged-pov/README.md` to use `/pov` in the client. While `/pov watch` binds the
+observer's sight to a bot, movement is disabled in every mode; `/pov stop` restores it according to the current mode.
 The observer can load extra grids and affect visibility/workload: disable admission during scientific comparisons
 and benchmarks. These remain disposable databases: provision observer accounts/characters in the clean fixture
 if they must survive a future run reset. Never resume virtual-time database output to retain an observer character.

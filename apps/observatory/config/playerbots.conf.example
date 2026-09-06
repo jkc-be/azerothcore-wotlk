@@ -1,4 +1,4 @@
-# Append to a COPY of the installed modules/playerbots.conf on the separate server.
+# Append to a COPY of the installed modules/playerbots.conf (e.g. /srv/observatory/server/etc/modules/).
 PlayerbotsDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_playerbots"
 AiPlayerbot.Enabled = 1
 AiPlayerbot.RandomBotAutologin = 1
@@ -11,6 +11,8 @@ AiPlayerbot.CommandServerPort = 0
 AiPlayerbot.BotActiveAlone = 100
 AiPlayerbot.botActiveAloneSmartScale = 0
 AiPlayerbot.RandomBotXPRate = 1
+# Discard only unneeded grey items under inventory pressure; log every discarded stack.
+AiPlayerbot.AutoDestroyJunk = 1
 # Standard upstream conveniences remain enabled. Every comparison must use the same configuration.
 AiPlayerbot.BotCheats = "food,taxi,raid"
 # Keep upstream level generation defaults; generated levels/gear are explicitly identified in the journal.

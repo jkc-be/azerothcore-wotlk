@@ -1,11 +1,11 @@
-# Validation protocol (separate game server)
+# Validation protocol
 
 Local source, build and frontend validation results are recorded in `../artifacts/local-checks.md`.
 One-bot runtime/control checks are recorded in `../artifacts/local-runtime.md`.
 Controlled equal-duration gameplay comparisons and the 10×/100-bot target remain unmeasured.
 Do not scale to 100 until the small timing proof passes. Keep the resulting exports with the revision and configuration.
 
-1. Follow `HANDOFF.md` to build on the separate server. Run
+1. Follow `HANDOFF.md` to build and install. Run
    `ctest --test-dir ../build-observatory --output-on-failure` and the dedicated
    `../build-observatory/src/test/unit_tests --gtest_filter=SimulationBudget.*:SimulationClockDeathTest.*` tests.
    They exercise fixed step count, fractional debt, overload, pause and speed transitions without launching a realm.
@@ -115,7 +115,12 @@ export E2E_OBSERVATORY_TOKEN_FILE=/srv/observatory/token
 export E2E_OBSERVATORY_SPOOL=/srv/observatory/runs/run-001
 cd e2e
 go test -tags=e2e ./suites/observatory -run TestObservatory_GmPovConnectionLock -count=2 -v -timeout 3m
+go test -tags=e2e ./suites/observatory -run TestObservatory_GmPovObserverMode -count=1 -v -timeout 3m
 ```
+
+`TestObservatory_GmPovObserverMode` requires the run to start in locked mode. It switches the mode through the bridge
+while a GM is connected and proves that roam accepts a movement heartbeat but still rejects `.modify money`, that full
+GM accepts the command and journals it, and that returning to locked blocks movement again. It leaves the mode locked.
 
 This test creates unique disposable GM and ordinary accounts. It checks ordinary realm rejection, GM login from
 pause, watch/switch/stop, HTTP pause/speed rejection, the world mailbox rejection of a stale acceleration request,

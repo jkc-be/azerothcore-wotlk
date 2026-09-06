@@ -59,9 +59,10 @@ namespace
     struct Control
     {
         uint64 sequence = 0;
-        uint32 speed = 1;
+        double speed = 1;
         bool paused = false;
         uint32 bots = 100;
+        uint32 observerMode = Observatory::OBSERVER_LOCKED;
     };
     Control pending;
     std::atomic<uint32> expectedBots{100};
@@ -70,6 +71,8 @@ namespace
     bool allowObservers = false;
     std::atomic<bool> observerSupport{false};
     std::atomic<bool> observerAdmissionOpen{false};
+    // Applied by the world thread; read by packet and chat gates on the session's world update.
+    std::atomic<uint32> observerMode{Observatory::OBSERVER_LOCKED};
     // Identity-only leases; never dereference these pointers. WorldSession destruction releases its lease.
     std::set<WorldSession const*> observerSessions;
     std::string controlError;
@@ -158,14 +161,18 @@ namespace
                 std::ifstream control(std::filesystem::path(directory) / "control.txt");
                 std::string requestedRun;
                 uint64 sequence;
-                uint32 speed;
+                double speed;
                 uint32 paused;
                 uint32 bots = 0;
+                uint32 mode = 0;
                 if (control >> requestedRun >> sequence >> speed >> paused >> bots)
                 {
+                    // Older bridges omit the observer mode; the current mode is then retained.
+                    bool hasMode = bool(control >> mode);
                     if ((!baseline || (speed == 1 && paused == 0 && bots == pending.bots)) &&
                         bots <= maxBots && requestedRun == runId &&
-                        (speed == 1 || speed == 2 || speed == 5 || speed == 10) && paused <= 1)
+                        SimulationBudget::IsValidSpeed(speed) && paused <= 1 &&
+                        (!hasMode || mode <= Observatory::OBSERVER_FULL_GM))
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         if (sequence > pending.sequence)
@@ -177,7 +184,8 @@ namespace
                                 pending.sequence = sequence;
                             }
                             else
-                                pending = {sequence, speed, paused != 0, bots};
+                                pending = {sequence, speed, paused != 0, bots,
+                                    hasMode ? mode : pending.observerMode};
                         }
                     }
                 }
@@ -295,6 +303,9 @@ bool Observatory::Initialize()
 
     baseline = sConfigMgr->GetOption<bool>("Observatory.RealTimeBaseline", false);
     allowObservers = sConfigMgr->GetOption<bool>("Observatory.AllowGmObservers", false);
+    pending.observerMode = std::min(sConfigMgr->GetOption<uint32>("Observatory.ObserverMode", OBSERVER_LOCKED),
+        uint32(OBSERVER_FULL_GM));
+    observerMode.store(pending.observerMode);
     if (baseline && allowObservers)
         return false;
     durationMs = sConfigMgr->GetOption<uint64>("Observatory.DurationMs", 0);
@@ -411,9 +422,81 @@ bool Observatory::IsObserver(WorldSession const* session)
     return observerSessions.contains(session);
 }
 
+uint32 Observatory::ObserverMode()
+{
+    return AllowsObservers() ? observerMode.load() : uint32(OBSERVER_LOCKED);
+}
+
 bool Observatory::AllowsObserverOpcode(uint32 opcode)
 {
-    // Only session/UI bookkeeping, readonly queries, POV chat and server teleport acknowledgements.
+    uint32 mode = observerMode.load();
+    if (mode >= OBSERVER_FULL_GM)
+        return true;
+    if (mode >= OBSERVER_ROAM)
+    {
+        // Client-driven movement of the observer's own character plus the acknowledgements the core requests.
+        switch (opcode)
+        {
+            case MSG_MOVE_START_FORWARD:
+            case MSG_MOVE_START_BACKWARD:
+            case MSG_MOVE_STOP:
+            case MSG_MOVE_START_STRAFE_LEFT:
+            case MSG_MOVE_START_STRAFE_RIGHT:
+            case MSG_MOVE_STOP_STRAFE:
+            case MSG_MOVE_JUMP:
+            case MSG_MOVE_START_TURN_LEFT:
+            case MSG_MOVE_START_TURN_RIGHT:
+            case MSG_MOVE_STOP_TURN:
+            case MSG_MOVE_START_PITCH_UP:
+            case MSG_MOVE_START_PITCH_DOWN:
+            case MSG_MOVE_STOP_PITCH:
+            case MSG_MOVE_SET_RUN_MODE:
+            case MSG_MOVE_SET_WALK_MODE:
+            case MSG_MOVE_FALL_LAND:
+            case MSG_MOVE_START_SWIM:
+            case MSG_MOVE_STOP_SWIM:
+            case MSG_MOVE_START_ASCEND:
+            case MSG_MOVE_STOP_ASCEND:
+            case MSG_MOVE_START_DESCEND:
+            case MSG_MOVE_SET_FACING:
+            case MSG_MOVE_SET_PITCH:
+            case MSG_MOVE_HEARTBEAT:
+            case CMSG_MOVE_TIME_SKIPPED:
+            case CMSG_MOVE_FALL_RESET:
+            case CMSG_MOVE_CHNG_TRANSPORT:
+            case CMSG_MOVE_SPLINE_DONE:
+            case CMSG_SET_ACTIVE_MOVER:
+            case CMSG_MOVE_NOT_ACTIVE_MOVER:
+            case CMSG_FORCE_RUN_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_RUN_BACK_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_SWIM_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_SWIM_BACK_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_WALK_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_TURN_RATE_CHANGE_ACK:
+            case CMSG_FORCE_FLIGHT_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE_ACK:
+            case CMSG_FORCE_PITCH_RATE_CHANGE_ACK:
+            case CMSG_FORCE_MOVE_ROOT_ACK:
+            case CMSG_FORCE_MOVE_UNROOT_ACK:
+            case CMSG_MOVE_KNOCK_BACK_ACK:
+            case CMSG_MOVE_HOVER_ACK:
+            case CMSG_MOVE_FEATHER_FALL_ACK:
+            case CMSG_MOVE_WATER_WALK_ACK:
+            case CMSG_MOVE_SET_CAN_FLY_ACK:
+            case CMSG_MOVE_SET_CAN_TRANSITION_BETWEEN_SWIM_AND_FLY_ACK:
+            case CMSG_MOVE_GRAVITY_DISABLE_ACK:
+            case CMSG_MOVE_GRAVITY_ENABLE_ACK:
+            case CMSG_MOVE_SET_COLLISION_HGT_ACK:
+            case CMSG_ZONEUPDATE:
+            case CMSG_AREATRIGGER:
+            case CMSG_STANDSTATECHANGE:
+            case CMSG_MOUNTSPECIAL_ANIM:
+                return true;
+            default:
+                break;
+        }
+    }
+    // Locked: only session/UI bookkeeping, readonly queries, POV chat and server teleport acknowledgements.
     switch (opcode)
     {
         case CMSG_CHAR_ENUM:
@@ -448,6 +531,21 @@ bool Observatory::AllowsObserverOpcode(uint32 opcode)
         default:
             return false;
     }
+}
+
+bool Observatory::AllowsObserverChat(uint32 type, uint32 lang, std::string const& msg)
+{
+    if (observerMode.load() >= OBSERVER_FULL_GM)
+        return true;
+    return type == CHAT_MSG_SAY && lang != LANG_ADDON && (msg == ".pov" || msg.rfind(".pov ", 0) == 0);
+}
+
+void Observatory::ObserverCommand(WorldSession const* session, std::string const& command)
+{
+    if (!session || !IsObserver(session))
+        return;
+    // Run-level provenance: any command a human GM runs is visible in the journal, POV included.
+    Event(nullptr, "observer_command", session->GetAccountId(), command);
 }
 
 uint32 Observatory::TargetBotCount()
@@ -593,6 +691,11 @@ void Observatory::Run()
             observing = !observerSessions.empty();
             applied = pending;
         }
+        if (applied.observerMode != observerMode.load())
+        {
+            observerMode.store(applied.observerMode);
+            Event(nullptr, "observer_mode", applied.observerMode, std::to_string(applied.sequence));
+        }
         observerAdmissionOpen.store(!fault.load() && problem.empty() && !completed);
         if (applied.bots != expectedBots)
         {
@@ -678,10 +781,12 @@ void Observatory::Run()
         out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence << ",\"simMs\":" << sim
             << ",\"realMs\":" << std::chrono::duration_cast<Milliseconds>(sampleNow - start).count()
             << ",\"requestedSpeed\":" << applied.speed << ",\"achievedSpeed\":" << achieved
+            << ",\"speedStep\":0.1"
             << ",\"baseline\":" << (baseline ? "true" : "false") << ",\"completed\":" << (completed ? "true" : "false")
             << ",\"readyAtMs\":" << readyAt << ",\"paused\":" << (applied.paused ? "true" : "false")
             << ",\"observersAllowed\":" << (AllowsObservers() ? "true" : "false")
-            << ",\"observers\":" << observerSessions.size() << ",\"controlError\":" << Quote(controlError)
+            << ",\"observers\":" << observerSessions.size() << ",\"observerMode\":" << applied.observerMode
+            << ",\"controlError\":" << Quote(controlError)
             << ",\"controlSeq\":" << applied.sequence << ",\"backlogMs\":" << budget.DebtMicroseconds() / 1000
             << ",\"maxTickUs\":" << maxTickUs << ",\"activeBots\":" << activeBots
             << ",\"overloaded\":" << (budget.DebtMicroseconds() > 1000000 ? "true" : "false")

@@ -313,7 +313,8 @@ header {
   width: 140px;
 }
 #max-speed-status,
-#population-status {
+#population-status,
+#observer-status {
   font-size: 13px;
   color: var(--ash);
 }
@@ -1004,4 +1005,15 @@ summary {
   #map-canvas {
     height: 360px;
   }
+}
+.observer-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.observer-mode .label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
 }

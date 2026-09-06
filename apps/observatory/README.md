@@ -30,9 +30,10 @@ rates are computed from retained history and labelled with their window. It uses
 Python SSE adapter; neither is coupled to simulation tick frequency. Optional local client map artwork is aligned with
 server coordinates; artwork is not bundled in this repository.
 
-Select **Max** to automatically find the fastest sustainable preset (1×, 2×, 5× or 10×). **Max backlog (ms)** sets
-the target, defaulting to 100 simulated milliseconds. The bridge backs off as debt grows and periodically retries
-faster settings, even with the browser closed. Brief spikes are possible during adjustment; selecting a numbered
+Select **Max** to automatically find a sustainable speed from 1× to 10× in 0.1× steps, such as 2.1× or 3.2×.
+This requires an updated worldserver; older servers retain 1×, 2×, 5× and 10×. **Max backlog (ms)** sets
+the target, defaulting to 100 simulated milliseconds. The bridge backs off only when debt keeps growing for three seconds and retries
+faster settings after five seconds of recovery, even with the browser closed. Brief spikes are possible during adjustment; selecting a numbered
 speed ends Max. See [adaptive speed behavior](docs/INTERFACE.md#adaptive-max-speed) for pause, GM POV and restart rules.
 
 The same browser accepts read-only observation feeds from `mod-python-api` controllers via

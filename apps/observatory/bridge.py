@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 import secrets
+from statistics import median
 import threading
 import time
 from collections import Counter, deque
@@ -17,12 +18,23 @@ from urllib.parse import parse_qs, urlparse
 WEB = Path(__file__).with_name('web')
 EXPORTS = {'manifest.json', 'initial.json', 'snapshots.ndjson', 'events.ndjson'}
 SPEEDS = (1, 2, 5, 10)
+DECIMAL_SPEEDS = tuple(tenths / 10 for tenths in range(10, 101))
+OBSERVER_MODES = (0, 1, 2)
 # Trace-only journal kinds (Observatory.Trace = 1). Keep in sync with TRACE_KINDS in web/model.js.
 TRACE_KINDS = frozenset({
     'position', 'melee_swing', 'aura_tick', 'damage_input', 'damage', 'periodic_damage', 'cast_start',
     'cast_finish', 'cast_cancel', 'cooldown', 'regeneration', 'health_set', 'power_set', 'creature_death',
     'creature_respawn',
 })
+
+
+def available_speeds(current):
+    return DECIMAL_SPEEDS if current.get('speedStep') == 0.1 else SPEEDS
+
+
+def valid_speed(speed):
+    return (type(speed) in (int, float) and math.isfinite(speed) and 1 <= speed <= 10
+            and math.isclose(speed * 10, round(speed * 10), rel_tol=0, abs_tol=1e-9))
 
 
 def journal_tail(path, limit, byte_limit):
@@ -131,7 +143,7 @@ class EventTail:
 
 
 class MaxSpeed:
-    """Probe the available rates, backing off before projected debt reaches the user's target."""
+    """Probe available rates; throttle sustained accumulation rather than individual backlog spikes."""
 
     def __init__(self, run, limit, sequence, now):
         self.run = run
@@ -140,59 +152,85 @@ class MaxSpeed:
         self.frame = None
         self.fresh_at = now
         self.stable_since = None
-        self.retry_after = now
+        self.samples = deque(maxlen=64)
         self.status = 'Waiting for world acknowledgement'
+
+    def reset_measurement(self):
+        self.samples.clear()
+        self.stable_since = None
 
     def choose(self, current, now):
         if self.frame and current['seq'] == self.frame['seq']:
             if now - self.fresh_at >= 3:
                 self.status = 'Waiting for fresh telemetry'
-                self.stable_since = None
+                self.reset_measurement()
             return None
         previous, elapsed = self.frame, now - self.fresh_at
         self.frame, self.fresh_at = current, now
+        if elapsed >= 3 or (previous and previous['requestedSpeed'] != current['requestedSpeed']):
+            self.reset_measurement()
         if current['controlSeq'] < self.sequence:
             self.status = 'Waiting for world acknowledgement'
-            self.stable_since = None
+            self.reset_measurement()
             return None
         if current.get('paused'):
             self.status = 'Paused'
-            self.stable_since = None
+            self.reset_measurement()
             return None
         if not current.get('ready') or current.get('populationPending'):
             self.status = 'Waiting for the bot population'
-            self.stable_since = None
+            self.reset_measurement()
             return 1 if current['requestedSpeed'] > 1 else None
 
         speed, backlog = current['requestedSpeed'], current['backlogMs']
-        growth = 0
-        if previous and 0 < elapsed < 3 and previous['requestedSpeed'] == speed:
-            growth = max(0, (backlog - previous['backlogMs']) / elapsed)
-        # Leave room for the next sample and mailbox acknowledgement. A sudden stall can still overshoot.
-        projected = backlog + growth * 0.5
-        if projected >= self.limit * 0.8:
+        speeds = available_speeds(current)
+        self.samples.append((now, backlog))
+        while len(self.samples) > 1 and self.samples[1][0] <= now - 3:
+            self.samples.popleft()
+        if self.stable_since is None:
+            self.stable_since = now
+
+        # Compare three one-second medians. A single spike, a plateau, or clearing debt is not
+        # sustained growth. Only fresh samples at the acknowledged speed enter this window.
+        buckets = ([value for stamp, value in self.samples if stamp <= now - 2],
+                   [value for stamp, value in self.samples if now - 2 < stamp <= now - 1],
+                   [value for stamp, value in self.samples if stamp > now - 1])
+        if now - self.samples[0][0] < 3 or not all(buckets):
+            self.status = 'Measuring backlog trend'
+            return None
+        early, middle, recent = map(median, buckets)
+        noise = max(1, self.limit * 0.01)
+        growing = middle > early + noise and recent > middle + noise and backlog >= recent
+        if growing:
             self.stable_since = None
-            self.retry_after = now + 30
-            if previous and backlog < previous['backlogMs']:
-                self.status = 'Holding speed while backlog drains'
+            if recent < self.limit:
+                self.status = 'Watching growing backlog'
                 return None
             if speed == 1:
-                self.status = 'At 1×; waiting for backlog to drain'
+                self.status = 'At 1×; backlog is still accumulating'
                 return None
-            self.status = 'Reducing speed to drain backlog'
-            return SPEEDS[SPEEDS.index(speed) - 1]
-        if backlog > self.limit * 0.25:
+            self.status = 'Reducing speed: backlog has been accumulating for 3 seconds'
+            if current.get('speedStep') == 0.1:
+                # Debt growth is requested rate minus capacity. Leave 0.1x headroom to drain it;
+                # a large capacity loss must not take dozens of 0.1x reductions to recover.
+                span = (median(stamp for stamp, _ in self.samples if stamp > now - 1)
+                        - median(stamp for stamp, _ in self.samples if stamp <= now - 2))
+                capacity = speed - (recent - early) / span / 1000
+                reduced = max(1, min(round(speed - 0.1, 1), round(math.floor(capacity * 10) / 10 - 0.1, 1)))
+                self.reset_measurement()
+                return reduced
+            self.reset_measurement()
+            return speeds[speeds.index(speed) - 1]
+        if recent > self.limit and recent < early - noise:
             self.stable_since = None
             self.status = 'Holding speed while backlog drains'
             return None
-        if self.stable_since is None:
-            self.stable_since = now
-        if speed == SPEEDS[-1]:
+        if speed == speeds[-1]:
             self.status = 'Running at the highest available speed'
-        elif now >= self.retry_after and now - self.stable_since >= 5:
-            self.stable_since = None
+        elif now - self.stable_since >= 5:
+            self.reset_measurement()
             self.status = 'Trying the next speed'
-            return SPEEDS[SPEEDS.index(speed) + 1]
+            return speeds[speeds.index(speed) + 1]
         else:
             self.status = 'Measuring sustainable speed'
         return None
@@ -235,7 +273,7 @@ class Spool:
                 with self.lock:
                     if self.max_speed:
                         self.max_speed.status = 'Waiting for valid telemetry and control mailbox'
-                        self.max_speed.stable_since = None
+                        self.max_speed.reset_measurement()
 
     def adjust_speed(self, now=None):
         now = time.monotonic() if now is None else now
@@ -264,26 +302,32 @@ class Spool:
 
     @staticmethod
     def validate_speed_telemetry(current):
-        if (current.get('requestedSpeed') not in SPEEDS or type(current.get('seq')) is not int
+        if (not valid_speed(current.get('requestedSpeed'))
+                or current['requestedSpeed'] not in available_speeds(current) or type(current.get('seq')) is not int
                 or type(current.get('backlogMs')) not in (int, float)
                 or not math.isfinite(current['backlogMs']) or current['backlogMs'] < 0):
             raise ValueError('Max requires valid speed and backlog telemetry')
 
     def control(self, request):
         required = {'run', 'speed', 'paused'}
-        if (not required <= set(request) or set(request) - required - {'bots', 'backlogLimitMs'}
+        if (not required <= set(request) or set(request) - required - {'bots', 'backlogLimitMs', 'observerMode'}
                 or not (request['speed'] == 'max'
-                        or (type(request['speed']) is int and request['speed'] in SPEEDS))
+                        or valid_speed(request['speed']))
                 or type(request['paused']) is not bool):
-            raise ValueError('Expected run, speed (1, 2, 5, 10, or max), and paused (boolean)')
+            raise ValueError('Expected run, speed (1–10 in 0.1 steps, or max), and paused (boolean)')
         if 'backlogLimitMs' in request and (request['speed'] != 'max'
                 or type(request['backlogLimitMs']) is not int or not 10 <= request['backlogLimitMs'] <= 60000):
             raise ValueError('backlogLimitMs requires Max and must be an integer from 10 to 60000')
         if 'bots' in request and (type(request['bots']) is not int or not 0 <= request['bots'] <= 100):
             raise ValueError('bots must be an integer from 0 to 100')
+        if 'observerMode' in request and (type(request['observerMode']) is not int
+                                         or request['observerMode'] not in OBSERVER_MODES):
+            raise ValueError('observerMode must be 0 (locked), 1 (roam) or 2 (full GM)')
         with self.lock:
             numeric = dict(request)
             numeric.pop('backlogLimitMs', None)
+            if request['speed'] != 'max':
+                numeric['speed'] = round(request['speed'], 1)
             if request['speed'] == 'max':
                 current = self.snapshot()
                 if current.get('baseline') or current.get('observers'):
@@ -307,6 +351,8 @@ class Spool:
                 raise ValueError('This observation feed is read-only; use the Python controller for actions')
             if request['run'] != current['run']:
                 raise ValueError('Run changed; reconnect before controlling')
+            if request['speed'] not in available_speeds(current):
+                raise ValueError('Update the worldserver before requesting speeds outside 1, 2, 5 and 10')
             if current.get('baseline') and (request['speed'] != 1 or request['paused']):
                 raise ValueError('Real-time baseline supports 1x without pause only')
             if current.get('observers', 0) and (request['speed'] != 1 or request['paused']):
@@ -316,12 +362,15 @@ class Spool:
             if current['fault']:
                 raise ValueError('Run is invalid; inspect server and start a fresh run')
             bots = current.get('expectedBots', 100)
+            observer_mode = current.get('observerMode', 0)
             try:
                 fields = (self.directory / 'control.txt').read_text().split()
                 run, sequence = fields[:2]
-                if (run == current['run'] and len(fields) == 5
+                if (run == current['run'] and len(fields) >= 5
                         and (int(sequence) > current['controlSeq'] or not current.get('controlError'))):
                     bots = int(fields[4])
+                    if len(fields) >= 6:
+                        observer_mode = int(fields[5])
                 if run == current['run']:
                     self.sequence = max(self.sequence, int(sequence))
             except (OSError, ValueError):
@@ -333,11 +382,16 @@ class Spool:
                 raise ValueError('Target exceeds the configured bot pool')
             if current.get('baseline') and bots != current.get('expectedBots'):
                 raise ValueError('Real-time baseline has a fixed population')
+            if 'observerMode' in request and 'observerMode' not in current:
+                raise ValueError('Update the worldserver before controlling GM observer mode')
+            observer_mode = request.get('observerMode', observer_mode)
             self.sequence = max(self.sequence, current['controlSeq']) + 1
             # The world acknowledges application in subsequent snapshots; HTTP 202 is acceptance only.
-            text = f"{request['run']} {self.sequence} {request['speed']} {int(request['paused'])}"
+            text = f"{request['run']} {self.sequence} {request['speed']:g} {int(request['paused'])}"
             if 'maxBots' in current:
                 text += f" {bots}"
+            if 'observerMode' in current:
+                text += f" {observer_mode}"
             text += "\n"
             temporary = self.directory / 'control.txt.tmp'
             temporary.write_text(text)

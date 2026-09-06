@@ -43,6 +43,8 @@ Baseline mode may overshoot a configured duration by one ordinary update. Virtua
 
 The clock is global within this worldserver process. Authserver is separate and keeps real clocks. Human sessions are
 rejected by default. Optional GM POV locks the world to unpaused 1× for the connection lifetime (see `INTERFACE.md`);
+its observer mode (locked, roam, full GM) decides whether the human may move or mutate the world, and only the locked
+default keeps a run comparable;
 console, SOAP, remote admin and the bot command server remain disabled to exclude
 out-of-band gameplay mutation. Startup requires all four database names to start with `obs_` and a literal disposable
 acknowledgement. These checks are guardrails; the operator must actually provision disposable databases and isolated

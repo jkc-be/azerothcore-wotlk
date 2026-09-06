@@ -1,4 +1,4 @@
-# Append to a COPY of the installed worldserver.conf on the separate server.
+# Append to a COPY of the installed worldserver.conf (e.g. /srv/observatory/server/etc/).
 # Substitute DB credentials; all four database names MUST start with obs_.
 LoginDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_auth"
 WorldDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_world"
@@ -8,6 +8,9 @@ Observatory.Enable = 1
 # Opt-in native GM-only POV; connections force unpaused 1x until all disconnect.
 # Keep disabled for timing comparisons and benchmarks. Requires the Custom POV script.
 Observatory.AllowGmObservers = 0
+# Initial GM observer control level, changeable live from the dashboard: 0 locked spectator (/pov only),
+# 1 roam (movement allowed, commands still /pov only), 2 full GM (all commands; journaled, not a clean comparison).
+Observatory.ObserverMode = 0
 Observatory.DisposableAcknowledgement = "DISPOSABLE_BOTS_ONLY"
 # Parent directory must exist. This run directory MUST NOT already exist.
 Observatory.Directory = "/srv/observatory/runs/run-001"
