@@ -38,6 +38,7 @@
 #include "MiscPackets.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "OutdoorPvPMgr.h"
 #include "PacketUtilities.h"
@@ -191,6 +192,7 @@ WorldSession::~WorldSession()
         delete packet;
 
     LoginDatabase.Execute("UPDATE account SET online = 0 WHERE id = {};", GetAccountId());     // One-time query
+    Observatory::UnregisterObserver(this);
 }
 
 void WorldSession::UpdateAccountFlag(uint32 flag, bool remove /*= flase*/)
@@ -644,6 +646,10 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
 bool WorldSession::HandleSocketClosed()
 {
+    // Observers have no combat grace period; normal session cleanup releases the 1x lease.
+    if (Observatory::IsObserver(this))
+        return false;
+
     if (m_Socket && !m_Socket->IsOpen() && !IsKicked() && GetPlayer() && !PlayerLogout() && GetPlayer()->m_taxi.empty() && GetPlayer()->IsInWorld() && !World::IsStopped())
     {
         m_Socket = nullptr;

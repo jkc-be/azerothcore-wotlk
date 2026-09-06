@@ -67,6 +67,27 @@ class Controls(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 2})
 
+    def test_observer_lock_preserves_population_control(self):
+        self.snapshot.update(observers=1, expectedBots=1, maxBots=100)
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        for speed, paused in ((2, False), (5, False), (10, False), (1, True)):
+            with self.assertRaisesRegex(ValueError, 'GM POV'):
+                self.spool.control({'run': 'run-a', 'speed': speed, 'paused': paused})
+        self.assertFalse((self.path / 'control.txt').exists())
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 3})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 6 1 0 3\n')
+        self.snapshot['observers'] = 0
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        self.spool.control({'run': 'run-a', 'speed': 10, 'paused': False})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 7 10 0 3\n')
+
+    def test_rejected_mailbox_target_is_not_reapplied(self):
+        self.snapshot.update(expectedBots=1, maxBots=100, controlError='GM POV requires 1x')
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        (self.path / 'control.txt').write_text('run-a 5 10 1 75\n')
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False})
+        self.assertEqual((self.path / 'control.txt').read_text(), 'run-a 6 1 0 1\n')
+
     def test_viewer_capacity_is_bounded(self):
         for _ in range(16):
             self.assertTrue(self.spool.viewers.acquire(blocking=False))

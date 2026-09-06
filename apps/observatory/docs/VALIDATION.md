@@ -101,3 +101,29 @@ counter with no humans, verifies observation at zero, and checks cumulative prog
 It restores original requested controls; elapsed gameplay cannot be undone. It fails on a fault, changed run, or
 bounded real-time timeout. Browser fixture coverage separately checks the form and pending/matched messages.
 This small population proof does not establish 100-bot performance or equal-duration gameplay equivalence.
+
+## GM-only native POV (exclusive disposable run)
+
+Enable `Observatory.AllowGmObservers = 1`, compile Custom scripts, and wait for at least two online bots.
+Keep this separate from timing comparisons and benchmarks. Use the same running world and authserver, with
+no human viewers connected during the test. Configure the standard `E2E_AUTH_ADDR`, `E2E_AUTH_DSN`,
+`E2E_CHAR_DSN` and `E2E_WORLD_DSN` from `e2e/README.md` to the four disposable `obs_` databases.
+
+```sh
+export E2E_OBSERVATORY_URL=http://127.0.0.1:8787
+export E2E_OBSERVATORY_TOKEN_FILE=/srv/observatory/token
+export E2E_OBSERVATORY_SPOOL=/srv/observatory/runs/run-001
+cd e2e
+go test -tags=e2e ./suites/observatory -run TestObservatory_GmPovConnectionLock -count=2 -v -timeout 3m
+```
+
+This test creates unique disposable GM and ordinary accounts. It checks ordinary realm rejection, GM login from
+pause, watch/switch/stop, HTTP pause/speed rejection, the world mailbox rejection of a stale acceleration request,
+blocked movement and GM money/death commands, two simultaneous GMs, character-selection lease retention and
+abrupt disconnect cleanup. It checks saved observer coordinates only after logout; POV state uses native packets.
+GM access is revoked in cleanup; test character/account rows remain in the disposable fixture output as evidence.
+AzerothGhost v1.0.8 sends an invalid OS FourCC; the test fixes only its own freshly authenticated account metadata
+before world authentication, retaining Warden and ordinary-account checks. No real account is used by this test.
+
+Manual native-client coverage still includes cinematic exit, addon rendering and camera behavior through target
+map/instance transfers, mounted targets and death. Scientific throughput claims require a separate observer-free run.

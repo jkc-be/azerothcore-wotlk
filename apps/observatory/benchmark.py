@@ -52,6 +52,8 @@ def main():
     try:
         while True:
             frame = api('/api/snapshot')
+            if frame.get('observersAllowed') or frame.get('observers'):
+                raise RuntimeError('Disable GM observer admission for benchmarks')
             if frame['fault']:
                 raise RuntimeError(frame['fault'])
             if (frame['ready'] and not frame.get('populationPending', False)
@@ -79,6 +81,8 @@ def main():
         with (args.output / 'observed.ndjson').open('w') as output:
             while last['simMs'] - first['simMs'] < args.hours * 3600000:
                 frame = api('/api/snapshot')
+                if frame.get('observers'):
+                    raise RuntimeError('GM observer connected during benchmark')
                 if frame['run'] != run or frame['fault']:
                     raise RuntimeError('Run changed or faulted')
                 if frame['seq'] != last['seq']:

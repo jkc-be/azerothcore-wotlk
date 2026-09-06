@@ -19,6 +19,7 @@
 #include "Config.h"
 #include "Item.h"
 #include "ObjectAccessor.h"
+#include "Opcodes.h"
 #include "Player.h"
 #include "SimulationBudget.h"
 #include "SimulationClock.h"
@@ -66,6 +67,12 @@ namespace
     std::atomic<uint32> expectedBots{100};
     uint32 maxBots = 100;
     bool populationSettled = false;
+    bool allowObservers = false;
+    std::atomic<bool> observerSupport{false};
+    std::atomic<bool> observerAdmissionOpen{false};
+    // Identity-only leases; never dereference these pointers. WorldSession destruction releases its lease.
+    std::set<WorldSession const*> observerSessions;
+    std::string controlError;
     bool trace = false;
     bool baseline = false;
     uint64 durationMs = 0;
@@ -162,7 +169,16 @@ namespace
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         if (sequence > pending.sequence)
-                            pending = {sequence, speed, paused != 0, bots};
+                        {
+                            controlError.clear();
+                            if (!observerSessions.empty() && (speed != 1 || paused))
+                            {
+                                controlError = "GM POV requires 1x without pause until all observers disconnect";
+                                pending.sequence = sequence;
+                            }
+                            else
+                                pending = {sequence, speed, paused != 0, bots};
+                        }
                     }
                 }
                 if (stopping.load())
@@ -278,6 +294,9 @@ bool Observatory::Initialize()
         return false;
 
     baseline = sConfigMgr->GetOption<bool>("Observatory.RealTimeBaseline", false);
+    allowObservers = sConfigMgr->GetOption<bool>("Observatory.AllowGmObservers", false);
+    if (baseline && allowObservers)
+        return false;
     durationMs = sConfigMgr->GetOption<uint64>("Observatory.DurationMs", 0);
     if (durationMs % StepMs != 0)
         return false;
@@ -340,6 +359,95 @@ bool Observatory::Initialize()
 bool Observatory::AllowsBot(uint32 characterId)
 {
     return !SimulationClock::Enabled() || configuredBots.empty() || configuredBots.contains(characterId);
+}
+
+bool Observatory::AllowsObservers()
+{
+    return SimulationClock::Enabled() && allowObservers && observerSupport.load();
+}
+
+void Observatory::ObserverSupportReady()
+{
+    observerSupport.store(true);
+}
+
+bool Observatory::RegisterObserver(WorldSession const* session)
+{
+    if (!AllowsObservers() || !session || session->IsBot() || session->GetSecurity() < SEC_GAMEMASTER)
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!observerAdmissionOpen.load() || fault.load() || stopping.load())
+            return false;
+        if (!observerSessions.insert(session).second)
+            return false;
+        pending.speed = 1;
+        pending.paused = false;
+        controlError.clear();
+    }
+    Event(nullptr, "observer_connect", session->GetAccountId(), "GM POV; speed locked to 1x");
+    return true;
+}
+
+void Observatory::UnregisterObserver(WorldSession const* session)
+{
+    if (!AllowsObservers())
+        return;
+    bool removed;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        removed = observerSessions.erase(session) != 0;
+    }
+    if (removed)
+        Event(nullptr, "observer_disconnect", session->GetAccountId(),
+            "1x retained; controls unlock after last observer");
+}
+
+bool Observatory::IsObserver(WorldSession const* session)
+{
+    if (!AllowsObservers() || !session || session->IsBot())
+        return false;
+    std::lock_guard<std::mutex> lock(mutex);
+    return observerSessions.contains(session);
+}
+
+bool Observatory::AllowsObserverOpcode(uint32 opcode)
+{
+    // Only session/UI bookkeeping, readonly queries, POV chat and server teleport acknowledgements.
+    switch (opcode)
+    {
+        case CMSG_CHAR_ENUM:
+        case CMSG_CHAR_CREATE:
+        case CMSG_PLAYER_LOGIN:
+        case CMSG_LOGOUT_REQUEST:
+        case CMSG_LOGOUT_CANCEL:
+        case CMSG_NAME_QUERY:
+        case CMSG_QUERY_TIME:
+        case CMSG_CREATURE_QUERY:
+        case CMSG_GAMEOBJECT_QUERY:
+        case CMSG_ITEM_QUERY_SINGLE:
+        case CMSG_PAGE_TEXT_QUERY:
+        case CMSG_QUEST_QUERY:
+        case CMSG_QUEST_POI_QUERY:
+        case CMSG_REQUEST_ACCOUNT_DATA:
+        case CMSG_UPDATE_ACCOUNT_DATA:
+        case CMSG_READY_FOR_ACCOUNT_DATA_TIMES:
+        case CMSG_TIME_SYNC_RESP:
+        case CMSG_REALM_SPLIT:
+        case CMSG_WARDEN_DATA:
+        case CMSG_SET_SELECTION:
+        case CMSG_MESSAGECHAT:
+        case CMSG_CONTACT_LIST:
+        case CMSG_NEXT_CINEMATIC_CAMERA:
+        case CMSG_COMPLETE_CINEMATIC:
+        case CMSG_REQUEST_RAID_INFO:
+        case CMSG_GET_MIRRORIMAGE_DATA:
+        case MSG_MOVE_WORLDPORT_ACK:
+        case MSG_MOVE_TELEPORT_ACK:
+            return true;
+        default:
+            return false;
+    }
 }
 
 uint32 Observatory::TargetBotCount()
@@ -469,6 +577,8 @@ void Observatory::Run()
     uint64 populationSince = 0;
     std::string problem;
     bool ready = false;
+    auto nextObserverTick = Clock::now();
+    observerAdmissionOpen.store(true);
     while (!World::IsStopped())
     {
         ++World::m_worldLoopCounter; // The real-time watchdog sees a heartbeat even while paused.
@@ -477,10 +587,13 @@ void Observatory::Run()
         previous = now;
         completed = ready && durationMs && SimulationClock::Elapsed().count() >= int64(readyAt + durationMs);
         budget.Accrue(uint64(realUs), applied.speed, applied.paused || fault.load() || !problem.empty() || completed);
+        bool observing;
         {
             std::lock_guard<std::mutex> lock(mutex);
+            observing = !observerSessions.empty();
             applied = pending;
         }
+        observerAdmissionOpen.store(!fault.load() && problem.empty() && !completed);
         if (applied.bots != expectedBots)
         {
             expectedBots = applied.bots;
@@ -489,9 +602,12 @@ void Observatory::Run()
             Event(nullptr, "population_target", expectedBots, std::to_string(applied.sequence));
         }
         // One normal-sized tick at a time. Debt is retained across speed changes, overload and pauses.
-        if (budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
+        if ((!observing || now >= nextObserverTick) &&
+            budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
         {
             auto tickStart = Clock::now();
+            // Retain accumulated debt, but never run a burst of catch-up steps under a native client.
+            nextObserverTick = tickStart + Milliseconds(StepMs);
             uint32 diff =
                 baseline ? uint32(std::chrono::duration_cast<Milliseconds>(tickStart - lastWorldTick).count()) : StepMs;
             lastWorldTick = tickStart;
@@ -516,7 +632,7 @@ void Observatory::Run()
         uint32 inWorld = 0;
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
-            if (player->GetSession() && !player->GetSession()->IsBot())
+            if (player->GetSession() && !player->GetSession()->IsBot() && !IsObserver(player->GetSession()))
                 problem = "human_session";
             if (player->GetSession() && player->GetSession()->IsBot())
             {
@@ -564,6 +680,8 @@ void Observatory::Run()
             << ",\"requestedSpeed\":" << applied.speed << ",\"achievedSpeed\":" << achieved
             << ",\"baseline\":" << (baseline ? "true" : "false") << ",\"completed\":" << (completed ? "true" : "false")
             << ",\"readyAtMs\":" << readyAt << ",\"paused\":" << (applied.paused ? "true" : "false")
+            << ",\"observersAllowed\":" << (AllowsObservers() ? "true" : "false")
+            << ",\"observers\":" << observerSessions.size() << ",\"controlError\":" << Quote(controlError)
             << ",\"controlSeq\":" << applied.sequence << ",\"backlogMs\":" << budget.DebtMicroseconds() / 1000
             << ",\"maxTickUs\":" << maxTickUs << ",\"activeBots\":" << activeBots
             << ",\"overloaded\":" << (budget.DebtMicroseconds() > 1000000 ? "true" : "false")

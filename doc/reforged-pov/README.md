@@ -16,7 +16,10 @@ follow [the agent update procedure](../../.agents/docs/systems/observatory.md) a
 
 The compatibility code keeps a watched bot active despite GM invisibility and streams its successful AI actions.
 Ordinary activity policy resumes when bind sight is detached. Native-client POV operates with the browser
-observatory disabled, because isolated simulation runs intentionally reject all human sessions.
+observatory disabled, or explicitly opt in with `Observatory.AllowGmObservers = 1`. In that mode only realm
+GMs can connect, the world locks to unpaused 1× until every observer disconnects, and only POV interaction is
+permitted. `/pov stop` returns the camera but does not unlock acceleration or movement. See
+[the observatory interface](../../apps/observatory/docs/INTERFACE.md#native-gm-pov).
 
 ## Files and integration
 

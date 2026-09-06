@@ -31,6 +31,7 @@
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -269,6 +270,13 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
     // Our Warden module also uses SendAddonMessage as a way to communicate Lua check results to the server, see if this is that
     if (type == CHAT_MSG_GUILD && lang == LANG_ADDON && _warden && _warden->ProcessLuaCheckResponse(msg))
     {
+        return;
+    }
+
+    if (Observatory::IsObserver(this) &&
+        (type != CHAT_MSG_SAY || lang == LANG_ADDON || (msg != ".pov" && msg.rfind(".pov ", 0) != 0)))
+    {
+        ChatHandler(this).SendSysMessage("This observatory connection permits /pov only.");
         return;
     }
 

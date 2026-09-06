@@ -35,7 +35,8 @@ The UI itself needs no game artwork, node packages or frontend build.
 Create a dedicated OS service account and **four new disposable** databases: `obs_auth`, `obs_world`,
 `obs_characters`, `obs_playerbots`. Use isolated MySQL credentials restricted to these databases. Initialize them with
 the normal core/module updater and clean test fixtures on the server. Keep the auth realm configuration consistent with
-this test world. Bots use internal sessions; no human client is required or admitted to this world.
+this test world. Bots use internal sessions; no human client is required. Native clients are rejected by default;
+optional GM-only POV admission is documented in `INTERFACE.md`.
 If a provisioning pass is needed before test fixtures exist, do that on the isolated server using ordinary 1× mode;
 then take a clean offline fixture before enabling virtual time. Preserve its revision, dump hashes, bot GUIDs,
 equipment/levels, known NPC/route/spell setup and effective configuration for every comparison.
@@ -57,7 +58,9 @@ install -d -m 700 /srv/observatory/runs
 
 The run directory itself must not exist: worldserver creates it atomically at startup and refuses reuse. The startup
 checks also require `DISPOSABLE_BOTS_ONLY`, `obs_` database names, bounded population, no periodic logouts, and disabled
-console/RA/SOAP/bot command listeners. Public clients are rejected in world authentication independently of bind address.
+console/RA/SOAP/bot command listeners. Ordinary accounts are rejected in world authentication independently of
+bind address.
+Keep `Observatory.AllowGmObservers = 0` for comparisons and benchmarks.
 The observatory starts at requested 1×. Set speed in the UI or benchmark controller after reviewing initial state.
 Signals still stop the process; after normal shutdown the writer drains and closes the journal.
 
