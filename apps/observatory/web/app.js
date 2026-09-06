@@ -116,7 +116,8 @@ function ingest(snapshot) {
   if (!history.length || history.at(-1).simMs !== state.simMs) history.push(summarize(state));
   if (history.length > 4000) history.splice(0, history.length - 4000);
   updateMaps();
-  $("pause").disabled = $("speed").disabled = Boolean(state.fault || state.completed || state.baseline || state.observers);
+  $("pause").disabled = $("speed").disabled =
+    Boolean(state.fault || state.completed || state.baseline || state.observers);
   $("bot-count").disabled = $("set-bots").disabled =
     Boolean(state.fault || state.completed || state.baseline || state.maxBots === undefined);
   $("bot-count").max = state.maxBots ?? 100;
@@ -161,7 +162,7 @@ function ingest(snapshot) {
         : state.paused
           ? "Gameplay paused. Observation and controls remain available."
           : state.observers
-            ? `GM POV connected (${state.observers}) · speed locked to 1×; pause unlocks after all observers disconnect.`
+            ? `GM POV connected (${state.observers}) · 1× locked until all observers disconnect.`
             : state.overloaded
               ? "Capacity shortfall: simulation debt is growing; gameplay steps are retained."
               : `Connected · run ${state.run} · authoritative in-memory telemetry`,

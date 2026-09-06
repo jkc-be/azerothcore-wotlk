@@ -58,7 +58,8 @@ install -d -m 700 /srv/observatory/runs
 
 The run directory itself must not exist: worldserver creates it atomically at startup and refuses reuse. The startup
 checks also require `DISPOSABLE_BOTS_ONLY`, `obs_` database names, bounded population, no periodic logouts, and disabled
-console/RA/SOAP/bot command listeners. Ordinary accounts are rejected in world authentication independently of bind address.
+console/RA/SOAP/bot command listeners. Ordinary accounts are rejected in world authentication independently of
+bind address.
 Keep `Observatory.AllowGmObservers = 0` for comparisons and benchmarks.
 The observatory starts at requested 1×. Set speed in the UI or benchmark controller after reviewing initial state.
 Signals still stop the process; after normal shutdown the writer drains and closes the journal.

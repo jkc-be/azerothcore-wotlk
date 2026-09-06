@@ -399,7 +399,8 @@ void Observatory::UnregisterObserver(WorldSession const* session)
         removed = observerSessions.erase(session) != 0;
     }
     if (removed)
-        Event(nullptr, "observer_disconnect", session->GetAccountId(), "1x retained; controls unlock after last observer");
+        Event(nullptr, "observer_disconnect", session->GetAccountId(),
+            "1x retained; controls unlock after last observer");
 }
 
 bool Observatory::IsObserver(WorldSession const* session)

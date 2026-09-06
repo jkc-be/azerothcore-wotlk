@@ -223,7 +223,11 @@ func TestObservatory_GmPovConnectionLock(t *testing.T) {
 	if err != nil {
 		e2eharness.Preconditionf(t, "token: %v", err)
 	}
-	a := api{strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"), strings.TrimSpace(string(token)), &http.Client{Timeout: 5 * time.Second}}
+	a := api{
+		url:   strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"),
+		token: strings.TrimSpace(string(token)),
+		http:  &http.Client{Timeout: 5 * time.Second},
+	}
 	initial := a.frame(t)
 	if !initial.Allowed || initial.Observers != 0 || len(initial.Bots) < 2 {
 		e2eharness.Preconditionf(t, "need observer admission, no clients and two bots")
@@ -245,7 +249,8 @@ func TestObservatory_GmPovConnectionLock(t *testing.T) {
 		}
 		t.Cleanup(func() {
 			// Retain disposable character rows as evidence; remove access so test GMs cannot be reused.
-			if _, err := db.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account); err != nil {
+			_, err := db.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account)
+			if err != nil {
 				t.Errorf("cleanup access: %v", err)
 			}
 		})
@@ -340,10 +345,13 @@ func TestObservatory_GmPovConnectionLock(t *testing.T) {
 	defer charDB.Close()
 	var sx, sy, sz float64
 	var smap, smoney uint32
-	if err := charDB.QueryRow("SELECT position_x,position_y,position_z,map,money FROM characters WHERE guid=?", observer.CharGUID()).Scan(&sx, &sy, &sz, &smap, &smoney); err != nil {
+	err = charDB.QueryRow("SELECT position_x,position_y,position_z,map,money FROM characters WHERE guid=?",
+		observer.CharGUID()).Scan(&sx, &sy, &sz, &smap, &smoney)
+	if err != nil {
 		e2eharness.HarnessFailf(t, "logout save: %v", err)
 	}
-	require(t, math.Abs(sx-float64(x)) < .1 && math.Abs(sy-float64(y)) < .1 && math.Abs(sz-float64(z)) < .1 && smap == mapID && smoney == money, "blocked movement/money reached logout save")
+	require(t, math.Abs(sx-float64(x)) < .1 && math.Abs(sy-float64(y)) < .1 &&
+		math.Abs(sz-float64(z)) < .1 && smap == mapID && smoney == money, "blocked movement/money reached logout save")
 	// Character selection still owns the world connection.
 	s = a.frame(t)
 	a.control(t, s, 2, false, 400)
@@ -358,5 +366,5 @@ func TestObservatory_GmPovConnectionLock(t *testing.T) {
 	a.wait(t, "restore controls", func(s snapshot) bool {
 		return s.ControlSeq == seq && s.Speed == initial.Speed && s.Paused == initial.Paused
 	})
-	t.Logf("PASS native GM login/watch/switch/stop, ordinary rejection, blocked movement/money, stale mailbox rejection, 1x/pause lock, two GMs, character selection, abrupt disconnect; measured %.3fx", ratio)
+	t.Logf("PASS native GM POV, ordinary rejection, read-only state, mailbox lock, multi-GM disconnect; measured %.3fx", ratio)
 }

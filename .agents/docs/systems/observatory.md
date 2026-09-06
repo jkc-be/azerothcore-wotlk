@@ -37,7 +37,8 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    version, module revision and the authoritative `/api/snapshot`.
    Verify a new run ID, advancing simulated time, complete cohort, increasing per-bot AI counters, pause/resume and
    requested versus achieved speed. Reconnect the browser and test an export. If updating ordinary POV, also test its
-   watch/switch/stop and successful-action feed with simulation disabled. Keep GM observer admission disabled for timing comparisons and benchmarks. If explicitly enabling native GM POV,
+   watch/switch/stop and successful-action feed with simulation disabled. Keep GM observer admission disabled for
+   timing comparisons and benchmarks. If explicitly enabling native GM POV,
    follow `INTERFACE.md`: verify ordinary-account rejection, connection-lifetime 1× lock and watch/stop/disconnect.
 8. Report the deployed commit IDs, exact services changed, checks performed, dashboard address and any remaining
    correctness/performance limits. If validation fails, keep the new run stopped, retain failure artifacts and restore

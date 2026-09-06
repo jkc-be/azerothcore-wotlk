@@ -338,7 +338,8 @@ public:
         player->SetGMVisible(false);
         player->SetGMSpectator(true);
         player->SetClientControl(player, false);
-        ChatHandler(player->GetSession()).SendSysMessage("GM observer: use /pov. Simulation is locked to 1x until disconnect.");
+        ChatHandler(player->GetSession()).SendSysMessage(
+            "GM observer: use /pov. Simulation is locked to 1x until disconnect.");
     }
 
     void OnPlayerBeforeLogout(Player* player) override
