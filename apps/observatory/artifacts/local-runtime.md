@@ -28,3 +28,31 @@ directory on the machine; client artwork and credentials are not committed.
 
 Pending: controlled baseline/virtual 1×/accelerated comparisons for all required gameplay timing families, ordinary
 POV regression coverage, fault injection, and the 100-bot/10× 24-simulated-hour benchmark in `../docs/VALIDATION.md`.
+
+## Population controls — third local run
+
+Core source `426c0fe50b2b523406b1488a1b5231259dc8c435` and module
+`c405aac5` were built with clang 18, static scripts/Playerbots and BUILD_TESTING enabled. Worldserver, authserver and
+unit_tests built; CTest's unit target passed. The optional Python API was disabled with
+`-DMODULE_MOD-PYTHON-API=disabled`, preserving the runtime's previous enabled-module set. Building that separate
+handoff alongside Playerbots remains pending its documented external-control patch and C++ compatibility fixes;
+its Transport header collides with core and its Boost calls also failed compilation. This is not an all-module build.
+
+The prior virtual-time databases were backed up and all four obs_ databases restored from the clean fixture before
+starting run `1788661751568010994`. Initial target: 1; prepared random-bot pool: 100; BotGuids: empty; trace: off.
+The private token and extracted map artwork were retained.
+
+- `tests/population_live.py` passed actual 1→3→1→0→3 population changes, resize deferred during pause, active AI
+  for all three joined bots, advancing observation/gameplay with zero bots, and monotonic run progression totals.
+  It recorded 39 authoritative samples and restored the original controls.
+- A real Chromium session then submitted target 3 through the form and observed 3 active/online/in-world bots,
+  matched population, pool limit 100 and no JavaScript exceptions. Local map artwork remained visible.
+- The character table contained 100 rows both before and after the logout/rejoin proof; shrinking deleted no characters.
+- Eight JavaScript tests, seven bridge tests and the synthetic Chromium form smoke passed. Python API's 18 Python
+  tests also passed; these do not establish that module's C++ integration works.
+- Source review found no remaining issues in the population change. The full C++ linter reports inherited findings
+  outside the changed lines; the SQL linter cannot run because this fork has no origin/master. No SQL source changed.
+
+Private evidence: `results/population-live.json`, `results/population-browser.png`, build/test logs, binary hashes,
+and the third run's timestamped snapshots/events. This is a small live population proof; equal-duration timing,
+100-bot throughput, ordinary-server POV, and overload/fault-injection coverage remain separate pending validations.
