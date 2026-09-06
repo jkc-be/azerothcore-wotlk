@@ -1,3 +1,64 @@
+diff --git a/src/Bot/Engine/Engine.cpp b/src/Bot/Engine/Engine.cpp
+index 443f9c09..d5207500 100644
+--- a/src/Bot/Engine/Engine.cpp
++++ b/src/Bot/Engine/Engine.cpp
+@@ -6,12 +6,14 @@
+ 
+ #include "Engine.h"
+ #include "Action.h"
++#include "ArenaSpectator.h"
+ #include "Event.h"
+ #include "PerfMonitor.h"
+ #include "Playerbots.h"
+ #include "Queue.h"
+ #include "Strategy.h"
+ #include "Timer.h"
++#include "WorldSession.h"
+ 
+ Engine::Engine(PlayerbotAI* botAI, AiObjectContext* factory) : PlayerbotAIAware(botAI), aiObjectContext(factory)
+ {
+@@ -573,6 +575,7 @@ Action* Engine::InitializeAction(ActionNode* actionNode)
+ bool Engine::ListenAndExecute(Action* action, Event event)
+ {
+     bool actionExecuted = false;
++    bool performed = false;
+ 
+     if (action == nullptr)
+     {
+@@ -583,7 +586,8 @@ bool Engine::ListenAndExecute(Action* action, Event event)
+ 
+     if (actionExecutionListeners.Before(action, event))
+     {
+-        actionExecuted = actionExecutionListeners.AllowExecution(action, event) ? action->Execute(event) : true;
++        actionExecuted = actionExecutionListeners.AllowExecution(action, event) ?
++            (performed = action->Execute(event)) : true;
+     }
+ 
+     if (botAI->HasStrategy("debug", BOT_STATE_NON_COMBAT))
+@@ -607,6 +611,23 @@ bool Engine::ListenAndExecute(Action* action, Event event)
+ 
+     actionExecuted = actionExecutionListeners.OverrideResult(action, actionExecuted, event);
+     actionExecutionListeners.After(action, actionExecuted, event);
++    if (performed && actionExecuted)
++    {
++        Player* bot = botAI->GetBot();
++        for (Player* observer : bot->GetSharedVisionList())
++        {
++            if (!observer || !observer->IsInWorld() || !observer->IsGMSpectator() ||
++                observer->GetViewpoint() != bot || !observer->GetSession() ||
++                observer->GetSession()->IsSocketClosed())
++                continue;
++
++            std::string name = action->getName().substr(0, 120);
++            for (char& character : name)
++                if (character == '|' || character == '\t' || character == '\n' || character == '\r')
++                    character = ' ';
++            ArenaSpectator::SendCommand(observer, "RPOV\tACTION|{}|{}", bot->GetName(), name);
++        }
++    }
+     return actionExecuted;
+ }
+ 
 diff --git a/src/Bot/PlayerbotAI.cpp b/src/Bot/PlayerbotAI.cpp
 index 55f77321..24aba2dd 100644
 --- a/src/Bot/PlayerbotAI.cpp

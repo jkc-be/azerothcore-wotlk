@@ -63,6 +63,26 @@ for _, f in ipairs(frames) do
     if rawget(f, "value") == 1500 and rawget(f, "high") == 2000 then castFound = true end
 end
 assert(castFound, "cast progress uses server timing")
+local function hasText(text)
+    for _, f in ipairs(frames) do
+        if rawget(f, "text") == text then return true end
+    end
+    return false
+end
+message("ACTION|Alice|attack", "AnotherPlayer")
+assert(hasText("Waiting for bot actions…"), "forged actions ignored")
+message("ACTION|Alice|attack")
+message("ACTION|Alice|attack")
+assert(hasText("Last action: attack x2  (0s ago)"), "repeated actions counted")
+message("ACTION|Alice|loot")
+assert(hasText("Last action: loot  (0s ago)") and hasText("attack x2  (0s ago)"), "action history rendered")
+now = 2
+events.scripts.OnUpdate()
+assert(hasText("Last action: loot  (2s ago)"), "action age updated")
+message("WATCH|Bob")
+message("ACTION|Alice|attack")
+assert(hasText("Waiting for bot actions…"), "switch clears history and ignores previous bot")
+message("WATCH|Alice")
 SlashCmdList.REFORGEDPOV("")
 message(state)
 assert(ReforgedPOVPicker:IsShown(), "live snapshots do not close reopened picker")
@@ -70,7 +90,7 @@ message("STOP")
 assert(not ReforgedPOVHUD:IsShown() and PlayerFrame:IsShown() and MainMenuBar:IsShown(), "stop restores UI")
 message("STATE|Bot|0|0|3|0|0||0|0|0|0|0|12|Dead")
 assert(ReforgedPOVHUD:IsShown(), "state resumes HUD after a UI reload without WATCH")
-now = 6
+now = 8
 events.scripts.OnUpdate()
 local stale = false
 for _, f in ipairs(frames) do
@@ -84,11 +104,11 @@ local count = #sent
 SlashCmdList.REFORGEDPOV("Alice\n.gm on")
 assert(#sent == count, "invalid character input rejected")
 SlashCmdList.REFORGEDPOV("")
-now = 17
+now = 19
 events.scripts.OnUpdate()
 local timeout = false
 for _, f in ipairs(frames) do
     if rawget(f, "text") == "No reply. Check that the server extension is installed and you have GM access." then timeout = true end
 end
 assert(timeout, "missing server extension is explained")
-print("PASS: picker, selection, sender validation, live HUD, casts, stop/restore, reload recovery, stale data, input and timeout")
+print("PASS: picker, selection, sender validation, live HUD, casts, action history/counts/age/switching, stop/restore, reload recovery, stale data, input and timeout")

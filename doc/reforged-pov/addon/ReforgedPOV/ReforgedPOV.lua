@@ -1,6 +1,7 @@
 local prefix = "RPOV"
 local players, rows, hidden = {}, {}, {}
 local page, more, lastState, pending, active = 0, false, 0, nil, false
+local watchedName, actions, lastActionRender = nil, {}, 0
 local classNames = {"Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Death Knight", "Shaman", "Mage", "Warlock", "", "Druid"}
 local powerNames = {[0] = "Mana", [1] = "Rage", [2] = "Focus", [3] = "Energy", [6] = "Runic power"}
 local powerColors = {[0] = {0.15, 0.4, 1}, [1] = {0.9, 0.15, 0.1}, [2] = {1, 0.5, 0.2}, [3] = {1, 0.85, 0.1}, [6] = {0, 0.8, 1}}
@@ -53,12 +54,43 @@ nameBox:SetPoint("TOPLEFT", 28, -75)
 nameBox:SetAutoFocus(false)
 nameBox:SetMaxLetters(24)
 
-local hud = panel("ReforgedPOVHUD", 420, 216)
+local hud = panel("ReforgedPOVHUD", 420, 300)
 hud:ClearAllPoints()
 hud:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 65)
 hud:Hide()
 local title = label(hud, 22, -22, "Live spectator", "GameFontNormalLarge")
 local activity = label(hud, 22, -47, "Connecting…")
+local actionText = label(hud, 22, -159, "Waiting for bot actions…")
+actionText:SetWidth(376)
+actionText:SetJustifyH("LEFT")
+local historyText = label(hud, 22, -181, "")
+historyText:SetWidth(376)
+historyText:SetHeight(62)
+historyText:SetJustifyH("LEFT")
+historyText:SetJustifyV("TOP")
+
+local function renderActions()
+    if #actions == 0 then
+        actionText:SetText("Waiting for bot actions…")
+        historyText:SetText("")
+        return
+    end
+    local lines = {}
+    for i, entry in ipairs(actions) do
+        local age = math.max(0, math.floor(GetTime() - entry.time))
+        local text = entry.name .. (entry.count > 1 and (" x" .. entry.count) or "") .. "  (" .. age .. "s ago)"
+        if i == 1 then actionText:SetText("Last action: " .. text)
+        else lines[#lines + 1] = text end
+    end
+    historyText:SetText(table.concat(lines, "\n"))
+end
+
+local function selectWatched(name)
+    if watchedName ~= name then
+        watchedName, actions = name, {}
+        renderActions()
+    end
+end
 
 local function bar(y, r, g, b)
     local f = CreateFrame("StatusBar", nil, hud)
@@ -110,8 +142,8 @@ local prev = button(picker, "Previous", 168, -434, 105, function() page = math.m
 local nextPage = button(picker, "Next", 305, -434, 105, function() if more then page = page + 1; refresh() end end)
 prev:Disable()
 nextPage:Disable()
-button(hud, "Choose player", 22, -172, 170, function() picker:Show(); refresh() end)
-button(hud, "Stop watching", 224, -172, 174, function() command("stop"); activity:SetText("Returning to your character…") end)
+button(hud, "Choose player", 22, -256, 170, function() picker:Show(); refresh() end)
+button(hud, "Stop watching", 224, -256, 174, function() command("stop"); activity:SetText("Returning to your character…") end)
 
 local scroll = CreateFrame("ScrollFrame", "ReforgedPOVScroll", picker, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 22, -111)
@@ -188,12 +220,14 @@ events:SetScript("OnEvent", function(self, event, incomingPrefix, message, chann
         render()
         status:SetText(#players == 0 and "No observable players on this page. Try Refresh." or ("Page " .. (page + 1) .. " — click a character to watch."))
     elseif kind == "WATCH" then
+        selectWatched(data[2])
         title:SetText("Watching " .. (data[2] or "player"))
         activity:SetText("Loading the player's view…")
         lastState = GetTime()
         hud:Show()
         picker:Hide()
     elseif kind == "STATE" and #data >= 15 then
+        selectWatched(data[2])
         if not active then picker:Hide() end
         pending, active, lastState = nil, true, GetTime()
         hideObserverUI()
@@ -207,7 +241,19 @@ events:SetScript("OnEvent", function(self, event, incomingPrefix, message, chann
         setBar(targetBar, data[9], data[10], data[8] ~= "" and ("Target: " .. data[8] .. "  " .. data[9] .. " / " .. data[10]) or "No target")
         local spell, remaining, total = tonumber(data[11]) or 0, tonumber(data[12]) or 0, tonumber(data[13]) or 0
         setBar(castBar, math.max(0, total - remaining), total, spell > 0 and ((GetSpellInfo(spell) or "Casting") .. string.format("  %.1fs", remaining / 1000)) or "No active cast")
+    elseif kind == "ACTION" and data[2] == watchedName and data[3] and data[3] ~= "" then
+        local name = data[3]:gsub("|", ""):gsub("%c", " "):sub(1, 120)
+        if actions[1] and actions[1].name == name then
+            actions[1].count = actions[1].count + 1
+            actions[1].time = GetTime()
+        else
+            table.insert(actions, 1, {name = name, time = GetTime(), count = 1})
+            if #actions > 4 then table.remove(actions) end
+        end
+        renderActions()
     elseif kind == "STOP" then
+        watchedName, actions = nil, {}
+        renderActions()
         active, pending = false, nil
         restoreUI()
         hud:Hide()
@@ -220,6 +266,10 @@ events:SetScript("OnEvent", function(self, event, incomingPrefix, message, chann
 end)
 
 events:SetScript("OnUpdate", function()
+    if hud:IsShown() and GetTime() - lastActionRender >= 0.25 then
+        renderActions()
+        lastActionRender = GetTime()
+    end
     if pending and GetTime() - pending > 10 then
         pending = nil
         status:SetText("No reply. Check that the server extension is installed and you have GM access.")
