@@ -48,13 +48,18 @@ The same browser accepts read-only observation feeds from `mod-python-api` contr
 `acore_api.ObservatoryPublisher`: searchable bots, map/instance selection, health and combat charts, detailed
 inspection, recent history restoration and full journal exports. See the Python dashboard guide above.
 
+Runtime configs are rendered, not hand-edited: `render_config.py` layers the installed `.conf.dist`, the tracked
+`config/*.conf.example`, a machine-local overlay and a secrets file into the complete `.conf`, and can derive the
+overlay from an existing deployment. See `docs/HANDOFF.md`.
+
 Permitted local checks (no server build):
 
 ```sh
 node --check apps/observatory/web/app.js apps/observatory/web/charts.js
 node --test apps/observatory/tests/*.test.mjs
 python3 -m unittest discover -s apps/observatory/tests -v
-python3 -m py_compile apps/observatory/bridge.py apps/observatory/analyze.py apps/observatory/benchmark.py
+python3 -m py_compile apps/observatory/bridge.py apps/observatory/analyze.py apps/observatory/benchmark.py \
+  apps/observatory/render_config.py
 python3 apps/codestyle/codestyle-cpp.py
 python3 apps/codestyle/codestyle-sql.py
 git diff --check

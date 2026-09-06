@@ -26,8 +26,11 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    snapshots, logs and measured results. Stop the exact managed process gracefully using its actual service/container
    manager. Preserve a rollback copy of installed binaries, effective configs and pre-update DB backups. Do not kill
    unrelated processes or restart a whole shared host. Install the verified binaries only after checks pass.
-6. Update configuration by reviewing differences from the new `.conf.dist` files; preserve credentials and deployment
-   values. Never copy an example over a complete runtime config. For a normal server with simulation disabled, preserve
+6. Update configuration by re-rendering it: `apps/observatory/render_config.py render` layers the new `.conf.dist`,
+   the tracked example, the deployment's local overlay and its secrets file (see `docs/HANDOFF.md`); run it with
+   `--check` against the current file first and review every listed difference. A deployment still edited by hand is
+   adopted with `render_config.py derive`. Never copy an example over a complete runtime config, and never print or
+   commit the secrets overlay. For a normal server with simulation disabled, preserve
    databases and use the normal updater. For an observatory run, **never resume a saved virtual-time database**: retain
    the export, restore all four `obs_` databases from the recorded clean pre-run fixture, and select a new run directory.
    Only disposable simulation databases may be reset. Existing production/human data is outside this reset procedure.
