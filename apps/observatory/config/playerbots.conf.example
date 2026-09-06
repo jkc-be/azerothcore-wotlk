@@ -15,5 +15,7 @@ AiPlayerbot.RandomBotXPRate = 1
 AiPlayerbot.AutoDestroyJunk = 1
 # Standard upstream conveniences remain enabled. Every comparison must use the same configuration.
 AiPlayerbot.BotCheats = "food,taxi,raid"
+# Skip periodic/death/level-up/stuck teleports. Requires a worldserver built with OriginalTravel.
+AiPlayerbot.OriginalTravel = 1
 # Keep upstream level generation defaults; generated levels/gear are explicitly identified in the journal.
 # To study low-level progression, provision a known low-level cohort and record factory/reset settings.
