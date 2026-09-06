@@ -4,9 +4,22 @@ This branch adds a GM spectator prototype with an online character picker and a 
 WoW 3.3.5a client. The client uses native world rendering and bind sight. Online server `Player`
 objects are eligible, including simulated players that use that representation.
 
-**Status: source handoff, not a validated deployment.** C++ has not been compiled or run against
-a worldserver. Client Lua behavior tests and repository style checks pass. The producing machine
-is a client workstation; compilation, integration and live gameplay validation belong on the server side.
+The extension is integrated into this fork's Playerbots master. Build with Custom scripts enabled.
+The server command path must dispatch permitted commands before the spectator chat restriction, so
+`.pov stop` and target switching remain available while observing.
+
+For mod-playerbots at `b949b50bfcdd4fab937781bac2d7765e39330e4b`, apply the bundled compatibility patch
+before compiling. It keeps a bot with a connected POV observer active despite GM invisibility, including
+movement and nearby-player checks. The normal activity policy resumes after bind sight is detached.
+The patch is scoped to the watched bot and does not change the global active-bot percentage.
+
+```bash
+git -C modules/mod-playerbots apply --check ../../doc/reforged-pov/mod-playerbots-observer.patch
+git -C modules/mod-playerbots apply ../../doc/reforged-pov/mod-playerbots-observer.patch
+```
+
+Skip applying it again if `git apply --reverse --check` succeeds. Recheck compatibility when updating
+the module; its upstream checkout is separate from the core repository.
 
 ## Files and integration
 
