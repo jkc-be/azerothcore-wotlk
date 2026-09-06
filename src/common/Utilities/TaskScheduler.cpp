@@ -126,7 +126,8 @@ bool TaskScheduler::IsGroupScheduled(group_t const group)
 
 Milliseconds TaskScheduler::GetNextGroupOccurrence(group_t const group) const
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(_task_holder.GetNextGroupOccurrence(group) - SimulationClock::Now());
+    return std::chrono::duration_cast<std::chrono::milliseconds>(_task_holder.GetNextGroupOccurrence(group) -
+                                                                 SimulationClock::Now());
 }
 
 void TaskScheduler::TaskQueue::Push(TaskContainer&& task)

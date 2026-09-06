@@ -20,23 +20,24 @@
 #include "Item.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
-#include "SimulationClock.h"
 #include "SimulationBudget.h"
+#include "SimulationClock.h"
 #include "World.h"
 #include "WorldSession.h"
 #include <algorithm>
 #include <atomic>
-#include <stdexcept>
-#include <condition_variable>
 #include <charconv>
+#include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 
 namespace
@@ -53,6 +54,7 @@ namespace
     std::thread writer;
     std::atomic<bool> stopping{false};
     std::atomic<bool> fault{false};
+    std::string faultReason = "journal_failure";
     struct Control
     {
         uint64 sequence = 0;
@@ -82,6 +84,7 @@ namespace
     std::string Quote(std::string_view input)
     {
         std::ostringstream out;
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
         out << '"';
         for (unsigned char c : input)
         {
@@ -149,7 +152,8 @@ namespace
                 uint32 paused;
                 if (control >> requestedRun >> sequence >> speed >> paused)
                 {
-                    if ((!baseline || (speed == 1 && paused == 0)) && requestedRun == runId && (speed == 1 || speed == 2 || speed == 5 || speed == 10) && paused <= 1)
+                    if ((!baseline || (speed == 1 && paused == 0)) && requestedRun == runId &&
+                        (speed == 1 || speed == 2 || speed == 5 || speed == 10) && paused <= 1)
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         if (sequence > pending.sequence)
@@ -169,6 +173,7 @@ namespace
     std::string Players()
     {
         std::ostringstream out;
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
         out << '[';
         bool first = true;
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
@@ -184,15 +189,17 @@ namespace
                 << ",\"map\":" << player->GetMapId() << ",\"instance\":" << player->GetInstanceId()
                 << ",\"zone\":" << player->GetZoneId() << ",\"x\":" << player->GetPositionX()
                 << ",\"y\":" << player->GetPositionY() << ",\"z\":" << player->GetPositionZ()
-                << ",\"level\":" << unsigned(player->GetLevel())
-                << ",\"xp\":" << player->GetUInt32Value(PLAYER_XP)
+                << ",\"level\":" << unsigned(player->GetLevel()) << ",\"xp\":" << player->GetUInt32Value(PLAYER_XP)
                 << ",\"nextLevelXp\":" << player->GetUInt32Value(PLAYER_NEXT_LEVEL_XP)
                 << ",\"health\":" << player->GetHealth() << ",\"maxHealth\":" << player->GetMaxHealth()
                 << ",\"lastAiMs\":" << count.lastAiMs << ",\"aiUpdates\":" << count.aiUpdates
-                << ",\"money\":" << player->GetMoney() << ",\"earnedXp\":" << count.xp
-                << ",\"deaths\":" << count.deaths << ",\"questCompletions\":" << count.quests
-                << ",\"activity\":" << Quote(!player->IsAlive() ? "dead" : player->IsInCombat() ? "combat" :
-                    player->IsNonMeleeSpellCast(false) ? "casting" : player->isMoving() ? "moving" : "idle")
+                << ",\"money\":" << player->GetMoney() << ",\"earnedXp\":" << count.xp << ",\"deaths\":" << count.deaths
+                << ",\"questCompletions\":" << count.quests << ",\"activity\":"
+                << Quote(!player->IsAlive()                   ? "dead"
+                         : player->IsInCombat()               ? "combat"
+                         : player->IsNonMeleeSpellCast(false) ? "casting"
+                         : player->isMoving()                 ? "moving"
+                                                              : "idle")
                 << ",\"gear\":[";
             for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
             {
@@ -211,13 +218,21 @@ namespace
                 if (!firstQuest)
                     out << ',';
                 firstQuest = false;
-                out << "{\"id\":" << quest << ",\"state\":" << player->GetQuestSlotState(slot)
-                    << ",\"objectives\":[";
+                out << "{\"id\":" << quest << ",\"state\":" << player->GetQuestSlotState(slot) << ",\"objectives\":[";
                 for (uint8 objective = 0; objective < 4; ++objective)
                 {
                     if (objective)
                         out << ',';
                     out << player->GetQuestSlotCounter(slot, objective);
+                }
+                out << "],\"items\":[";
+                auto const& statuses = player->getQuestStatusMap();
+                auto status = statuses.find(quest);
+                for (uint8 objective = 0; objective < QUEST_ITEM_OBJECTIVES_COUNT; ++objective)
+                {
+                    if (objective)
+                        out << ',';
+                    out << (status != statuses.end() ? status->second.ItemCount[objective] : 0);
                 }
                 out << "]}";
             }
@@ -226,7 +241,7 @@ namespace
         out << ']';
         return out.str();
     }
-}
+} // namespace
 
 bool Observatory::Initialize()
 {
@@ -236,8 +251,8 @@ bool Observatory::Initialize()
     if (sConfigMgr->GetOption<std::string>("Observatory.DisposableAcknowledgement", "") != "DISPOSABLE_BOTS_ONLY")
         return false;
     // Check before opening any database: persisted virtual epochs are unsuitable for production or restart.
-    for (std::string const key : {"LoginDatabaseInfo", "WorldDatabaseInfo", "CharacterDatabaseInfo",
-        "PlayerbotsDatabaseInfo"})
+    for (std::string const key :
+         {"LoginDatabaseInfo", "WorldDatabaseInfo", "CharacterDatabaseInfo", "PlayerbotsDatabaseInfo"})
     {
         std::string info = sConfigMgr->GetOption<std::string>(key, "");
         auto separator = info.rfind(';');
@@ -245,16 +260,14 @@ bool Observatory::Initialize()
             return false;
     }
     expectedBots = sConfigMgr->GetOption<uint32>("Observatory.BotCount", 100);
-    if (!expectedBots || expectedBots > 100 ||
-        !sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", false) ||
+    if (!expectedBots || expectedBots > 100 || !sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", false) ||
         !sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotAutologin", false) ||
         sConfigMgr->GetOption<bool>("AiPlayerbot.DisabledWithoutRealPlayer", true) ||
         sConfigMgr->GetOption<bool>("AiPlayerbot.EnablePeriodicOnlineOffline", true) ||
         sConfigMgr->GetOption<uint32>("AiPlayerbot.MinRandomBots", 0) != expectedBots ||
         sConfigMgr->GetOption<uint32>("AiPlayerbot.MaxRandomBots", 0) != expectedBots ||
         sConfigMgr->GetOption<uint32>("AiPlayerbot.CommandServerPort", 8888) != 0 ||
-        sConfigMgr->GetOption<bool>("SOAP.Enabled", false) ||
-        sConfigMgr->GetOption<bool>("Ra.Enable", false) ||
+        sConfigMgr->GetOption<bool>("SOAP.Enabled", false) || sConfigMgr->GetOption<bool>("Ra.Enable", false) ||
         sConfigMgr->GetOption<bool>("Console.Enable", true))
         return false;
 
@@ -270,7 +283,8 @@ bool Observatory::Initialize()
     {
         uint32 id = 0;
         auto [end, error] = std::from_chars(identity.data(), identity.data() + identity.size(), id);
-        if (error != std::errc() || end != identity.data() + identity.size() || !id || !configuredBots.insert(id).second)
+        if (error != std::errc() || end != identity.data() + identity.size() || !id ||
+            !configuredBots.insert(id).second)
             return false;
     }
     if (!configuredBots.empty() && configuredBots.size() != expectedBots)
@@ -285,13 +299,13 @@ bool Observatory::Initialize()
         runId = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
         std::ostringstream manifest;
         manifest << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"stepMs\":" << StepMs
-            << ",\"expectedBots\":" << expectedBots << ",\"settings\":{";
+                 << ",\"expectedBots\":" << expectedBots << ",\"settings\":{";
         bool first = true;
         for (auto const& key : sConfigMgr->GetKeysByString(""))
         {
             // Record simulation/gameplay settings only; connection strings and credentials stay private.
-            if (key.rfind("AiPlayerbot.", 0) != 0 && key.rfind("Rate.", 0) != 0 &&
-                key.rfind("Observatory.", 0) != 0 && key != "MapUpdateInterval" && key != "MapUpdate.Threads")
+            if (key.rfind("AiPlayerbot.", 0) != 0 && key.rfind("Rate.", 0) != 0 && key.rfind("Observatory.", 0) != 0 &&
+                key != "MapUpdateInterval" && key != "MapUpdate.Threads")
                 continue;
             if (key.find("Password") != std::string::npos || key.find("Token") != std::string::npos)
                 continue;
@@ -315,6 +329,15 @@ bool Observatory::Initialize()
 bool Observatory::AllowsBot(uint32 characterId)
 {
     return !SimulationClock::Enabled() || configuredBots.empty() || configuredBots.contains(characterId);
+}
+
+void Observatory::Fail(std::string_view reason)
+{
+    if (!SimulationClock::Enabled())
+        return;
+    std::lock_guard<std::mutex> lock(mutex);
+    faultReason = reason;
+    fault.store(true);
 }
 
 void Observatory::Stop()
@@ -365,6 +388,7 @@ void Observatory::Event(Player const* player, std::string_view kind, uint64 valu
         return;
     }
     std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<float>::max_digits10);
     out << "{\"run\":" << Quote(runId) << ",\"seq\":" << ++eventSequence
         << ",\"simMs\":" << SimulationClock::Elapsed().count() << ",\"bot\":" << Quote(id)
         << ",\"kind\":" << Quote(kind) << ",\"value\":" << value << ",\"detail\":" << Quote(detail)
@@ -395,14 +419,14 @@ void Observatory::Probe(Unit const* actor, std::string_view kind, uint64 value, 
         return;
     }
     std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<float>::max_digits10);
     out << "{\"run\":" << Quote(runId) << ",\"seq\":" << ++eventSequence
         << ",\"simMs\":" << SimulationClock::Elapsed().count() << ",\"bot\":" << Quote(id)
         << ",\"kind\":" << Quote(kind) << ",\"value\":" << value << ",\"spell\":" << spell
-        << ",\"other\":" << Quote(other ? other->GetGUID().ToString() : "")
-        << ",\"context\":" << Quote(context) << ",\"map\":" << actor->GetMapId()
-        << ",\"instance\":" << actor->GetInstanceId() << ",\"x\":" << actor->GetPositionX()
-        << ",\"y\":" << actor->GetPositionY() << ",\"z\":" << actor->GetPositionZ()
-        << ",\"health\":" << actor->GetHealth() << '}';
+        << ",\"other\":" << Quote(other ? other->GetGUID().ToString() : "") << ",\"context\":" << Quote(context)
+        << ",\"map\":" << actor->GetMapId() << ",\"instance\":" << actor->GetInstanceId()
+        << ",\"x\":" << actor->GetPositionX() << ",\"y\":" << actor->GetPositionY()
+        << ",\"z\":" << actor->GetPositionZ() << ",\"health\":" << actor->GetHealth() << '}';
     events.push_back(out.str());
 }
 
@@ -428,8 +452,7 @@ void Observatory::Run()
         auto realUs = std::chrono::duration_cast<Microseconds>(now - previous).count();
         previous = now;
         completed = ready && durationMs && SimulationClock::Elapsed().count() >= int64(readyAt + durationMs);
-        budget.Accrue(uint64(realUs), applied.speed,
-            applied.paused || fault.load() || !problem.empty() || completed);
+        budget.Accrue(uint64(realUs), applied.speed, applied.paused || fault.load() || !problem.empty() || completed);
         {
             std::lock_guard<std::mutex> lock(mutex);
             applied = pending;
@@ -438,15 +461,15 @@ void Observatory::Run()
         if (budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
         {
             auto tickStart = Clock::now();
-            uint32 diff = baseline ? uint32(
-                std::chrono::duration_cast<Milliseconds>(tickStart - lastWorldTick).count()) : StepMs;
+            uint32 diff =
+                baseline ? uint32(std::chrono::duration_cast<Milliseconds>(tickStart - lastWorldTick).count()) : StepMs;
             lastWorldTick = tickStart;
             if (baseline)
                 budget = SimulationBudget();
             SimulationClock::Advance(Milliseconds(diff));
             sWorld->Update(diff);
-            maxTickUs = std::max(maxTickUs, uint64(
-                std::chrono::duration_cast<Microseconds>(Clock::now() - tickStart).count()));
+            maxTickUs =
+                std::max(maxTickUs, uint64(std::chrono::duration_cast<Microseconds>(Clock::now() - tickStart).count()));
             if (trace)
                 for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
                     if (player->IsInWorld())
@@ -455,7 +478,8 @@ void Observatory::Run()
         else
             std::this_thread::sleep_for(1ms);
 
-        if (now - sampled < 250ms)
+        auto sampleNow = Clock::now();
+        if (sampleNow - sampled < 250ms)
             continue;
         std::set<std::string> online;
         uint32 inWorld = 0;
@@ -479,7 +503,7 @@ void Observatory::Run()
         if (online.size() > expectedBots || (ready && online != cohort))
             problem = "cohort_changed";
         uint64 sim = SimulationClock::Elapsed().count();
-        double realMs = std::chrono::duration<double, std::milli>(now - sampled).count();
+        double realMs = std::chrono::duration<double, std::milli>(sampleNow - sampled).count();
         double achieved = (sim - sampledSim) / realMs;
         std::lock_guard<std::mutex> lock(mutex);
         uint32 activeBots = 0;
@@ -487,22 +511,21 @@ void Observatory::Run()
             if (totals[id].aiUpdates && sim - totals[id].lastAiMs < 10000)
                 ++activeBots;
         std::ostringstream out;
-        out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence
-            << ",\"simMs\":" << sim << ",\"realMs\":"
-            << std::chrono::duration_cast<Milliseconds>(now - start).count()
+        out << std::setprecision(std::numeric_limits<float>::max_digits10);
+        out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence << ",\"simMs\":" << sim
+            << ",\"realMs\":" << std::chrono::duration_cast<Milliseconds>(sampleNow - start).count()
             << ",\"requestedSpeed\":" << applied.speed << ",\"achievedSpeed\":" << achieved
-            << ",\"baseline\":" << (baseline ? "true" : "false")
-            << ",\"completed\":" << (completed ? "true" : "false") << ",\"readyAtMs\":" << readyAt
-            << ",\"paused\":" << (applied.paused ? "true" : "false")
+            << ",\"baseline\":" << (baseline ? "true" : "false") << ",\"completed\":" << (completed ? "true" : "false")
+            << ",\"readyAtMs\":" << readyAt << ",\"paused\":" << (applied.paused ? "true" : "false")
             << ",\"controlSeq\":" << applied.sequence << ",\"backlogMs\":" << budget.DebtMicroseconds() / 1000
             << ",\"maxTickUs\":" << maxTickUs << ",\"activeBots\":" << activeBots
             << ",\"overloaded\":" << (budget.DebtMicroseconds() > 1000000 ? "true" : "false")
             << ",\"ready\":" << (ready ? "true" : "false") << ",\"expectedBots\":" << expectedBots
-            << ",\"onlineBots\":" << online.size() << ",\"fault\":"
-            << Quote(fault.load() ? "journal_failure" : problem) << ",\"bots\":" << Players() << '}';
+            << ",\"onlineBots\":" << online.size() << ",\"fault\":" << Quote(fault.load() ? faultReason : problem)
+            << ",\"bots\":" << Players() << '}';
         latest = out.str();
         maxTickUs = 0;
-        sampled = now;
+        sampled = sampleNow;
         sampledSim = sim;
         wake.notify_one();
     }

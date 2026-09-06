@@ -15,8 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Observatory.h"
-#include "SimulationClock.h"
 #include "Unit.h"
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
@@ -50,6 +48,7 @@
 #include "MovementGenerator.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "OutdoorPvP.h"
 #include "PassiveAI.h"
 #include "Pet.h"
@@ -59,6 +58,7 @@
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
@@ -1349,7 +1349,7 @@ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage
     LOG_DEBUG("entities.unit", "DealDamageEnd returned {} damage", damage);
 
     Observatory::Probe(attacker, damagetype == DOT ? "periodic_damage" : "damage", damage,
-        spellProto ? spellProto->Id : 0, victim);
+                       spellProto ? spellProto->Id : 0, victim);
     return damage;
 }
 

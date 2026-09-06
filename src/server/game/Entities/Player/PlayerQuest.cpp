@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Observatory.h"
 #include "CreatureAI.h"
 #include "DisableMgr.h"
 #include "GameEventMgr.h"
@@ -25,6 +24,7 @@
 #include "GossipDef.h"
 #include "Group.h"
 #include "MapMgr.h"
+#include "Observatory.h"
 #include "Player.h"
 #include "PoolMgr.h"
 #include "QuestPackets.h"

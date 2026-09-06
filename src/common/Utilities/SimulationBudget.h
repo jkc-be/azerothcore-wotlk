@@ -39,7 +39,10 @@ public:
         return true;
     }
 
-    uint64 DebtMicroseconds() const { return _debt; }
+    uint64 DebtMicroseconds() const
+    {
+        return _debt;
+    }
 
 private:
     uint64 _debt = 0;

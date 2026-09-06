@@ -1,12 +1,13 @@
 # Validation protocol (separate game server)
 
-Status at handoff: source/front-end checks have run locally. No C++ compilation, worldserver execution, gameplay timing
-comparison or throughput measurement has run on the client workstation. The 10×/100-bot target is unmeasured.
+Local source, build and frontend validation results are recorded in `../artifacts/local-checks.md`.
+No worldserver execution, gameplay timing comparison or throughput measurement has run.
+The 10×/100-bot target is unmeasured.
 Do not scale to 100 until the small timing proof passes. Keep the resulting exports with the revision and configuration.
 
 1. Follow `HANDOFF.md` to build on the separate server. Run
    `ctest --test-dir ../build-observatory --output-on-failure` and the dedicated
-   `../build-observatory/src/test/unit_tests --gtest_filter=SimulationBudget.*` tests.
+   `../build-observatory/src/test/unit_tests --gtest_filter=SimulationBudget.*:SimulationClockDeathTest.*` tests.
    They exercise fixed step count, fractional debt, overload, pause and speed transitions without launching a realm.
 2. Provision one to five known bots in a clean disposable fixture. Set `Observatory.BotCount` and both
    `AiPlayerbot.MinRandomBots` / `MaxRandomBots` to the same count. Set `Observatory.BotGuids` to their exact character

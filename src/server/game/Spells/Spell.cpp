@@ -15,13 +15,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Observatory.h"
 #include "Spell.h"
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
-#include "CharmInfo.h"
 #include "CellImpl.h"
+#include "CharmInfo.h"
 #include "Common.h"
 #include "ConditionMgr.h"
 #include "DisableMgr.h"
@@ -35,6 +34,7 @@
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"
@@ -52,8 +52,8 @@
 #include "Vehicle.h"
 #include "World.h"
 #include "WorldPacket.h"
-#include <cmath>
 #include <G3D/g3dmath.h>
+#include <cmath>
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue

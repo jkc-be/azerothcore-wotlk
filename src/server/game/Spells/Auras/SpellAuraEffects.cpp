@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Observatory.h"
 #include "SpellAuraEffects.h"
 #include "AreaDefines.h"
 #include "BattlefieldMgr.h"
@@ -28,6 +27,7 @@
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "OutdoorPvPMgr.h"
 #include "Pet.h"

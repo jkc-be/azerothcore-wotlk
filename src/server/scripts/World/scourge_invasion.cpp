@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
+#include "scourge_invasion.h"
 #include "AreaDefines.h"
 #include "CellImpl.h"
 #include "CombatAI.h"
@@ -29,6 +29,7 @@
 #include "ObjectDefines.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
+#include "SimulationClock.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -36,7 +37,6 @@
 #include "Weather.h"
 #include "WeatherMgr.h"
 #include "WorldState.h"
-#include "scourge_invasion.h"
 #include <chrono>
 
 class go_necropolis : public GameObjectAI

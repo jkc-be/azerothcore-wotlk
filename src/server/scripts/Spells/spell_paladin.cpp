@@ -15,10 +15,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
 #include "GameTime.h"
 #include "Group.h"
 #include "Player.h"
+#include "SimulationClock.h"
 #include "SpellAuraEffects.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"

@@ -1,46 +1,93 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Playerbot Observatory</title>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <header>
-    <div><span class="eyebrow">AZEROTHCORE / LIVE GAMEPLAY</span><h1>Playerbot Observatory</h1></div>
-    <form id="connect"><label>Access token <input id="token" type="password" required autocomplete="off"></label>
-      <button>Connect</button></form>
-  </header>
-  <div id="notice" role="status">Connect to an isolated test run to observe authoritative gameplay.</div>
-  <section class="metrics" id="metrics" aria-label="Simulation status"></section>
-  <nav aria-label="Simulation controls">
-    <button id="pause" disabled>Pause</button>
-    <label>Requested speed <select id="speed" disabled><option>1</option><option>2</option><option>5</option>
-      <option>10</option></select> ×</label>
-    <span id="control-status"></span>
-    <label>Export <select id="export-file"><option>snapshots.ndjson</option><option>events.ndjson</option>
-      <option>initial.json</option><option>manifest.json</option></select></label><button id="export">Download</button>
-  </nav>
-  <main>
-    <section class="map-panel">
-      <div class="panel-heading"><h2>World coordinates</h2>
-        <label>Map <select id="map"></select></label><label>Zone <select id="zone"></select></label>
-        <button id="fit">Fit bots</button></div>
-      <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
-      <p class="caption">Drag to pan · scroll to zoom · select a marker. Coordinates in world yards; map IDs from server.</p>
-    </section>
-    <aside><h2 id="bot-name">Select a bot</h2><div id="bot-details">Choose a marker to inspect progression.</div>
-      <h3>Recent events</h3><ol id="events"></ol></aside>
-    <section class="charts"><div class="panel-heading"><h2>Population over simulated time</h2>
-      <label>Metric <select id="chart-metric"><option value="levels">Level distribution</option>
-        <option value="zones">Zone population</option><option value="xp">XP gained</option>
-        <option value="quests">Quest completions</option><option value="deaths">Deaths</option></select></label></div>
-      <canvas id="chart-canvas" aria-label="Population history chart"></canvas><div id="legend"></div>
-      <p class="caption">Session history, up to 4,000 samples. Full timestamped history is retained in exports.
-        Generated progression and bot shortcuts appear in the event journal.</p>
-    </section>
-  </main>
-  <script type="module" src="/app.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Playerbot Observatory</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <span class="eyebrow">AZEROTHCORE / LIVE GAMEPLAY</span>
+        <h1>Playerbot Observatory</h1>
+      </div>
+      <form id="connect">
+        <label>Access token <input id="token" type="password" required autocomplete="off" /></label>
+        <button>Connect</button>
+      </form>
+    </header>
+    <div id="notice" role="status">Connect to an isolated test run to observe authoritative gameplay.</div>
+    <section class="metrics" id="metrics" aria-label="Simulation status"></section>
+    <nav aria-label="Simulation controls">
+      <button id="pause" disabled>Pause</button>
+      <label
+        >Requested speed
+        <select id="speed" disabled>
+          <option>1</option>
+          <option>2</option>
+          <option>5</option>
+          <option>10</option>
+        </select>
+        ×</label
+      >
+      <span id="control-status"></span>
+      <label
+        >Export
+        <select id="export-file">
+          <option>snapshots.ndjson</option>
+          <option>events.ndjson</option>
+          <option>initial.json</option>
+          <option>manifest.json</option>
+        </select></label
+      ><button id="export">Download</button>
+    </nav>
+    <main>
+      <section class="map-panel">
+        <div class="panel-heading">
+          <h2>World coordinates</h2>
+          <label
+            >Map
+            <select id="map"></select></label
+          ><label
+            >Zone
+            <select id="zone"></select
+          ></label>
+          <button id="fit">Fit bots</button>
+        </div>
+        <canvas id="map-canvas" aria-label="Bot positions, drag to pan and scroll to zoom"></canvas>
+        <p class="caption">
+          Drag to pan · scroll to zoom · select a marker. Coordinates in world yards; map IDs from server.
+        </p>
+      </section>
+      <aside>
+        <h2 id="bot-name">Select a bot</h2>
+        <div id="bot-details">Choose a marker to inspect progression.</div>
+        <h3>Recent events</h3>
+        <ol id="events"></ol>
+      </aside>
+      <section class="charts">
+        <div class="panel-heading">
+          <h2>Population over simulated time</h2>
+          <label
+            >Metric
+            <select id="chart-metric">
+              <option value="levels">Level distribution</option>
+              <option value="zones">Zone population</option>
+              <option value="xp">XP gained</option>
+              <option value="quests">Quest completions</option>
+              <option value="deaths">Deaths</option>
+            </select></label
+          >
+        </div>
+        <canvas id="chart-canvas" aria-label="Population history chart"></canvas>
+        <div id="legend"></div>
+        <p class="caption">
+          Session history, up to 4,000 samples. Full timestamped history is retained in exports. Generated progression
+          and bot shortcuts appear in the event journal.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
 </html>

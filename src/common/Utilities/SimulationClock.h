@@ -32,6 +32,6 @@ namespace SimulationClock
     AC_COMMON_API TimePoint Now();
     AC_COMMON_API SystemTimePoint SystemNow();
     AC_COMMON_API time_t Time();
-}
+} // namespace SimulationClock
 
 #endif

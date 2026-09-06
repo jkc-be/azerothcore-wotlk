@@ -84,14 +84,13 @@ inline TimePoint GetApplicationStartTime()
 
 inline uint32 getRealMSTime()
 {
-    return uint32(std::chrono::duration_cast<Milliseconds>(
-        std::chrono::steady_clock::now() - GetApplicationStartTime()).count());
+    return uint32(
+        std::chrono::duration_cast<Milliseconds>(std::chrono::steady_clock::now() - GetApplicationStartTime()).count());
 }
 
 inline Milliseconds GetRealTimeMS()
 {
-    return std::chrono::duration_cast<Milliseconds>(
-        std::chrono::steady_clock::now() - GetApplicationStartTime());
+    return std::chrono::duration_cast<Milliseconds>(std::chrono::steady_clock::now() - GetApplicationStartTime());
 }
 
 inline Milliseconds GetTimeMS()
@@ -151,15 +150,9 @@ inline Milliseconds GetMSTimeDiffToNow(Milliseconds oldMSTime)
     return GetMSTimeDiff(oldMSTime, GetTimeMS());
 }
 
-inline uint32 GetRealMSTimeDiffToNow(uint32 oldMSTime)
-{
-    return getMSTimeDiff(oldMSTime, getRealMSTime());
-}
+inline uint32 GetRealMSTimeDiffToNow(uint32 oldMSTime) { return getMSTimeDiff(oldMSTime, getRealMSTime()); }
 
-inline Milliseconds GetRealMSTimeDiffToNow(Milliseconds oldMSTime)
-{
-    return GetMSTimeDiff(oldMSTime, GetRealTimeMS());
-}
+inline Milliseconds GetRealMSTimeDiffToNow(Milliseconds oldMSTime) { return GetMSTimeDiff(oldMSTime, GetRealTimeMS()); }
 
 inline Seconds GetEpochTime()
 {

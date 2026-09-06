@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
 #include "GameEventMgr.h"
 #include "BattlegroundMgr.h"
 #include "Chat.h"
@@ -30,6 +29,7 @@
 #include "Player.h"
 #include "PoolMgr.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "Transport.h"
 #include "UnitAI.h"
 #include "World.h"

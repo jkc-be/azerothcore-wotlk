@@ -2,7 +2,7 @@
 
 Source implementation of a browser observatory and opt-in fixed-step time acceleration for an isolated Playerbot
 AzerothCore world. The target is 100 continuously active bots at 10×; achieved performance and gameplay equivalence
-must be measured on the separate server. This workstation has not built or run the game server.
+must be measured on the separate server. Build checks were explicitly authorized locally; no game server was launched.
 
 - [Agent update procedure](../../.agents/docs/systems/observatory.md)
 - [Server integration and startup](docs/HANDOFF.md)

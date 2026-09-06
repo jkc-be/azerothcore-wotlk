@@ -37,6 +37,7 @@
 #include "ModuleMgr.h"
 #include "ModulesScriptLoader.h"
 #include "MySQLThreading.h"
+#include "Observatory.h"
 #include "OpenSSLCrypto.h"
 #include "OutdoorPvPMgr.h"
 #include "ProcessPriority.h"
@@ -47,6 +48,7 @@
 #include "ScriptMgr.h"
 #include "SecretMgr.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "SteadyTimer.h"
 #include "Systemd.h"
 #include "TC9Sidecar.h"
@@ -54,8 +56,6 @@
 #include "WorldSessionMgr.h"
 #include "WorldSocket.h"
 #include "WorldSocketMgr.h"
-#include "Observatory.h"
-#include "SimulationClock.h"
 #include "libsidecar.h"
 #include <boost/asio/signal_set.hpp>
 #include <boost/program_options.hpp>
@@ -93,7 +93,10 @@ class FreezeDetector
 {
 public:
     FreezeDetector(Acore::Asio::IoContext& ioContext, uint32 maxCoreStuckTime)
-        : _timer(ioContext), _worldLoopCounter(0), _lastChangeMsTime(getRealMSTime()), _maxCoreStuckTimeInMs(maxCoreStuckTime) { }
+        : _timer(ioContext), _worldLoopCounter(0), _lastChangeMsTime(getRealMSTime()),
+          _maxCoreStuckTimeInMs(maxCoreStuckTime)
+    {
+    }
 
     static void Start(std::shared_ptr<FreezeDetector> const& freezeDetector)
     {
@@ -272,7 +275,8 @@ int main(int argc, char** argv)
     sConfigMgr->LoadModulesConfigs();
     if (!Observatory::Initialize())
     {
-        LOG_ERROR("server.worldserver", "Observatory initialization refused: check isolation settings and new run path");
+        LOG_ERROR("server.worldserver",
+                  "Observatory initialization refused: check isolation settings and new run path");
         return 1;
     }
     std::shared_ptr<void> observatoryHandle(nullptr, [](void*) { Observatory::Stop(); });

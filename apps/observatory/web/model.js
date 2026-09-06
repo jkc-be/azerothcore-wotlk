@@ -18,7 +18,7 @@ export function summarize(snapshot) {
 }
 
 export function visibleBots(snapshot, map, zone) {
-  return snapshot.bots.filter(bot => String(bot.map) === map && (zone === 'all' || String(bot.zone) === zone));
+  return snapshot.bots.filter((bot) => String(bot.map) === map && (zone === "all" || String(bot.zone) === zone));
 }
 
 export function worldToScreen(bot, view, width, height) {
@@ -27,8 +27,12 @@ export function worldToScreen(bot, view, width, height) {
 
 export function fitView(bots) {
   if (!bots.length) return { x: 0, y: 0, scale: 0.03 };
-  const xs = bots.map(bot => bot.x), ys = bots.map(bot => bot.y);
-  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2,
+  const xs = bots.map((bot) => bot.x),
+    ys = bots.map((bot) => bot.y);
+  return {
+    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+    y: (Math.min(...ys) + Math.max(...ys)) / 2,
     spanX: Math.max(100, Math.max(...xs) - Math.min(...xs)),
-    spanY: Math.max(100, Math.max(...ys) - Math.min(...ys)) };
+    spanY: Math.max(100, Math.max(...ys) - Math.min(...ys)),
+  };
 }

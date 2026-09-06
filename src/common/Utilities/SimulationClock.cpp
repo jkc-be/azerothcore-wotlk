@@ -26,7 +26,7 @@ namespace
     std::atomic<int64> elapsed{0};
     TimePoint steadyOrigin;
     SystemTimePoint systemOrigin;
-}
+} // namespace
 
 void SimulationClock::Enable(bool virtualTime)
 {

@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
+#include "WorldState.h"
 #include "AreaDefines.h"
 #include "CreatureAIImpl.h"
 #include "GameEventMgr.h"
@@ -23,10 +23,10 @@
 #include "MapMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
+#include "SimulationClock.h"
 #include "TC9Sidecar.h"
 #include "UnitAI.h"
 #include "Weather.h"
-#include "WorldState.h"
 #include "WorldConfig.h"
 #include "WorldStateDefines.h"
 #include <chrono>

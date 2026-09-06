@@ -15,9 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "TC9Sidecar.h"
 #include "WorldSocket.h"
-#include "SimulationClock.h"
 #include "AccountMgr.h"
 #include "Config.h"
 #include "CryptoHash.h"
@@ -27,13 +25,15 @@
 #include "IPLocation.h"
 #include "Opcodes.h"
 #include "PacketLog.h"
+#include "RBAC.h"
 #include "Random.h"
 #include "Realm.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
+#include "TC9Sidecar.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
-#include "RBAC.h"
 #include "zlib.h"
 #include <memory>
 

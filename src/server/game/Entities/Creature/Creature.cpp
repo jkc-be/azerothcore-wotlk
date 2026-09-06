@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Observatory.h"
 #include "Creature.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
@@ -23,7 +22,6 @@
 #include "CreatureAI.h"
 #include "CreatureAISelector.h"
 #include "CreatureGroups.h"
-#include "MoveSpline.h"
 #include "DatabaseEnv.h"
 #include "Formulas.h"
 #include "GameEventMgr.h"
@@ -33,7 +31,9 @@
 #include "GroupMgr.h"
 #include "Log.h"
 #include "LootMgr.h"
+#include "MoveSpline.h"
 #include "ObjectMgr.h"
+#include "Observatory.h"
 #include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"

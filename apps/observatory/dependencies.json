@@ -10,7 +10,7 @@
     "fork": "https://github.com/jkc-be/mod-playerbots",
     "branch": "master",
     "upstreamRevision": "b949b50bfcdd4fab937781bac2d7765e39330e4b",
-    "revision": "29e804019078da098f20fff8ae5212e230476b39",
+    "revision": "5f5237dd3df7dc5c8099733a8e2661467c24f467",
     "simulationBranch": "simulation/playerbot-observatory",
     "povSourceCommit": "1c38209b062a8d4c1bc45608e1e4c93eac0e4e01"
   }

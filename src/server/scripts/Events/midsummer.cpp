@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
 #include "AreaDefines.h"
 #include "CreatureScript.h"
 #include "GameEventMgr.h"
@@ -24,6 +23,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptedCreature.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellScript.h"

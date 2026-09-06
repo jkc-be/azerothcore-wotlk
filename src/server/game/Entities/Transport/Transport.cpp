@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SimulationClock.h"
 #include "Transport.h"
 #include "Cell.h"
 #include "CellImpl.h"
@@ -29,6 +28,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "SimulationClock.h"
 #include "Spell.h"
 #include "Vehicle.h"
 #include "WorldModel.h"
@@ -152,7 +152,9 @@ uint32 MotionTransport::HandleFirstDepartureSync(uint32 diff)
 
     // Making system call for current time to be more accurate.
     // Shouldn't be an issue since it runs only before the very first departure.
-    int32 millLeftToDeparture = std::chrono::duration_cast<std::chrono::milliseconds>(_firstDepartureTime - SimulationClock::SystemNow()).count();
+    int32 millLeftToDeparture =
+        std::chrono::duration_cast<std::chrono::milliseconds>(_firstDepartureTime - SimulationClock::SystemNow())
+            .count();
     if (millLeftToDeparture > 0)
         return diff;
 

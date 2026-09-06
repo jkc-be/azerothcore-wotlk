@@ -13,7 +13,7 @@ The carried-over AGENTS instructions continue to apply. No historical SQL file i
 On the separate server, with AzerothCore's documented compiler/MySQL/Boost/OpenSSL dependencies already provisioned:
 
 ```sh
-git clone --branch simulation/playerbot-observatory --recurse-submodules \
+git clone --branch main --recurse-submodules \
   https://github.com/jkc-be/azerothcore-wotlk.git azerothcore-observatory
 cd azerothcore-observatory
 git submodule status --recursive
