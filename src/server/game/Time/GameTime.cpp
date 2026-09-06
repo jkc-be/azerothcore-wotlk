@@ -64,7 +64,7 @@ namespace GameTime
     {
         GameTime = GetEpochTime();
         GameMSTime = GetTimeMS();
-        GameTimeSystemPoint = system_clock::now();
-        GameTimeSteadyPoint = steady_clock::now();
+        GameTimeSystemPoint = SimulationClock::SystemNow();
+        GameTimeSteadyPoint = SimulationClock::Now();
     }
 }

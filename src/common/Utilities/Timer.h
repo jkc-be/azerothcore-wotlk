@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "Duration.h"
+#include "SimulationClock.h"
 
 enum class TimeFormat : uint8
 {
@@ -81,11 +82,23 @@ inline TimePoint GetApplicationStartTime()
     return ApplicationStartTime;
 }
 
+inline uint32 getRealMSTime()
+{
+    return uint32(std::chrono::duration_cast<Milliseconds>(
+        std::chrono::steady_clock::now() - GetApplicationStartTime()).count());
+}
+
+inline Milliseconds GetRealTimeMS()
+{
+    return std::chrono::duration_cast<Milliseconds>(
+        std::chrono::steady_clock::now() - GetApplicationStartTime());
+}
+
 inline Milliseconds GetTimeMS()
 {
     using namespace std::chrono;
 
-    return duration_cast<milliseconds>(steady_clock::now() - GetApplicationStartTime());
+    return duration_cast<milliseconds>(SimulationClock::Now() - GetApplicationStartTime());
 }
 
 inline Milliseconds GetMSTimeDiff(Milliseconds oldMSTime, Milliseconds newMSTime)
@@ -104,7 +117,7 @@ inline uint32 getMSTime()
 {
     using namespace std::chrono;
 
-    return uint32(duration_cast<milliseconds>(steady_clock::now() - GetApplicationStartTime()).count());
+    return uint32(duration_cast<milliseconds>(SimulationClock::Now() - GetApplicationStartTime()).count());
 }
 
 inline uint32 getMSTimeDiff(uint32 oldMSTime, uint32 newMSTime)
@@ -138,10 +151,20 @@ inline Milliseconds GetMSTimeDiffToNow(Milliseconds oldMSTime)
     return GetMSTimeDiff(oldMSTime, GetTimeMS());
 }
 
+inline uint32 GetRealMSTimeDiffToNow(uint32 oldMSTime)
+{
+    return getMSTimeDiff(oldMSTime, getRealMSTime());
+}
+
+inline Milliseconds GetRealMSTimeDiffToNow(Milliseconds oldMSTime)
+{
+    return GetMSTimeDiff(oldMSTime, GetRealTimeMS());
+}
+
 inline Seconds GetEpochTime()
 {
     using namespace std::chrono;
-    return duration_cast<Seconds>(system_clock::now().time_since_epoch());
+    return duration_cast<Seconds>(SimulationClock::SystemNow().time_since_epoch());
 }
 
 struct IntervalTimer

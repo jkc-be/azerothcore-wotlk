@@ -1,0 +1,13 @@
+{
+  "core": {
+    "url": "https://github.com/mod-playerbots/azerothcore-wotlk",
+    "branch": "Playerbot",
+    "revision": "413bea61a85e20d9caef7d66fc601a661fdddd9d"
+  },
+  "playerbots": {
+    "upstream": "https://github.com/mod-playerbots/mod-playerbots",
+    "fork": "https://github.com/jkc-be/mod-playerbots",
+    "branch": "master",
+    "upstreamRevision": "b949b50bfcdd4fab937781bac2d7765e39330e4b"
+  }
+}

@@ -19,6 +19,7 @@
 #define _TASK_SCHEDULER_H_
 
 #include "Util.h"
+#include "SimulationClock.h"
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -183,10 +184,10 @@ class TaskScheduler
 
 public:
     TaskScheduler()
-        : self_reference(this, [](TaskScheduler const*) { }), _now(clock_t::now()), _predicate(EmptyValidator) { }
+        : self_reference(this, [](TaskScheduler const*) { }), _now(SimulationClock::Now()), _predicate(EmptyValidator) { }
 
     template<typename P> TaskScheduler(P&& predicate)
-        : self_reference(this, [](TaskScheduler const*) { }), _now(clock_t::now()), _predicate(std::forward<P>(predicate)) { }
+        : self_reference(this, [](TaskScheduler const*) { }), _now(SimulationClock::Now()), _predicate(std::forward<P>(predicate)) { }
 
     TaskScheduler(TaskScheduler const&) = delete;
     TaskScheduler(TaskScheduler&&) = delete;

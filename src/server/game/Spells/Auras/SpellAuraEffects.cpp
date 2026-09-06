@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "Observatory.h"
 #include "SpellAuraEffects.h"
 #include "AreaDefines.h"
 #include "BattlefieldMgr.h"
@@ -1133,6 +1134,7 @@ void AuraEffect::PeriodicTick(AuraApplication* aurApp, Unit* caster) const
         return;
 
     Unit* target = aurApp->GetTarget();
+    Observatory::Probe(target, "aura_tick", GetEffIndex(), GetId(), caster);
 
     // Update serverside orientation of tracking channeled auras on periodic update ticks
     // exclude players because can turn during channeling and shouldn't desync orientation client/server

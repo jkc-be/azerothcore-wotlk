@@ -15,6 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SimulationClock.h"
+#include "Observatory.h"
 #include "Player.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
@@ -1088,6 +1090,8 @@ void Player::setDeathState(DeathState s, bool /*despawn = false*/)
             return;
         }
 
+        Observatory::Event(this, "death");
+
         // clear all pending spell cast requests when dying
         SpellQueue.clear();
 
@@ -1400,6 +1404,7 @@ void Player::SendTeleportAckPacket()
 
 bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options /*= 0*/, Unit* target /*= nullptr*/, bool newInstance /*= false*/)
 {
+    Observatory::Event(this, "teleport_attempt", mapid);
     if (!MapMgr::IsValidMapCoord(mapid, x, y, z, orientation))
     {
         LOG_ERROR("entities.player", "TeleportTo: invalid map ({}) or invalid coordinates (X: {}, Y: {}, Z: {}, O: {}) given when teleporting player ({}, name: {}, map: {}, X: {}, Y: {}, Z: {}, O: {}).",
@@ -2455,6 +2460,7 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
     if (xp < 1)
         return;
 
+    Observatory::Event(this, "xp", uint64(xp) + bonus_xp);
     SendLogXPGain(xp, victim, bonus_xp, recruitAFriend, group_rate);
 
     uint32 curXP = GetUInt32Value(PLAYER_XP);
@@ -2479,6 +2485,7 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
 // Current player experience not update (must be update by caller)
 void Player::GiveLevel(uint8 level)
 {
+    Observatory::Event(this, "level_change_attempt", level);
     uint8 oldLevel = GetLevel();
     if (level == oldLevel)
         return;
@@ -11247,6 +11254,7 @@ void Player::AddSpellAndCategoryCooldowns(SpellInfo const* spellInfo, uint32 ite
 
 void Player::_AddSpellCooldown(uint32 spellid, uint16 categoryId, uint32 itemid, uint32 end_time, bool needSendToClient, bool forceSendToSpectator)
 {
+    Observatory::Probe(this, "cooldown", end_time, spellid);
     SpellCooldown sc;
     sc.end = GameTime::GetGameTimeMS().count() + end_time;
     sc.category = categoryId;
@@ -12030,7 +12038,7 @@ void Player::ApplyEquipCooldown(Item* pItem)
                 continue;
 
             if (Aura* itemAura = GetAura(spellData.SpellId, GetGUID(), pItem->GetGUID()))
-                itemAura->AddProcCooldown(std::chrono::steady_clock::now() + procEntry->Cooldown);
+                itemAura->AddProcCooldown(SimulationClock::Now() + procEntry->Cooldown);
             continue;
         }
 

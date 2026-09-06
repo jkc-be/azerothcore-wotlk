@@ -17,6 +17,7 @@
 
 #include "TC9Sidecar.h"
 #include "WorldSocket.h"
+#include "SimulationClock.h"
 #include "AccountMgr.h"
 #include "Config.h"
 #include "CryptoHash.h"
@@ -530,6 +531,12 @@ void WorldSocket::SendPacket(WorldPacket const& packet)
 
 void WorldSocket::HandleAuthSession(WorldPacket & recvPacket)
 {
+    if (SimulationClock::Enabled())
+    {
+        CloseSocket();
+        return;
+    }
+
     std::shared_ptr<ClientAuthSession> authSession = std::make_shared<ClientAuthSession>();
 
     // Read the content of the packet

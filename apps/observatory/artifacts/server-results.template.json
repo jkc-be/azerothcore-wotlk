@@ -1,0 +1,22 @@
+{
+  "status": "pending-separate-server-validation",
+  "coreRevision": null,
+  "playerbotsRevision": null,
+  "hardware": null,
+  "fixtureHashes": null,
+  "effectiveSettingsArtifact": null,
+  "baselineVsVirtual1x": null,
+  "smallCohortTimingComparisons": null,
+  "pauseResumeAndSpeedChanges": null,
+  "noHumanActivity": null,
+  "viewerDisconnectAndSlowViewer": null,
+  "overloadAndJournalFailure": null,
+  "benchmark": {
+    "targetBots": 100,
+    "requestedSpeed": 10,
+    "targetSimulatedHours": 24,
+    "achievedSpeed": null,
+    "bottlenecks": null,
+    "correctnessEvidence": null
+  }
+}

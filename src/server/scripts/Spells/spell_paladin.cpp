@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SimulationClock.h"
 #include "GameTime.h"
 #include "Group.h"
 #include "Player.h"
@@ -1882,7 +1883,7 @@ class spell_pal_sacred_shield_dummy : public AuraScript
         if (!caster)
             return;
 
-        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point now = SimulationClock::Now();
         if (_cooldownEnd > now)
             return;
 

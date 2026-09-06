@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SimulationClock.h"
 #include "ArenaSpectator.h"
 #include "CellImpl.h"
 #include "Common.h"
@@ -2107,7 +2108,7 @@ void Aura::AddProcCooldown(SpellProcEntry const* procEntry, TimePoint now)
 
 void Aura::ResetProcCooldown()
 {
-    m_procCooldown = std::chrono::steady_clock::now();
+    m_procCooldown = SimulationClock::Now();
 }
 
 void Aura::PrepareProcToTrigger(AuraApplication* aurApp, ProcEventInfo& eventInfo, TimePoint now)

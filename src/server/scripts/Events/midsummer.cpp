@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SimulationClock.h"
 #include "AreaDefines.h"
 #include "CreatureScript.h"
 #include "GameEventMgr.h"
@@ -806,7 +807,7 @@ class spell_midsummer_ribbon_pole : public AuraScript
             }
 
             // Achievement
-            if ((time(nullptr) - GetApplyTime()) > 60 && target->IsPlayer())
+            if ((SimulationClock::Time() - GetApplyTime()) > 60 && target->IsPlayer())
                 target->ToPlayer()->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_BE_SPELL_TARGET, 58934, 0, target);
         }
     }

@@ -1,0 +1,16 @@
+# Append to a COPY of the installed modules/playerbots.conf on the separate server.
+PlayerbotsDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_playerbots"
+AiPlayerbot.Enabled = 1
+AiPlayerbot.RandomBotAutologin = 1
+AiPlayerbot.MinRandomBots = 100
+AiPlayerbot.MaxRandomBots = 100
+AiPlayerbot.DisabledWithoutRealPlayer = 0
+AiPlayerbot.EnablePeriodicOnlineOffline = 0
+AiPlayerbot.CommandServerPort = 0
+AiPlayerbot.BotActiveAlone = 100
+AiPlayerbot.botActiveAloneSmartScale = 0
+AiPlayerbot.RandomBotXPRate = 1
+# Standard upstream conveniences remain enabled. Every comparison must use the same configuration.
+AiPlayerbot.BotCheats = "food,taxi,raid"
+# Keep upstream level generation defaults; generated levels/gear are explicitly identified in the journal.
+# To study low-level progression, provision a known low-level cohort and record factory/reset settings.

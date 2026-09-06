@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "Observatory.h"
 #include "Spell.h"
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
@@ -3631,6 +3632,8 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
         }
     }
 
+    Observatory::Probe(m_caster, "cast_start", m_casttime, m_spellInfo->Id);
+
     // set timer base at cast time
     ReSetTimer();
 
@@ -4482,6 +4485,7 @@ void Spell::finish(bool ok)
 
     if (m_spellState == SPELL_STATE_FINISHED)
         return;
+    Observatory::Probe(m_caster, ok ? "cast_finish" : "cast_cancel", 0, m_spellInfo->Id);
     m_spellState = SPELL_STATE_FINISHED;
 
     // FindMap() check: pending spell events are destroyed after the caster has left the map,

@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SimulationClock.h"
 #include "AccountMgr.h"
 #include "GameTime.h"
 #include "InstancePackets.h"
@@ -70,7 +71,7 @@ void Player::UpdateSpeakTime(ChatFloodThrottle::Index index)
 
 bool Player::CanSpeak() const
 {
-    return  GetSession()->m_muteTime <= time (nullptr);
+    return  GetSession()->m_muteTime <= SimulationClock::Time();
 }
 
 /*********************************************************/

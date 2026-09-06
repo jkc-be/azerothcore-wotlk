@@ -1,0 +1,39 @@
+# Append to a COPY of the installed worldserver.conf on the separate server.
+# Substitute DB credentials; all four database names MUST start with obs_.
+LoginDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_auth"
+WorldDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_world"
+CharacterDatabaseInfo = "127.0.0.1;3306;obs;CHANGE_ME;obs_characters"
+
+Observatory.Enable = 1
+Observatory.DisposableAcknowledgement = "DISPOSABLE_BOTS_ONLY"
+# Parent directory must exist. This run directory MUST NOT already exist.
+Observatory.Directory = "/srv/observatory/runs/run-001"
+Observatory.BotCount = 100
+# Optional exact character GUID counters, comma-separated without spaces; must contain BotCount identities.
+Observatory.BotGuids = ""
+Observatory.Trace = 0
+Observatory.RealTimeBaseline = 0
+# Zero is unlimited. Otherwise freeze after this many ms from cohort readiness (multiple of 10).
+# For benchmark.py use 0: the benchmark measures its own 24-hour window after controls are acknowledged.
+Observatory.DurationMs = 0
+
+Console.Enable = 0
+Ra.Enable = 0
+SOAP.Enabled = 0
+BindIP = "127.0.0.1"
+MinWorldUpdateTime = 10
+MapUpdateInterval = 10
+MapUpdate.Threads = 1
+# Never use game multipliers as acceleration. Copy the SAME rates into every comparison run.
+Rate.XP.Kill = 1
+Rate.XP.Quest = 1
+Rate.XP.Explore = 1
+Rate.Drop.Item.Normal = 1
+Rate.Drop.Item.Uncommon = 1
+Rate.Drop.Item.Rare = 1
+Rate.Drop.Item.Epic = 1
+Rate.Drop.Money = 1
+Rate.Health = 1
+Rate.Mana = 1
+Rate.MoveSpeed.Player = 1
+Rate.MoveSpeed.NPC = 1

@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "Observatory.h"
 #include "Creature.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
@@ -1955,6 +1956,8 @@ bool Creature::CanStartAttack(Unit const* who, bool force) const
  */
 void Creature::setDeathState(DeathState state, bool despawn)
 {
+    if (state == DeathState::JustDied || state == DeathState::JustRespawned)
+        Observatory::Probe(this, state == DeathState::JustDied ? "creature_death" : "respawn");
     Unit::setDeathState(state, despawn);
 
     if (state == DeathState::JustDied)
