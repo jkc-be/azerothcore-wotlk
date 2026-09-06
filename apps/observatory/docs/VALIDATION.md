@@ -1,8 +1,8 @@
 # Validation protocol (separate game server)
 
 Local source, build and frontend validation results are recorded in `../artifacts/local-checks.md`.
-No worldserver execution, gameplay timing comparison or throughput measurement has run.
-The 10×/100-bot target is unmeasured.
+One-bot runtime/control checks are recorded in `../artifacts/local-runtime.md`.
+Controlled equal-duration gameplay comparisons and the 10×/100-bot target remain unmeasured.
 Do not scale to 100 until the small timing proof passes. Keep the resulting exports with the revision and configuration.
 
 1. Follow `HANDOFF.md` to build on the separate server. Run

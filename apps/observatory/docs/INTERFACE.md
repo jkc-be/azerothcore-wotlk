@@ -30,7 +30,8 @@ Each bot has stable string `id`, `name`, `map`, `instance`, `zone`, `x`, `y`, `z
 `activity`, `lastAiMs`, `aiUpdates`, equipped item entries in `gear`, and quest-log IDs, states, creature/object
 counters (`objectives`) and item counters (`items`).
 The enclosing snapshot supplies the run and simulation timestamp for every bot. Map and zone selectors use server IDs;
-the map is a coordinate plot without proprietary map tiles. Different instances share the same coordinate plane;
+optional local client artwork is calibrated from WorldMapArea and WorldMapOverlay DBC data.
+Different instances share the same coordinate plane;
 the selected-bot detail identifies the instance.
 
 Events contain run, global event `seq`, `simMs`, bot/actor GUID, kind, value, detail/context and map/instance.
@@ -73,3 +74,7 @@ never silently yielding a trustworthy-looking incomplete run. A full bot-operati
 with `bot_operation_queue_overflow`; its dropped operation makes that run invalid. If the disk itself fails, the last
 visible snapshot may remain unchanged: the UI reports it stale after three seconds. Exports taken during a write may end in one partial
 NDJSON line; export after shutdown for a complete final journal.
+
+Optional map endpoints also require the bearer token: `GET /api/maps` returns the extracted area catalog, and
+`GET /api/maps/<numeric-tile-name>.png` returns local artwork. The bridge reads these from `--maps`; no client archive
+is exposed. Map assets are decoded and cached by the browser independently of simulation updates. See `MAPS.md`.
