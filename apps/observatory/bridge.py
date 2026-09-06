@@ -40,6 +40,24 @@ JOURNALS = ('events', 'snapshots')
 SEGMENT = re.compile(r'^(events|snapshots)\.(\d{6})\.ndjson$')
 
 
+def load_token(path):
+    """Return the bearer token, creating a private file (and parents) on first use."""
+    path = Path(path)
+    if not path.exists():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(descriptor, 'w') as file:
+                file.write(secrets.token_urlsafe(32))
+    token = path.read_text().strip()
+    if len(token) < 32:
+        raise ValueError('Token must contain at least 32 characters')
+    return token
+
+
 def available_speeds(current):
     return DECIMAL_SPEEDS if current.get('speedStep') == 0.1 else SPEEDS
 
@@ -995,13 +1013,12 @@ def main():
                         help='Rotated journal segments kept per journal before the oldest are deleted '
                              '(default 2 GiB; requires Observatory.JournalSegmentBytes in the world)')
     args = parser.parse_args()
-    if not args.token_file.exists():
-        descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, 'w') as file:
-            file.write(secrets.token_urlsafe(32))
-    token = args.token_file.read_text().strip()
-    if len(token) < 32:
-        parser.error('Token must contain at least 32 characters')
+    try:
+        token = load_token(args.token_file)
+    except OSError as error:
+        parser.error(f'Cannot create or read token file {args.token_file}: {error}')
+    except ValueError as error:
+        parser.error(str(error))
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.daemon_threads = True
     server.spool = Spool(args.spool, token, retain_bytes=max(0, args.retain_bytes))
