@@ -68,13 +68,36 @@ accounts with the pool prefix and an index below `totalAccountCount` (rows in
 `playerbots_account_type` plus any shortfall), and check the log for
 `Including non-random bot player <name> into random bot update`, which means the opposite.
 
+A random-bot *name* is not enough either: `AssignAccountTypes` logs in only characters whose
+account carries `account_type = 1` in `playerbots_account_type`. It assigns type 1 from the
+**lowest** account ids up to `ceil(MaxRandomBots / CalculateAvailableCharsPerAccount())`, and the
+AddClass pool (`AiPlayerbot.AddClassAccountPoolSize`, default 50) claims accounts from the
+**highest** ids down — so a fixture picked from freshly created characters usually lands on type 2
+accounts and nothing logs in at all. The symptom is a cohort that never fills, `Random Bots Stats:
+0 online`, repeated `Can't log-in all the requested bots ... N more accounts needed`, and finally an
+Observatory `population_timeout` fault with zero bots. Check the startup line `Account type
+assignment complete: N RNDbot accounts, M AddClass accounts, K unassigned`, then promote the
+fixture's accounts before starting:
+
+```sql
+UPDATE playerbots_account_type SET account_type = 1, assignment_date = NOW()
+ WHERE account_id IN (SELECT DISTINCT account FROM <characters db>.characters WHERE guid IN (…));
+```
+
+Assignment only ever touches type 0 accounts, so a promotion sticks and the module simply tops the
+AddClass pool back up from the unassigned remainder. Account types are read at startup, so this is a
+pre-start database change, never a live one.
+
 For a run whose whole cohort must be busy, set `AiPlayerbot.BotActiveAlone = 100` with
 `AiPlayerbot.botActiveAloneSmartScale = 0`: the stock 10% rotates activity in
 `BotActiveAloneDurationSeconds` slices and leaves most of the cohort idle. Record both as deliberate
 deviations in the manifest comparison.
 
-Pinning a fixture's `randomize`, `teleport` and `level` rows in `playerbots_random_bots` to a far
-future time keeps it at its prepared level and location; it does not stop the bot from playing.
+Pin a fixture's `randomize`, `teleport` and `level` rows in `playerbots_random_bots` with
+`validIn = 0`: `FindEvent` only expires a row when `validIn` is non-zero, so zero pins it for the
+whole run regardless of how fast virtual time advances (a far-future `time` happens to work too,
+but relies on unsigned wraparound). A pinned bot keeps its prepared level and location — it does
+not stop playing, levels normally from the XP it earns, and stays in its starting zone.
 
 Verify movement, not just admission: `activeBots`/`onlineBots` count sessions, so compare per-bot
 `x`/`y` across two snapshots and confirm the `activity` mix and `runTotals` advance.
