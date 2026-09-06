@@ -54,6 +54,31 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    compatible previous binaries/configuration plus the appropriate pre-update DB state. A rollback never reuses virtual
    future timestamps as though a run were resumable. Never claim 100 bots at 10× without benchmark evidence.
 
+## Making a pinned cohort actually play
+
+`Observatory.BotGuids` only filters admission (`Observatory::AllowsBot`); whether an admitted bot
+then plays is decided by the module. `RandomPlayerbotMgr::IsRandomBot()` requires the character's
+account to be in `PlayerbotAIConfig::randomBotAccounts`, and that list is built solely by scanning
+account names `<AiPlayerbot.RandomBotAccountPrefix><0..totalAccountCount-1>`
+(`RandomPlayerbotFactory.cpp`). A `playerbots_account_type` row of type 1 is enough for
+`AssignAccountTypes` to log a character in, but not enough to make it a random bot — and `AiFactory`
+adds `grind` and `rpg`/`new rpg` only for random bots, so anything else gets the alt-bot strategy
+set and, with no master, stands on its spawn point while its AI counters keep ticking. Name fixture
+accounts with the pool prefix and an index below `totalAccountCount` (rows in
+`playerbots_account_type` plus any shortfall), and check the log for
+`Including non-random bot player <name> into random bot update`, which means the opposite.
+
+For a run whose whole cohort must be busy, set `AiPlayerbot.BotActiveAlone = 100` with
+`AiPlayerbot.botActiveAloneSmartScale = 0`: the stock 10% rotates activity in
+`BotActiveAloneDurationSeconds` slices and leaves most of the cohort idle. Record both as deliberate
+deviations in the manifest comparison.
+
+Pinning a fixture's `randomize`, `teleport` and `level` rows in `playerbots_random_bots` to a far
+future time keeps it at its prepared level and location; it does not stop the bot from playing.
+
+Verify movement, not just admission: `activeBots`/`onlineBots` count sessions, so compare per-bot
+`x`/`y` across two snapshots and confirm the `activity` mix and `runTotals` advance.
+
 ## Disk usage
 
 Run directories (`~/.local/share/azeroth-observatory/runs/<run-id>/`) keep growing `snapshots.ndjson`
