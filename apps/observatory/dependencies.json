@@ -2,12 +2,16 @@
   "core": {
     "url": "https://github.com/mod-playerbots/azerothcore-wotlk",
     "branch": "Playerbot",
-    "revision": "413bea61a85e20d9caef7d66fc601a661fdddd9d"
+    "revision": "413bea61a85e20d9caef7d66fc601a661fdddd9d",
+    "integratedMainRevision": "0bafa070192afcc442fa2671efcf07b4af5ff807"
   },
   "playerbots": {
     "upstream": "https://github.com/mod-playerbots/mod-playerbots",
     "fork": "https://github.com/jkc-be/mod-playerbots",
     "branch": "master",
-    "upstreamRevision": "b949b50bfcdd4fab937781bac2d7765e39330e4b"
+    "upstreamRevision": "b949b50bfcdd4fab937781bac2d7765e39330e4b",
+    "revision": "29e804019078da098f20fff8ae5212e230476b39",
+    "simulationBranch": "simulation/playerbot-observatory",
+    "povSourceCommit": "1c38209b062a8d4c1bc45608e1e4c93eac0e4e01"
   }
 }
