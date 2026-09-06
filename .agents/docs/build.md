@@ -1,5 +1,13 @@
 # Build & tests
 
+Prefer the native host toolchain and host MySQL. Do not use Docker, Podman, Compose, or other
+containers to compile or to run the database unless the user explicitly asks for them.
+
+This checkout's conventional install is `env/dist/` (see `var/setup/RUNNING.md`). MySQL is the host
+`mysql.service` on port 3306. After a build, start auth+world with `bash var/setup/start-servers.sh`
+(imports pending SQL, then the user systemd units). Do not bring up `restart.sh` / `obs-*` containers
+for ordinary local runs.
+
 Out-of-source build is required (in-source is blocked).
 
 ```bash

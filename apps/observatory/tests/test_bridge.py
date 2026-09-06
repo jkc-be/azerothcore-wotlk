@@ -11,6 +11,24 @@ bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 
 
+class TokenFile(unittest.TestCase):
+    def test_creates_nested_token_file_and_reuses_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'nested' / 'token'
+            token = bridge.load_token(path)
+            self.assertGreaterEqual(len(token), 32)
+            self.assertEqual(path.read_text().strip(), token)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(bridge.load_token(path), token)
+
+    def test_rejects_short_existing_token(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'token'
+            path.write_text('too-short')
+            with self.assertRaisesRegex(ValueError, 'at least 32 characters'):
+                bridge.load_token(path)
+
+
 class Controls(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
