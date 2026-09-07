@@ -165,6 +165,86 @@
       </div>
     </section>
 
+    <section class="region" id="memory-region" aria-label="Memory" hidden>
+      <div class="region-head">
+        <h2>Memory <span class="region-note" id="memory-note"></span></h2>
+        <label
+          >Character
+          <select id="memory-owner">
+            <option value="">Waiting for the bridge</option>
+          </select></label
+        >
+        <button id="memory-refresh" type="button">Refresh</button>
+      </div>
+      <div class="memory-row">
+        <div>
+          <div class="panel-head">
+            <h3>Committed memories <span class="region-note" id="memory-count"></span></h3>
+            <label>Filter <input id="memory-filter" type="search" placeholder="word, name or kind" /></label>
+            <label
+              >Sort
+              <select id="memory-sort">
+                <option value="salience">Salience</option>
+                <option value="confidence">Confidence</option>
+                <option value="newest">Newest</option>
+                <option value="recalled">Last recalled</option>
+              </select></label
+            >
+          </div>
+          <div class="table-scroll">
+            <table id="memory-table" class="data memory">
+              <thead>
+                <tr>
+                  <th class="text">Memory</th>
+                  <th class="text">Kind</th>
+                  <th class="text">Source</th>
+                  <th>Confidence</th>
+                  <th>Salience</th>
+                  <th class="text">Formed</th>
+                  <th class="text">Recalled</th>
+                  <th class="text">Formed by</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="caption" id="memory-status">Waiting for the bridge.</p>
+          <h3 class="spaced">Pending perceptions <span class="region-note" id="perception-count"></span></h3>
+          <div class="table-scroll short">
+            <table id="perception-table" class="data memory">
+              <thead>
+                <tr>
+                  <th class="text">Perception</th>
+                  <th class="text">Kind</th>
+                  <th class="text">Source</th>
+                  <th class="text">Place</th>
+                  <th class="text">When</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h3>Talk to memory</h3>
+          <ol id="talk-log" class="log talk"></ol>
+          <form id="talk-form" class="talk-form">
+            <input
+              id="talk-input"
+              type="text"
+              maxlength="500"
+              placeholder="Ask the character what it remembers"
+              autocomplete="off"
+              disabled
+            />
+            <button id="talk-send" disabled>Ask</button>
+            <button id="talk-clear" type="button">Clear</button>
+          </form>
+          <p class="caption" id="talk-status">Waiting for the bridge.</p>
+        </div>
+      </div>
+    </section>
+
     <section class="region" aria-label="World map and bots">
       <div class="region-head">
         <h2>World map <span class="region-note" id="map-count"></span></h2>

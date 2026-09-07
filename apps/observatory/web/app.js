@@ -32,6 +32,8 @@ import {
   formatBytes,
   describeEvent,
   isAllesEvent,
+  filterMemories,
+  relativeTime,
 } from "./model.js";
 import { surface, sparkline, speedBar, stackedArea, lineChart, tokens, labelFont, compactNumber } from "./charts.js";
 
@@ -2048,6 +2050,7 @@ function cell(text, className) {
 function renderInterpreter() {
   const alles = isAlles();
   $("interpreter-region").hidden = !alles;
+  $("memory-region").hidden = !alles;
   if (!alles) return;
   const worker = state.interpreter || {};
   const stats = worker.stats || {};
@@ -2266,6 +2269,272 @@ function renderAllesFeed() {
 }
 $("alles-kind").onchange = renderAllesFeed;
 
+// ------------------------------------------------------------------------------------------- memory
+
+// The committed memory stores (mod-alles tables in the characters database) and out-of-game questions to a
+// character, both served by the bridge. Nothing here reaches the world: no perception, memory or speech.
+let memoryOwners = null,
+  memoryDetail = null,
+  memoryLoading = false,
+  talkBusy = false;
+const talkLogs = new Map(); // owner -> [{role, text, meta, error}]
+
+function memoryOwner() {
+  return $("memory-owner").value;
+}
+
+async function loadMemoryOwners() {
+  if (!token || !isAlles()) return;
+  try {
+    const response = await api("/api/memory");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    memoryOwners = payload;
+  } catch (error) {
+    memoryOwners = { owners: [], error: error.message };
+  }
+  renderMemoryOwners();
+}
+
+async function loadMemory(owner = memoryOwner()) {
+  if (!token || !owner || memoryLoading) return;
+  memoryLoading = true;
+  try {
+    const response = await api(`/api/memory?owner=${encodeURIComponent(owner)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    memoryDetail = payload;
+  } catch (error) {
+    memoryDetail = { owner, error: error.message, memories: [], perceptions: [] };
+  } finally {
+    memoryLoading = false;
+  }
+  // The selection may have moved while the read was in flight; read the current one instead.
+  if (memoryOwner() && memoryDetail.owner !== memoryOwner()) return loadMemory();
+  renderMemory();
+  renderTalk();
+}
+
+function renderMemoryOwners() {
+  const select = $("memory-owner");
+  const previous = select.value;
+  const owners = memoryOwners?.owners || [];
+  select.replaceChildren(
+    ...(owners.length ? [] : [new Option(memoryOwners?.error ? "Unavailable" : "No committed owners", "")]),
+    ...owners.map((owner) => {
+      const held = owner.live
+        ? `online, ${formatNumber(owner.live.memoryCount)} held`
+        : owner.online
+          ? "online, not sampled"
+          : "offline";
+      return new Option(
+        `${owner.name} (${owner.owner}) – ${held}, ${formatNumber(owner.committedMemories)} committed`,
+        owner.owner,
+      );
+    }),
+  );
+  if (owners.some((owner) => owner.owner === previous)) select.value = previous;
+  $("memory-note").textContent = memoryOwners?.error
+    ? memoryOwners.error
+    : memoryOwners?.database
+      ? `${owners.length} owners committed in ${memoryOwners.database.database}`
+      : memoryOwners?.reasons?.database || "";
+  if (select.value !== previous || (select.value && !memoryDetail)) {
+    memoryDetail = null;
+    renderMemory();
+    loadMemory();
+  }
+  renderTalk();
+}
+
+function spanningRow(text, span) {
+  const tr = document.createElement("tr");
+  const td = cell(text, "text");
+  td.colSpan = span;
+  tr.append(td);
+  return tr;
+}
+
+function renderMemory() {
+  const detail = memoryDetail;
+  const owner = memoryOwner();
+  const memoryBody = $("memory-table").tBodies[0];
+  const perceptionBody = $("perception-table").tBodies[0];
+  if (!detail || detail.owner !== owner) {
+    memoryBody.replaceChildren();
+    perceptionBody.replaceChildren();
+    $("memory-count").textContent = $("perception-count").textContent = "";
+    $("memory-status").textContent = owner ? "Reading the committed store…" : "Select a character.";
+    return;
+  }
+  if (detail.error) {
+    memoryBody.replaceChildren(spanningRow(detail.error, 8));
+    perceptionBody.replaceChildren();
+    $("memory-count").textContent = $("perception-count").textContent = "";
+    $("memory-status").textContent = "The committed store could not be read.";
+    return;
+  }
+  const now = Date.now();
+  const shown = filterMemories(detail.memories, $("memory-filter").value, $("memory-sort").value);
+  memoryBody.replaceChildren(
+    ...shown.map((memory) => {
+      const tr = document.createElement("tr");
+      const salience = cell((memory.salience ?? 0).toFixed(2), "share");
+      salience.style.setProperty("--share", `${Math.round(Math.min(1, Math.max(0, memory.salience ?? 0)) * 100)}%`);
+      const via = memory.attribution && memory.attribution !== memory.source.name ? ` via ${memory.attribution}` : "";
+      const depth = memory.reportedDepth == null ? "" : `, depth ${memory.reportedDepth}`;
+      tr.append(
+        cell(memory.text, "text"),
+        cell(memory.kind, "text"),
+        cell(memory.source.name ? `${memory.source.name}${via}${depth}` : memory.subject.name || "", "text"),
+        cell((memory.confidence ?? 0).toFixed(2)),
+        salience,
+        cell(relativeTime(memory.formedUnixMs, now), "text"),
+        cell(memory.recalledUnixMs ? relativeTime(memory.recalledUnixMs, now) : "never", "text"),
+        cell(memory.formation, "text"),
+      );
+      tr.title = `memory ${memory.id}, revision ${memory.revision}`;
+      return tr;
+    }),
+  );
+  if (!shown.length)
+    memoryBody.replaceChildren(
+      spanningRow(detail.memories.length ? "No memory matches the filter." : "No committed memories.", 8),
+    );
+  $("memory-count").textContent = `${shown.length} of ${detail.memories.length}`;
+  const sheet = detail.sheet || {};
+  const live = detail.live;
+  const store =
+    live && live.memoryRevision != null
+      ? `; the live store is at revision ${formatNumber(live.memoryRevision)} holding ` +
+        `${formatNumber(live.memoryCount)} memories and ${formatNumber(live.pendingPerceptions)} pending perceptions` +
+        (live.saving ? ", saving" : "") +
+        (live.saveFailed ? ", last save failed" : "")
+      : "; the character is not in the current world sample";
+  const who = sheet.level != null ? `level ${sheet.level} ${sheet.race} ${sheet.class}` : "no character sheet";
+  $("memory-status").textContent =
+    `${detail.name}, ${who}, in ${detail.place}. Committed revision ${formatNumber(detail.committedRevision)} ` +
+    `read ${relativeTime(detail.readUnixMs, now)}${store}.`;
+  perceptionBody.replaceChildren(
+    ...detail.perceptions.map((perception) => {
+      const tr = document.createElement("tr");
+      tr.append(
+        cell(perception.text || perception.subject || "", "text"),
+        cell(perception.kind + (perception.comprehended ? "" : ", not understood"), "text"),
+        cell(perception.source, "text"),
+        cell(perception.place, "text"),
+        cell(relativeTime(perception.unixMs, now), "text"),
+      );
+      return tr;
+    }),
+  );
+  if (!detail.perceptions.length)
+    perceptionBody.replaceChildren(
+      spanningRow("No perception is waiting for interpretation in the committed store.", 5),
+    );
+  $("perception-count").textContent = String(detail.perceptions.length);
+}
+
+function talkLog(owner) {
+  if (!talkLogs.has(owner)) talkLogs.set(owner, []);
+  return talkLogs.get(owner);
+}
+
+function renderTalk() {
+  const owner = memoryOwner();
+  const available = Boolean(memoryOwners?.talk) && Boolean(owner);
+  $("talk-input").disabled = $("talk-send").disabled = !available || talkBusy;
+  const log = $("talk-log");
+  const name = memoryDetail?.owner === owner && memoryDetail.name ? memoryDetail.name : owner;
+  log.replaceChildren(
+    ...(owner ? talkLog(owner) : []).map((turn) => {
+      const li = document.createElement("li");
+      li.className = turn.error ? "err" : turn.role;
+      const who = document.createElement("b");
+      who.textContent = turn.role === "observer" ? "You: " : turn.error ? "Bridge: " : `${name}: `;
+      li.append(who, turn.text);
+      if (turn.meta) {
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = turn.meta;
+        li.append(meta);
+      }
+      return li;
+    }),
+  );
+  if (talkBusy) {
+    const li = document.createElement("li");
+    li.className = "character";
+    li.textContent = `${name} is thinking…`;
+    log.append(li);
+  }
+  log.scrollTop = log.scrollHeight;
+  $("talk-status").textContent = !memoryOwners
+    ? "Waiting for the bridge."
+    : !memoryOwners.talk
+      ? memoryOwners.reasons?.talk || "Questions are unavailable."
+      : `Out-of-game interview through ${memoryOwners.talk.model}: the question is not heard in the world, ` +
+        "forms no memory and uses no interpreter budget. Answers draw on the committed memories shown here.";
+}
+
+async function askMemory(event) {
+  event.preventDefault();
+  const owner = memoryOwner();
+  const input = $("talk-input");
+  const message = input.value.trim();
+  if (!owner || !message || talkBusy) return;
+  const log = talkLog(owner);
+  const history = log
+    .filter((turn) => !turn.error)
+    .slice(-8)
+    .map((turn) => ({ role: turn.role, text: turn.text }));
+  log.push({ role: "observer", text: message });
+  input.value = "";
+  talkBusy = true;
+  renderTalk();
+  try {
+    const response = await api("/api/memory/talk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ owner, message, history }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    log.push({
+      role: "character",
+      text: payload.text,
+      meta:
+        `${(payload.latencyMs / 1000).toFixed(1)} s, ${payload.memoriesOffered.length} of ` +
+        `${payload.memoriesCommitted} memories offered, ${formatNumber(payload.promptTokens)} prompt and ` +
+        `${formatNumber(payload.completionTokens)} completion tokens`,
+    });
+  } catch (error) {
+    log.push({ role: "character", text: error.message, error: true });
+  } finally {
+    talkBusy = false;
+  }
+  renderTalk();
+  $("talk-input").focus();
+}
+
+$("memory-owner").onchange = () => {
+  memoryDetail = null;
+  renderMemory();
+  loadMemory();
+  renderTalk();
+};
+$("memory-refresh").onclick = () => {
+  loadMemoryOwners();
+  loadMemory();
+};
+$("memory-filter").oninput = renderMemory;
+$("memory-sort").onchange = renderMemory;
+$("talk-form").onsubmit = askMemory;
+$("talk-clear").onclick = () => {
+  talkLogs.delete(memoryOwner());
+  renderTalk();
+};
+
 // ----------------------------------------------------------------------------------------------- polling
 
 let pollCount = 0;
@@ -2299,6 +2568,9 @@ setInterval(async () => {
     }
     renderInterpreter();
   }
+  // The committed stores change once per save, so they are re-read more slowly than the live sample.
+  if (isAlles() && pollCount % 10 === 1) loadMemoryOwners();
+  if (isAlles() && pollCount % 5 === 3) loadMemory();
   if (pollCount % 2 === 1) {
     try {
       eventStats = await (await api("/api/event-stats")).json();

@@ -472,3 +472,36 @@ export function mapRect(area, left, top, tileWidth, tileHeight, view, width, hei
     height: (tileHeight / area.height) * (area.x1 - area.x2) * view.scale,
   };
 }
+
+// Memory inspector: client-side filtering and ordering of one owner's committed memories.
+export function filterMemories(memories, filter = "", sort = "salience") {
+  const needle = filter.trim().toLowerCase();
+  const fields = (memory) => [
+    memory.text,
+    memory.kind,
+    memory.formation,
+    memory.attribution,
+    memory.subject?.name,
+    memory.source?.name,
+  ];
+  const kept = needle
+    ? memories.filter((memory) => fields(memory).some((value) => value && value.toLowerCase().includes(needle)))
+    : memories.slice();
+  const keys = {
+    salience: (memory) => memory.salience ?? 0,
+    confidence: (memory) => memory.confidence ?? 0,
+    newest: (memory) => memory.formedUnixMs ?? 0,
+    recalled: (memory) => memory.recalledUnixMs ?? 0,
+  };
+  const key = keys[sort] || keys.salience;
+  return kept.sort((a, b) => key(b) - key(a) || (b.id ?? 0) - (a.id ?? 0));
+}
+
+export function relativeTime(unixMs, now = Date.now()) {
+  if (unixMs == null || !Number.isFinite(unixMs) || unixMs <= 0) return "unknown";
+  const seconds = Math.max(0, Math.floor((now - unixMs) / 1000));
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ${Math.floor(seconds / 60) % 60} min ago`;
+  return `${Math.floor(seconds / 86400)} d ${Math.floor(seconds / 3600) % 24} h ago`;
+}
