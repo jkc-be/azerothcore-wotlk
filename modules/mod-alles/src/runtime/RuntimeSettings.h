@@ -33,6 +33,7 @@ struct RuntimeSettings
     bool conversation = false;
     Bridge::Settings bridge;
     std::string telemetryDirectory;
+    uint64_t telemetrySegmentBytes = 64 * 1024 * 1024; // 0 keeps one growing journal per stream
 };
 
 // Exact typed decimal entries: player:ID or creature:ID, separated by commas. No inferred GUID kind.

@@ -41,6 +41,12 @@ Alles.Interpreter.TrialLedger = ""
 Alles.Interpreter.TrialMaxRequests = 100
 # Existing private directory, served read-only by the Observatory bridge (ordinary realm only).
 Alles.Telemetry.Directory = ""
+# Journals written beside latest.json for the dashboard's event feed and reconnect history: events.ndjson
+# (bot actions, XP, deaths, quest rewards, perceptions, memories, speech, store and worker state) and
+# snapshots.ndjson. A journal is renamed NAME.NNNNNN.ndjson once it reaches this many bytes so the bridge
+# can prune old segments; 0 keeps one growing file per journal, otherwise at least 1 MiB. At startup the
+# previous run's journals and the bridge's derived files move to archive/<run>/ inside the directory.
+Alles.Telemetry.JournalSegmentBytes = 67108864
 
 # Natural local conversation is separate from memory formation and ambient memory retelling.
 # Requires bridge mode. Every eligible nearby autonomous bot may respond; direct naming limits the audience.

@@ -87,6 +87,22 @@ state. Controls are validated again by the writer, applied by the world thread b
 the run. The mailbox intentionally coalesces rapid requests: a newer sequence supersedes an unapplied older request.
 Baseline mode permits 1× without pause only. Completed/faulted runs cannot be resumed by the adapter.
 
+## Ordinary realm feed (`source: alles-live`)
+
+`mod-alles` publishes the same spool layout from an ordinary realm at 1× (see `apps/alles/README.md`). The
+feed is read-only (`readOnly: true`, no `control.txt`), its `simMs` is real elapsed time, `run` changes with
+every world boot while the directory stays the same, and the snapshot adds `interpreter` (worker state, request
+budget, memory formation counters, coordinator `stats`), `journal` (records, drops, bytes, segments and
+failure per journal) and `alles` (ingress drops, unsafe packets, lifecycle fault). Bots add `memoryCount`,
+`pendingPerceptions`, `memoryState`, `memoryRevision`, `committedRevision`, `saving`, `saveFailed`,
+`droppedPerceptions`, `actions`, `lastAction` and `lastActionMs`; `aiUpdates`, `lastAiMs`, `earnedXp`,
+`deaths` and `questCompletions` keep their Observatory meaning and are absent (not zero) from a world build
+without the event tap. Journal records add the `alles_*` kinds listed in the alles README. The bridge
+restarts its long-term tiers when the run id changes, ignores records of another run, and serves the worker
+log tail at `/api/worker-log` when started with `--worker-log`. The dashboard hides the simulation
+instruments, shows the interpreter budget and memories in the bench, adds an Interpreter region and labels
+anything the world build does not measure as such.
+
 ## Adaptive Max speed
 
 `POST /api/control` also accepts `"speed":"max"` with optional `"backlogLimitMs":100` (integer, 10–60,000).

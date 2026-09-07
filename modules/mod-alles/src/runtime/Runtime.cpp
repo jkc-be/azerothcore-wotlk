@@ -26,6 +26,7 @@
 #include "interpreter/PilotCoordinator.h"
 #include "perception/LiveCapture.h"
 #include "storage/SnapshotDao.h"
+#include "telemetry/Recorder.h"
 #include <algorithm>
 #include <chrono>
 #include <deque>
@@ -82,6 +83,9 @@ bool EligibleSpeaker(Player& player)
 }
 }
 
+// Named outside Impl, whose Telemetry() member would otherwise shadow the namespace.
+using TelemetryRecorder = Telemetry::Recorder;
+
 struct Runtime::Impl
 {
     struct OwnerRuntime
@@ -114,6 +118,22 @@ struct Runtime::Impl
             if (settings.conversation)
                 conversation = std::make_unique<ConversationRuntime>(store, *bridge);
         }
+        if (bridge && !settings.telemetryDirectory.empty())
+        {
+            // The directory outlives runs: file the previous run's journals away so this run starts clean.
+            auto const archived = ::Alles::Telemetry::ArchivePreviousRun(settings.telemetryDirectory,
+                ::Alles::Telemetry::PreviousRunLabel(settings.telemetryDirectory));
+            recorder = std::make_unique<TelemetryRecorder>(settings.telemetryDirectory, telemetryRun,
+                settings.owners, settings.telemetrySegmentBytes, startedRealMs);
+            ::Alles::Telemetry::InstallLiveSink(recorder.get());
+            LOG_INFO("module.alles", "Alles telemetry journals in {} ({} previous-run files archived)",
+                settings.telemetryDirectory, archived);
+        }
+    }
+
+    ~Impl()
+    {
+        ::Alles::Telemetry::InstallLiveSink(nullptr);
     }
 
     void CheckThread() const
@@ -177,13 +197,19 @@ struct Runtime::Impl
                         && gameMs >= event.perception.gameTimeMs && gameMs - event.perception.gameTimeMs <= 30000;
                     auto question = isQuestion ? event.perception.text : std::string{};
                     auto const questionTimeMs = event.perception.gameTimeMs;
-                    if (!store.Observe(event.owner, std::move(event.perception), realMs))
+                    std::optional<Perception> observed;
+                    if (recorder)
+                        observed = event.perception;
+                    bool const admitted = store.Observe(event.owner, std::move(event.perception), realMs);
+                    if (!admitted)
                         ++dropped;
                     else if (isQuestion)
                     {
                         runtime.question = std::move(question);
                         runtime.questionTimeMs = questionTimeMs;
                     }
+                    if (observed)
+                        recorder->RecordPerception(event.owner, *observed, admitted, realMs);
                     break;
                 }
             }
@@ -362,6 +388,8 @@ struct Runtime::Impl
             player->Say(line, LANG_UNIVERSAL);
             speakingOwner.reset();
             speakingText.clear();
+            if (recorder)
+                recorder->RecordSpeech(owner, line, speechDelivered, realMs);
             if (!speechDelivered)
                 continue;
             store.Rehearse(owner, memoryId, gameMs, realMs, 0.05);
@@ -406,7 +434,8 @@ struct Runtime::Impl
                     {"objectives", objectives}});
             }
             auto const* memory = store.FindReady(owner);
-            bots.emplace_back(boost::json::object{{"id", p->GetGUID().ToString()}, {"guid", owner.id},
+            auto const status = store.Status(owner);
+            boost::json::object bot{{"id", p->GetGUID().ToString()}, {"guid", owner.id},
                 {"name", p->GetName()}, {"map", p->GetMapId()}, {"instance", p->GetInstanceId()},
                 {"zone", p->GetZoneId()}, {"x", p->GetPositionX()}, {"y", p->GetPositionY()},
                 {"z", p->GetPositionZ()}, {"level", p->GetLevel()}, {"xp", p->GetUInt32Value(PLAYER_XP)},
@@ -416,22 +445,79 @@ struct Runtime::Impl
                     : p->IsNonMeleeSpellCast(false) ? "casting" : p->isMoving() ? "moving" : "idle"},
                 {"gear", gear}, {"bags", bags}, {"quests", quests}, {"deaths", nullptr},
                 {"memoryCount", memory ? memory->memories.size() : 0},
-                {"pendingPerceptions", memory ? memory->perceptions.size() : 0}});
+                {"pendingPerceptions", memory ? memory->perceptions.size() : 0},
+                {"memoryState", status ? ::Alles::Telemetry::StateName(status->state) : "unloaded"}};
+            if (status)
+            {
+                bot["memoryRevision"] = status->revision;
+                bot["committedRevision"] = status->committedRevision;
+                bot["saving"] = status->saving;
+                bot["saveFailed"] = status->saveFailed;
+                bot["droppedPerceptions"] = status->droppedPerceptions;
+            }
+            if (recorder)
+            {
+                recorder->RecordOwner(owner, status, memory, realMs);
+                if (auto const counters = recorder->Counters(owner))
+                {
+                    // Same meaning as the Observatory fields: counted from the core's event tap, not inferred.
+                    bot["deaths"] = counters->deaths;
+                    bot["earnedXp"] = counters->xp;
+                    bot["questCompletions"] = counters->quests;
+                    bot["aiUpdates"] = counters->aiUpdates;
+                    bot["lastAiMs"] = counters->aiUpdates ? boost::json::value(recorder->SimMs(counters->lastAiMs))
+                        : boost::json::value(nullptr);
+                    bot["actions"] = counters->actions;
+                    bot["lastAction"] = counters->lastAction;
+                    bot["lastActionMs"] = counters->actions ? boost::json::value(recorder->SimMs(counters->lastActionMs))
+                        : boost::json::value(nullptr);
+                }
+            }
+            bots.emplace_back(std::move(bot));
         }
         auto elapsed = realMs - startedRealMs;
+        auto interpreter = bridge->Status();
+        auto const& stats = coordinator.Stats();
+        interpreter["stats"] = boost::json::object{{"dispatched", stats.dispatched},
+            {"modelMemories", stats.modelMemories}, {"fakeMemories", stats.fakeMemories},
+            {"fakeReinforcements", stats.fakeReinforcements}, {"fakeSupersessions", stats.fakeSupersessions},
+            {"fallbackMemories", stats.fallbackMemories}, {"reflexMemories", stats.reflexMemories},
+            {"invalidResults", stats.invalidResults}, {"invalidatedJobs", stats.invalidatedJobs},
+            {"staleResults", stats.staleResults}, {"expiredJobs", stats.expiredJobs},
+            {"contextOverflows", stats.contextOverflows}, {"resultDrops", stats.resultDrops}};
         boost::json::object snapshot{{"schema", 1}, {"source", "alles-live"}, {"run", telemetryRun},
             {"seq", ++telemetrySeq}, {"simMs", elapsed}, {"realMs", elapsed}, {"publishedUnixMs", gameMs},
             {"readOnly", true}, {"ready", true}, {"paused", false}, {"completed", false},
             {"requestedSpeed", 1}, {"achievedSpeed", 1.0}, {"backlogMs", 0}, {"maxTickUs", nullptr},
-            {"expectedBots", bots.size()}, {"onlineBots", bots.size()}, {"activeBots", nullptr},
-            {"bots", bots}, {"interpreter", bridge->Status()}};
+            {"expectedBots", bots.size()}, {"onlineBots", bots.size()},
+            {"activeBots", recorder ? boost::json::value(recorder->ActiveBots(realMs)) : boost::json::value(nullptr)},
+            {"bots", bots}, {"interpreter", interpreter},
+            {"alles", boost::json::object{{"owners", settings.owners.size()}, {"dropped", dropped.load()},
+                {"unsafePackets", unsafePackets.load()}, {"lifecycleFault", lifecycleFault.load()}}}};
         if (conversation)
             snapshot["conversation"] = conversation->Status();
+        if (recorder)
+        {
+            auto const totals = recorder->Totals();
+            snapshot["runTotals"] = boost::json::object{{"xp", totals.xp}, {"quests", totals.quests},
+                {"deaths", totals.deaths}};
+            snapshot["journal"] = recorder->Status();
+            bool connected = false;
+            uint64_t used = 0;
+            if (auto const* value = interpreter.if_contains("connected"); value && value->is_bool())
+                connected = value->as_bool();
+            if (auto const* value = interpreter.if_contains("usedRequests"); value && value->is_number())
+                used = value->to_number<uint64_t>();
+            recorder->RecordInterpreter(connected, used, realMs);
+        }
         boost::json::object manifest{{"schema", 1}, {"run", telemetryRun}, {"source", "alles-live"},
             {"label", "Ordinary realm — Alles pilot"}, {"timeBasis", "real elapsed milliseconds"},
-            {"model", settings.bridge.model}, {"profile", settings.bridge.profile}};
-        bridge->IO().Publish(settings.telemetryDirectory, boost::json::serialize(snapshot),
-            boost::json::serialize(manifest));
+            {"model", settings.bridge.model}, {"profile", settings.bridge.profile},
+            {"journal", recorder != nullptr}};
+        auto serialized = boost::json::serialize(snapshot);
+        if (recorder)
+            recorder->RecordSnapshot(serialized);
+        bridge->IO().Publish(settings.telemetryDirectory, std::move(serialized), boost::json::serialize(manifest));
     }
 
     RuntimeSettings const settings;
@@ -441,6 +527,7 @@ struct Runtime::Impl
     Interpreter::PilotCoordinator coordinator;
     std::unique_ptr<Bridge::Service> bridge;
     std::unique_ptr<ConversationRuntime> conversation;
+    std::unique_ptr<TelemetryRecorder> recorder;
     std::thread::id const thread;
     std::map<ActorKey, OwnerRuntime> owners;
     std::atomic<uint64_t> dropped{0};
@@ -569,6 +656,8 @@ void Runtime::Update()
     auto const gameMs = GameNow();
     auto const realMs = RealNow();
     _impl->Poll(gameMs, realMs);
+    if (_impl->recorder)
+        _impl->recorder->Drain();
     _impl->DrainIngress(gameMs, realMs, _impl->settings.itemBudget);
     if (_impl->stopping)
         return;
@@ -614,6 +703,8 @@ void Runtime::BeginShutdown()
 void Runtime::FinishShutdown()
 {
     _impl->CheckThread();
+    // Maps are unloaded: no bot can raise another event, so the tap can be cleared without a race.
+    Telemetry::InstallLiveSink(nullptr);
     BeginShutdown();
     auto const deadline = std::chrono::steady_clock::now()
         + std::chrono::milliseconds(_impl->settings.shutdownBudgetMs);
@@ -640,6 +731,11 @@ void Runtime::FinishShutdown()
         }
         if (auto const request = _impl->store.CaptureFinalSave(owner, RealNow()))
             _impl->ApplyCompletion(_impl->dao.CommitFinal(*request, deadline), gameMs, RealNow());
+    }
+    if (_impl->recorder)
+    {
+        _impl->recorder->Drain(_impl->settings.ingressCapacity);
+        _impl->recorder->Flush();
     }
 }
 

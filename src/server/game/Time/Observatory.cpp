@@ -85,6 +85,8 @@ namespace
     std::set<std::string> trackedUnits;
     uint64 eventSequence = 0;
     thread_local std::string context;
+    // Ordinary-realm tap (see Observatory.h). Read on every Event() call, so it stays lock-free.
+    std::atomic<Observatory::LiveSink> liveSink{nullptr};
     struct Totals
     {
         uint64 lastAiMs = 0;
@@ -618,9 +620,14 @@ void Observatory::Stop()
         writer.join();
 }
 
+void Observatory::SetLiveSink(LiveSink sink)
+{
+    liveSink.store(sink, std::memory_order_release);
+}
+
 Observatory::Context::Context(std::string_view name)
 {
-    if (SimulationClock::Enabled())
+    if (SimulationClock::Enabled() || liveSink.load(std::memory_order_relaxed))
     {
         _previous = context;
         context = name;
@@ -629,15 +636,21 @@ Observatory::Context::Context(std::string_view name)
 
 Observatory::Context::~Context()
 {
-    if (SimulationClock::Enabled())
+    if (SimulationClock::Enabled() || liveSink.load(std::memory_order_relaxed))
         context = _previous;
 }
 
 void Observatory::Event(Player const* player, std::string_view kind, uint64 value, std::string_view detail)
 {
-    if (!SimulationClock::Enabled() ||
-        (player && (!player->GetSession() || !player->GetSession()->IsBot())))
+    if (player && (!player->GetSession() || !player->GetSession()->IsBot()))
         return;
+    if (!SimulationClock::Enabled())
+    {
+        // No run, no journal: hand the record to the installed module sink, if any, on the raising thread.
+        if (auto sink = liveSink.load(std::memory_order_acquire))
+            sink(player, kind, value, detail, context);
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex);
     auto id = player ? player->GetGUID().ToString() : "";
     auto& count = totals[id];
