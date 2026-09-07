@@ -1289,12 +1289,13 @@ void Item::ClearSoulboundTradeable(Player* currentOwner)
 
 bool Item::CheckSoulboundTradeExpire()
 {
-    // we have to check the owner for mod_playerbots since bots programically call methods like DestroyItem, 
-    // MoveItemToMail, DestroyItemCount which do not handle soulboundTradeable clearing.
+    // mod_playerbots: bots programmatically call DestroyItem, MoveItemToMail and DestroyItemCount,
+    // none of which clear soulboundTradeable, so a null owner means the entry is stale and must go.
+    // Upstream (#27528) returns false here instead; keep the eviction while Playerbots is in the build.
     Player* owner = GetOwner();
     if (!owner)
         return true; // remove from tradeable list
-    
+
     if (GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME) + 2 * HOUR < owner->GetTotalPlayedTime())
     {
         ClearSoulboundTradeable(owner);
