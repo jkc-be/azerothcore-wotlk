@@ -73,10 +73,31 @@ Set `Alles.Telemetry.Directory` to an existing private directory and point the e
 bridge's `--spool` at it. Worldserver samples live configured bots once per second after map workers
 finish, then publishes immutable JSON through the I/O thread. The dashboard shows live positions,
 health, equipment, bags, quests, memory counts and worker request counters. Its controls stay disabled
-on an ordinary realm; simulation mode remains off. Only current snapshots are persisted in this pilot;
-browser charts collect samples while connected. AI update counters and cumulative earned XP, quest
-completions and deaths are not measured by this feed and must not be inferred from saved DB positions.
-Old simulation spools are retained independently. Samples older than ten seconds are explicitly stale.
+on an ordinary realm; simulation mode remains off. Samples older than ten seconds are explicitly stale.
+Old simulation spools are retained independently.
+
+The world also keeps the two Observatory journals beside `latest.json`. `events.ndjson` receives the
+records the core's `Observatory::Event` tap raises for configured owners on an ordinary realm
+(`bot_action`, `xp`, `death`, `quest_reward`, `shortcut`, `teleport_attempt`, …, in the Observatory record
+shape) plus the module's own kinds: `alles_perception` (each admitted or dropped perception, described),
+`alles_memory` (a memory formed, with its formation mode, or revised), `alles_said` (autonomous speech and
+whether anyone was in range), `alles_owner` and `alles_save` (memory store state and save outcomes) and
+`alles_worker` / `alles_request` (worker connection and charged requests). `snapshots.ndjson` receives every
+published sample so a reconnecting browser restores recent history and the bridge keeps its long-term
+tiers. Both rotate at `Alles.Telemetry.JournalSegmentBytes` (64 MiB by default) so the bridge prunes old
+segments. The same tap gives each bot `aiUpdates`, `lastAiMs`, `actions`, `lastAction`, cumulative
+`earnedXp`, `deaths` and `questCompletions`, and the snapshot `activeBots`, `runTotals`, `journal` and
+`alles` (ingress) health plus the coordinator counters under `interpreter.stats`. Recording is best effort:
+a full queue or a failing disk drops records and counts them; gameplay never waits on telemetry.
+
+Every boot is a new run in the same directory. At startup the world moves the previous run's journals,
+`latest.json`, `manifest.json` and the bridge's derived files into `archive/<run>/`; the bridge starts its
+journal tiers afresh when the run id changes and ignores records of another run. The bridge exposes the
+worker's own log tail (interpretation job and conversation turn outcomes, token usage, latency, connection
+errors) at `/api/worker-log`; it reads `env/dist/logs/alles-interpreter.log` of its own checkout by default
+and `--worker-log PATH` selects another file. The dashboard's Interpreter panel shows it beside the worker
+status, the request budget, the conversation counters, the coordinator counters, the memory owners and the
+alles event feed. Counters a world build does not report are shown as unmeasured, never as zero.
 
 ## Natural conversation
 

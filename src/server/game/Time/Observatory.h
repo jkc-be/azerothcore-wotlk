@@ -56,6 +56,13 @@ namespace Observatory
     AC_GAME_API void Event(Player const* player, std::string_view kind, uint64 value = 0, std::string_view detail = {});
     AC_GAME_API void Probe(Unit const* actor, std::string_view kind, uint64 value = 0, uint32 spell = 0,
                            Unit const* other = nullptr);
+    // Ordinary-realm tap. With the simulation clock off, Event() discards every bot record; a statically
+    // linked module may install one sink to receive them instead, from whichever thread raised them. The
+    // sink must copy what it needs before returning and never retain the Player pointer. Install and clear
+    // it on the world thread only; clearing does not wait for sinks already running on other threads.
+    using LiveSink = void (*)(Player const* player, std::string_view kind, uint64 value, std::string_view detail,
+                              std::string_view context);
+    AC_GAME_API void SetLiveSink(LiveSink sink);
     // Annotates every event produced by a bot action or factory convenience on this thread.
     class AC_GAME_API Context
     {

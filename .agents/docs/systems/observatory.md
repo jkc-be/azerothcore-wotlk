@@ -54,6 +54,17 @@ not whatever happens to be latest on module `master`. Read `apps/observatory/doc
    compatible previous binaries/configuration plus the appropriate pre-update DB state. A rollback never reuses virtual
    future timestamps as though a run were resumable. Never claim 100 bots at 10× without benchmark evidence.
 
+## The dashboard on an ordinary realm (alles-live)
+
+The same bridge and page serve `mod-alles` telemetry from the ordinary realm when `--spool` points at
+`Alles.Telemetry.Directory`. On that feed the core's `Observatory::Event` records only reach the journal
+through the module's live tap (`Observatory::SetLiveSink`), so a world build without it publishes no
+`events.ndjson` and no per-bot AI counters: the dashboard then shows those figures as "not measured by this
+world build" rather than empty panels. Check `/api/snapshot` for `journal` and per-bot `aiUpdates` to tell
+the two cases apart, and start the bridge with `--worker-log env/dist/logs/alles-interpreter.log` so the
+Interpreter panel can show the worker's own job outcomes. Every boot is a new run in the same directory;
+the world archives the previous run's files into `archive/<run>/` and the bridge restarts its tiers.
+
 ## Diagnosing a dashboard stuck "reconnecting"
 
 The bridge can be fully healthy while the dashboard never advances. `/api/snapshot` returning
