@@ -99,6 +99,18 @@ and `--worker-log PATH` selects another file. The dashboard's Interpreter panel 
 status, the request budget, the conversation counters, the coordinator counters, the memory owners and the
 alles event feed. Counters a world build does not report are shown as unmeasured, never as zero.
 
+The dashboard's Memory region inspects the stores themselves. It lists every owner with a committed store
+in `alles_actor`, shows the selected character's committed memories (the rendered sentence, kind, source and
+attribution, confidence, salience, formation mode, formed and recalled times) with a filter and sort, its
+pending perceptions, and the committed revision beside the live store's revision, since the table lags the
+store by one save interval. "Talk to memory" asks the worker's own Ollama model to answer an observer's
+question in the character's voice from those committed memories: an out-of-game interview that the world
+never hears, that forms no memory or speech, and that does not draw on the interpreter budget (it does share
+the GPU, so one question is answered at a time). The bridge reads the tables through the `mysql` client with
+the `CharacterDatabaseInfo` of its checkout's `worldserver.conf` and finds the worker model in `worker.json`
+beside `Alles.Worker.TokenFile`; `--world-conf`, `--worker-config`, `--mysql` and `--no-memory` override
+that. See `apps/observatory/docs/INTERFACE.md` for the `/api/memory` endpoints.
+
 ## Natural conversation
 
 Delivered replies are journaled as `alles_conversation`, including the actual spoken text and context naming

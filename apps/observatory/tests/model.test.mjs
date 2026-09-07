@@ -26,6 +26,8 @@ import {
   formatBytes,
   describeEvent,
   isAllesEvent,
+  filterMemories,
+  relativeTime,
 } from "../web/model.js";
 const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
@@ -416,4 +418,38 @@ test("live realm alerts name the worker, the budget, the journal and stale telem
     faults.map((alert) => alert.level),
     ["danger", "danger", "warn"],
   );
+});
+
+test("memory inspector filters on every visible field and orders by the chosen key", () => {
+  const memories = [
+    { id: 1, text: "I saw that Mangy Wolf died", kind: "witnessed death", formation: "model", attribution: "",
+      subject: { name: "Mangy Wolf" }, source: { name: "Humana" }, salience: 0.4, confidence: 0.9,
+      formedUnixMs: 300, recalledUnixMs: 0 },
+    { id: 2, text: "Humanb told me the mill burned", kind: "heard statement", formation: "fallback",
+      attribution: "Humand", subject: { name: "" }, source: { name: "Humanb" }, salience: 0.9, confidence: 0.5,
+      formedUnixMs: 100, recalledUnixMs: 250 },
+    { id: 3, text: "I met Humane", kind: "met", formation: "reflex", attribution: "", subject: { name: "Humane" },
+      source: { name: "" }, salience: 0.9, confidence: 1, formedUnixMs: 200, recalledUnixMs: 0 },
+  ];
+  const ids = (list) => list.map((memory) => memory.id);
+  assert.deepEqual(ids(filterMemories(memories)), [3, 2, 1]);
+  assert.deepEqual(ids(filterMemories(memories, "", "confidence")), [3, 1, 2]);
+  assert.deepEqual(ids(filterMemories(memories, "", "newest")), [1, 3, 2]);
+  assert.deepEqual(ids(filterMemories(memories, "", "recalled")), [2, 3, 1]);
+  assert.deepEqual(ids(filterMemories(memories, " WOLF ")), [1]);
+  assert.deepEqual(ids(filterMemories(memories, "humand")), [2]);
+  assert.deepEqual(ids(filterMemories(memories, "reflex")), [3]);
+  assert.deepEqual(ids(filterMemories(memories, "nothing")), []);
+  assert.equal(memories[0].id, 1, "the caller's list is not reordered");
+});
+
+test("relative time is coarse and never negative", () => {
+  const now = 10 * 86400 * 1000;
+  assert.equal(relativeTime(null, now), "unknown");
+  assert.equal(relativeTime(0, now), "unknown");
+  assert.equal(relativeTime(now + 5000, now), "just now");
+  assert.equal(relativeTime(now - 30 * 1000, now), "just now");
+  assert.equal(relativeTime(now - 5 * 60 * 1000, now), "5 min ago");
+  assert.equal(relativeTime(now - (3 * 3600 + 7 * 60) * 1000, now), "3 h 7 min ago");
+  assert.equal(relativeTime(now - (2 * 86400 + 5 * 3600) * 1000, now), "2 d 5 h ago");
 });

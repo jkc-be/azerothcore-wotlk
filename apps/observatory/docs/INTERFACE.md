@@ -103,6 +103,26 @@ log tail at `/api/worker-log` when started with `--worker-log`. The dashboard hi
 instruments, shows the interpreter budget and memories in the bench, adds an Interpreter region and labels
 anything the world build does not measure as such.
 
+The bridge also serves the **committed** memory stores of that realm. `GET /api/memory` lists every owner
+in `alles_actor` (character name, level, race, class, online flag, committed memory and perception counts,
+committed revision, plus the `live` per-bot store figures from the current sample when the character is in
+it); `GET /api/memory?owner=player:<guid>` returns that owner's `alles_memory` rows (rendered `text`, kind,
+subject, source, attribution, reported depth, confidence, salience, formed/recalled/decay times as Unix
+milliseconds, formation mode) and its pending `alles_perception` rows, ordered by salience. The rows are
+the last committed snapshot, which the world writes after 30 real seconds dirty or 64 material changes: the
+response reports `committedRevision` beside the live `memoryRevision` so the gap is visible. The bridge reads
+them with the `mysql` client and the `CharacterDatabaseInfo` of `--world-conf` (default: the checkout's
+`env/dist/etc/worldserver.conf`); it never exposes the password. `POST /api/memory/talk` with
+`{"owner","message","history":[{"role":"observer|character","text"}]}` asks the interpreter worker's own
+model (from `--worker-config`, default `worker.json` beside `Alles.Worker.TokenFile` of `--alles-conf`) to
+answer in the character's voice from up to 24 of those committed memories (word overlap with the question
+first, then salience, duplicates suppressed) and returns `text`, latency, token usage and the memory ids
+offered. It is an out-of-game interview: the world hears nothing, no perception or memory is formed and the
+interpreter request budget is untouched; it does share the GPU with gameplay jobs, so the bridge answers
+one question at a time (`429` while busy). `--no-memory` disables both endpoints; a missing input
+disables its feature with a `reasons` entry the page shows. Owners other than `player:` or `creature:` ids
+and messages over 500 characters are rejected (`400`); an owner without a committed store is `404`.
+
 ## Adaptive Max speed
 
 `POST /api/control` also accepts `"speed":"max"` with optional `"backlogLimitMs":100` (integer, 10–60,000).

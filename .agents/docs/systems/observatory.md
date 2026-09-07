@@ -65,6 +65,15 @@ the two cases apart, and start the bridge with `--worker-log env/dist/logs/alles
 Interpreter panel can show the worker's own job outcomes. Every boot is a new run in the same directory;
 the world archives the previous run's files into `archive/<run>/` and the bridge restarts its tiers.
 
+The Memory region (`/api/memory`, `/api/memory/talk`) reads the committed `alles_*` tables with the `mysql`
+client and the checkout's `env/dist/etc/worldserver.conf`, and asks the worker's model named in
+`worker.json` beside `Alles.Worker.TokenFile`; no unit change is needed on a checkout that runs the world
+natively. The page shows the reason when either input is missing. What it shows is the last committed
+snapshot, not the live store: compare the committed and live revisions in the caption before concluding a
+memory is missing. There is no dashboard flush: the world commits on its own schedule and `.alles flush`
+exists only on the console (SOAP is disabled on the native host). A dashboard question never reaches the
+world and never forms a memory, so it cannot be used to test hearing or conversation.
+
 ## Diagnosing a dashboard stuck "reconnecting"
 
 The bridge can be fully healthy while the dashboard never advances. `/api/snapshot` returning

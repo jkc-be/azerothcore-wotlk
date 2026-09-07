@@ -2,9 +2,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -880,6 +882,276 @@ class TieredHistory(unittest.TestCase):
         self.assertEqual(json.loads(body)['journals']['snapshots']['segments'], 2)
         with self.assertRaises(urllib.error.HTTPError):
             get('/api/export/rollup.ndjson')
+
+
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class MemoryInspection(unittest.TestCase):
+    """The committed alles memory stores read through the mysql client, and out-of-game questions."""
+
+    PASSWORD = 'p"a#s\\s'
+    OWNERS = ('owner_kind\towner_id\tcommitted_revision\tname\tlevel\trace\tclass\tzone\tonline\tmemories\t'
+              'perceptions\n0\t1176\t42\tHumana\t7\t1\t5\t12\t1\t2\t1\n1\t500\t3\tNULL\tNULL\tNULL\tNULL\tNULL\tNULL'
+              '\t0\t0\n')
+    ACTOR = ('committed_revision\tnext_memory_id\tnext_perception_id\tdecay_game_time_ms\tname\tlevel\trace\tclass'
+             '\tzone\tonline\n42\t9\t4\t1000\tHumana\t7\t1\t5\t12\t1\n')
+    MEMORIES = ('memory_id\tcontent_revision\tkind\tsubject_kind\tsubject_id\tsubject_name\tsource_kind\tsource_id'
+                '\tsource_name\tclaim\tattribution\treported_depth\tconfidence\tsalience\tformed_game_time_ms'
+                '\trecalled_game_time_ms\tdecay_game_time_ms\tformation_mode\n'
+                '7\t1\t3\t1\t80999\tMangy Wolf\t0\t1176\tHumana\tMangy Wolf died after being attacked by Humana'
+                '\t\tNULL\t0.9\t0.75\t1788790000000\t0\t1788790000000\t0\n'
+                '5\t2\t0\tNULL\tNULL\t\t0\t1186\tHumanb\tthe mill\\tburned\tHumand\t2\t0.5\t0.4'
+                '\t1788780000000\t1788781000000\t1788790000000\t3\n')
+    PERCEPTIONS = ('perception_id\tkind\tsubject_name\tsource_name\tcomprehended\tlanguage\tgated_text\tplace'
+                   '\tgame_time_ms\tself_context\n3\t0\t\tHumanb\t1\t7\thello there\tNorthshire Valley'
+                   '\t1788790500000\tstanding\n')
+
+    def fake_mysql(self):
+        """A mysql stand-in that checks the private option file and answers by statement."""
+        calls = []
+        answers = {'AS perceptions FROM alles_actor': self.OWNERS, 'a.next_memory_id': self.ACTOR,
+                   'FROM alles_memory WHERE': self.MEMORIES, 'FROM alles_perception WHERE': self.PERCEPTIONS}
+
+        def run(command, capture_output, text, timeout):
+            self.assertEqual(command[0], 'fake-mysql')
+            option_file = Path(command[1][len('--defaults-extra-file='):])
+            self.assertEqual(option_file.stat().st_mode & 0o777, 0o600)
+            options = option_file.read_text()
+            self.assertIn('password="p\\"a#s\\\\s"\n', options)
+            self.assertIn('database="acore_characters"\n', options)
+            self.assertNotIn(self.PASSWORD, ' '.join(command))
+            calls.append((option_file, command[-1]))
+            for needle, output in answers.items():
+                if needle in command[-1]:
+                    # Only owner 1176 has rows; any other owner gets the header alone.
+                    owner = re.search(r'owner_id = (\d+)', command[-1])
+                    if owner and owner[1] != '1176':
+                        output = output.split('\n')[0] + '\n'
+                    return SimpleNamespace(returncode=0, stdout=output, stderr='')
+            return SimpleNamespace(returncode=1, stdout='', stderr='ERROR 1146 (42S02): missing table\n')
+
+        return run, calls
+
+    def database(self):
+        run, calls = self.fake_mysql()
+        return bridge.CharacterDatabase(f'127.0.0.1;3306;acore;{self.PASSWORD};acore_characters', client='fake-mysql',
+                                        run=run), calls
+
+    def test_owner_parsing_row_decoding_and_option_lines(self):
+        self.assertEqual(bridge.parse_owner('player:1176'), (0, 1176))
+        self.assertEqual(bridge.parse_owner('creature:7'), (1, 7))
+        for bad in ('player:0', 'npc:3', 'player:-1', '1176', 'player:1; DROP TABLE x', ''):
+            with self.assertRaises(ValueError):
+                bridge.parse_owner(bad)
+        rows = bridge.parse_tsv('a\tb\n1\tx\\ty\\nz\\\\\n2\tNULL\n')
+        self.assertEqual(rows, [{'a': '1', 'b': 'x\ty\nz\\'}, {'a': '2', 'b': None}])
+        self.assertEqual(bridge.parse_tsv(''), [])
+        self.assertEqual(bridge.option_line('password', self.PASSWORD), 'password="p\\"a#s\\\\s"\n')
+        with self.assertRaises(ValueError):
+            bridge.CharacterDatabase('host;3306;user')
+
+    def test_render_memory_matches_the_world(self):
+        heard = {'kind': 'heard statement', 'source': {'name': 'Humana'}, 'attribution': 'Humanb',
+                 'claim': 'the mill burned'}
+        self.assertEqual(bridge.render_memory(heard), 'Humana told me Humanb reported that the mill burned')
+        heard['attribution'] = 'Humana'
+        self.assertEqual(bridge.render_memory(heard), 'Humana told me the mill burned')
+        heard['source'] = {'name': ''}
+        self.assertEqual(bridge.render_memory(heard), 'I heard the mill burned')
+        death = {'kind': 'witnessed death', 'source': {'name': 'Humana'}, 'attribution': '', 'claim': 'a wolf died'}
+        self.assertEqual(bridge.render_memory(death), 'I saw that a wolf died')
+        met = {'kind': 'met', 'source': {'name': 'Humana'}, 'attribution': '', 'claim': 'I met Humand'}
+        self.assertEqual(bridge.render_memory(met), 'I met Humand')
+
+    def test_ranking_prefers_matching_claims_then_salience_without_duplicates(self):
+        memories = [
+            {'id': 1, 'text': 'I saw that Mangy Wolf died after being attacked by Humana', 'salience': 0.3},
+            {'id': 2, 'text': 'I saw that Mangy Wolf died after being attacked by Humana', 'salience': 0.9},
+            {'id': 3, 'text': 'Humanb told me the mill burned', 'salience': 0.8},
+            {'id': 4, 'text': 'I met Humand', 'salience': 0.95},
+            {'id': 5, 'text': 'x' * 600, 'salience': 1.0},
+        ]
+        ranked = bridge.rank_memories(memories, 'Which wolf died at the mill?', limit=3)
+        self.assertEqual([memory['id'] for memory in ranked], [1, 3, 4])
+        self.assertEqual([memory['id'] for memory in bridge.rank_memories(memories, 'hello', limit=2)], [4, 3])
+        self.assertEqual(bridge.words('The Mill burned, wolf!'), {'mill', 'burned', 'wolf'})
+
+    def test_database_reads_use_a_private_option_file_and_integer_parameters(self):
+        database, calls = self.database()
+        owners = database.owners()
+        self.assertEqual([(row['owner_kind'], row['owner_id'], row['name']) for row in owners],
+                         [('0', '1176', 'Humana'), ('1', '500', None)])
+        memories = database.memories(0, 1176)
+        self.assertEqual(memories[1]['claim'], 'the mill\tburned')
+        self.assertEqual(memories[0]['reported_depth'], None)
+        self.assertIn('WHERE owner_kind = 0 AND owner_id = 1176 ORDER BY salience DESC', calls[-1][1])
+        for option_file, _ in calls:
+            self.assertFalse(option_file.exists())
+        with self.assertRaisesRegex(OSError, 'missing table'):
+            database.query('SELECT 1 FROM nowhere')
+        self.assertEqual(database.describe()['database'], 'acore_characters')
+        self.assertNotIn(self.PASSWORD, json.dumps(database.describe()))
+
+    def inspector(self, provider=None):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        path = Path(temp.name)
+        (path / 'latest.json').write_text(json.dumps({
+            'run': 'alles-1', 'seq': 1, 'source': 'alles-live', 'bots': [
+                {'guid': 1176, 'name': 'Humana', 'level': 7, 'zone': 12, 'memoryCount': 3, 'pendingPerceptions': 2,
+                 'memoryState': 'ready', 'memoryRevision': 50, 'committedRevision': 42, 'saving': False,
+                 'saveFailed': False}]}))
+        (path / 'manifest.json').write_text(json.dumps({'areas': [{'zone': 12, 'name': 'Elwynn Forest'}]}))
+        database, calls = self.database()
+        spool = bridge.Spool(path, 'x' * 32, follow=False)
+        return bridge.MemoryInspector(database, provider, spool, maps=path, reasons={}), calls
+
+    def test_overview_and_owner_merge_committed_rows_with_the_live_sample(self):
+        inspector, _ = self.inspector()
+        overview = inspector.overview()
+        self.assertEqual(overview['talk'], None)
+        self.assertEqual(overview['database']['database'], 'acore_characters')
+        humana, creature = overview['owners']
+        self.assertEqual((humana['owner'], humana['name'], humana['race'], humana['class'], humana['online']),
+                         ('player:1176', 'Humana', 'Human', 'Priest', True))
+        self.assertEqual((humana['committedMemories'], humana['committedPerceptions'], humana['committedRevision']),
+                         (2, 1, 42))
+        self.assertEqual(humana['live']['memoryRevision'], 50)
+        self.assertEqual((creature['owner'], creature['name'], creature['live']), ('creature:500', 'creature:500', None))
+        detail = inspector.owner('player:1176')
+        self.assertEqual((detail['name'], detail['place'], detail['committedRevision']), ('Humana', 'Elwynn Forest', 42))
+        self.assertEqual(detail['sheet']['class'], 'Priest')
+        self.assertEqual(detail['live']['pendingPerceptions'], 2)
+        wolf, mill = detail['memories']
+        self.assertEqual(wolf['text'], 'I saw that Mangy Wolf died after being attacked by Humana')
+        self.assertEqual((wolf['kind'], wolf['formation'], wolf['subject']['owner'], wolf['source']['owner']),
+                         ('witnessed death', 'model', 'creature:80999', 'player:1176'))
+        self.assertEqual((wolf['confidence'], wolf['salience'], wolf['formedUnixMs'], wolf['reportedDepth']),
+                         (0.9, 0.75, 1788790000000, None))
+        self.assertEqual((mill['text'], mill['reportedDepth'], mill['formation'], mill['subject']['owner']),
+                         ('Humanb told me Humand reported that the mill\tburned', 2, 'fallback', None))
+        self.assertEqual(detail['perceptions'][0], {
+            'id': 3, 'kind': 'speech', 'subject': '', 'source': 'Humanb', 'comprehended': True, 'language': 7,
+            'text': 'hello there', 'place': 'Northshire Valley', 'unixMs': 1788790500000, 'selfContext': 'standing'})
+        with self.assertRaises(KeyError):
+            inspector.owner('player:9')
+        with self.assertRaises(ValueError):
+            inspector.owner('player:x')
+        unavailable = bridge.MemoryInspector(reasons={'database': 'no settings'})
+        with self.assertRaisesRegex(bridge.Unavailable, 'no settings'):
+            unavailable.overview()
+
+    def test_talk_sends_a_bounded_context_and_answers_one_question_at_a_time(self):
+        requests = []
+
+        def opener(request, timeout):
+            requests.append((request, timeout))
+            return FakeResponse({'model': 'qwen3:8b-q8_0', 'choices': [{'finish_reason': 'stop', 'message': {
+                'content': '  I remember a wolf.\nIt died.  '}}], 'usage': {'prompt_tokens': 300,
+                                                                            'completion_tokens': 12}})
+
+        provider = bridge.TalkProvider('http://gpu:11434/v1/', 'qwen3:8b-q8_0', timeout=7, opener=opener)
+        inspector, _ = self.inspector(provider)
+        answer = inspector.talk({'owner': 'player:1176', 'message': '  What about  the wolf? ',
+                                 'history': [{'role': 'observer', 'text': 'hi'}, {'role': 'character', 'text': 'hello'}]})
+        self.assertEqual(answer['text'], 'I remember a wolf. It died.')
+        self.assertEqual((answer['name'], answer['message'], answer['promptTokens'], answer['completionTokens']),
+                         ('Humana', 'What about the wolf?', 300, 12))
+        self.assertEqual((answer['memoriesOffered'], answer['memoriesCommitted'], answer['committedRevision']),
+                         ([7, 5], 2, 42))
+        request, timeout = requests[0]
+        self.assertEqual((request.full_url, timeout, request.get_method()), ('http://gpu:11434/v1/chat/completions', 7,
+                                                                             'POST'))
+        body = json.loads(request.data)
+        self.assertEqual((body['model'], body['temperature'], body['reasoning_effort']), ('qwen3:8b-q8_0', 0.2, 'none'))
+        self.assertEqual(body['messages'][0]['content'], bridge.TALK_CONTRACT)
+        context = json.loads(body['messages'][1]['content'])
+        self.assertEqual(context['character'], 'Humana, level 7 Human Priest')
+        self.assertEqual(context['place'], 'Elwynn Forest')
+        self.assertEqual(context['history'], ['Observer: hi', 'Humana: hello'])
+        self.assertEqual(context['message'], 'What about the wolf?')
+        self.assertTrue(context['memories'][0].startswith('I saw that Mangy Wolf died after being attacked by Humana '
+                                                          '(confidence 0.90, salience 0.75, '))
+        self.assertLessEqual(len(body['messages'][1]['content']) + len(bridge.TALK_CONTRACT), bridge.TALK_CONTEXT_BYTES)
+        for bad in ({'owner': 'player:1176', 'message': ''}, {'owner': 'player:1176', 'message': 'x' * 501},
+                    {'owner': 'player:1176', 'message': 'hi', 'history': [{'role': 'bot', 'text': 'x'}]},
+                    {'owner': 'player:1176', 'message': 'hi', 'history': 'no'}, 'not an object'):
+            with self.assertRaises(ValueError):
+                inspector.talk(bad)
+        with self.assertRaises(KeyError):
+            inspector.talk({'owner': 'player:9', 'message': 'hi'})
+        with provider.busy:
+            with self.assertRaises(BlockingIOError):
+                inspector.talk({'owner': 'player:1176', 'message': 'hi'})
+        self.assertEqual(len(requests), 1)
+        silent, _ = self.inspector()
+        with self.assertRaisesRegex(bridge.Unavailable, 'worker'):
+            silent.talk({'owner': 'player:1176', 'message': 'hi'})
+
+    def test_talk_provider_failures_become_os_errors(self):
+        def failing(request, timeout):
+            raise bridge.urllib.error.URLError('connection refused')
+
+        provider = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=failing)
+        with self.assertRaisesRegex(OSError, 'unreachable'):
+            provider.complete('s', 'u')
+        empty = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=lambda *_, **__: FakeResponse({'choices': []}))
+        with self.assertRaisesRegex(OSError, 'no completion'):
+            empty.complete('s', 'u')
+        blank = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=lambda *_, **__: FakeResponse(
+            {'choices': [{'message': {'content': ' '}}]}))
+        inspector, _ = self.inspector(blank)
+        with self.assertRaisesRegex(OSError, 'empty reply'):
+            inspector.talk({'owner': 'player:1176', 'message': 'hi'})
+
+    def test_settings_come_from_the_world_and_worker_configuration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            world = path / 'worldserver.conf'
+            world.write_text('# comment\nCharacterDatabaseInfo = "127.0.0.1;3306;acore;secret;acore_characters"\n'
+                             'Console.Enable = 1 # trailing\n')
+            self.assertEqual(bridge.conf_value(world, 'CharacterDatabaseInfo'),
+                             '127.0.0.1;3306;acore;secret;acore_characters')
+            self.assertEqual(bridge.conf_value(world, 'Console.Enable'), '1')
+            self.assertIsNone(bridge.conf_value(world, 'SOAP.Enabled'))
+            self.assertIsNone(bridge.conf_value(path / 'missing.conf', 'X'))
+            alles = path / 'alles.conf'
+            alles.write_text(f'Alles.Worker.TokenFile = "{path / "setup" / "bridge-token"}"\n')
+            self.assertIsNone(bridge.worker_config(None, alles))
+            (path / 'setup').mkdir()
+            (path / 'setup' / 'worker.json').write_text(json.dumps({'base_url': 'http://gpu:11434/v1', 'model': 'm',
+                                                                   'bridge': '127.0.0.1:8779'}))
+            self.assertEqual(bridge.worker_config(None, alles),
+                             {'path': str(path / 'setup' / 'worker.json'), 'base_url': 'http://gpu:11434/v1',
+                              'model': 'm'})
+            (path / 'other.json').write_text(json.dumps({'model': 'm'}))
+            self.assertIsNone(bridge.worker_config(path / 'other.json', alles))
+            args = SimpleNamespace(no_memory=False, world_conf=world, alles_conf=alles, worker_config=None, mysql='mysql',
+                                   maps=None)
+            inspector = bridge.memory_inspector(args, None)
+            self.assertEqual((inspector.database.database, inspector.provider.model, inspector.reasons), (
+                'acore_characters', 'm', {}))
+            args.world_conf = path / 'missing.conf'
+            args.worker_config = path / 'nope.json'
+            inspector = bridge.memory_inspector(args, None)
+            self.assertIsNone(inspector.database)
+            self.assertIsNone(inspector.provider)
+            self.assertIn('No CharacterDatabaseInfo', inspector.reasons['database'])
+            self.assertIn('nope.json', inspector.reasons['talk'])
+            args.no_memory = True
+            self.assertIn('--no-memory', bridge.memory_inspector(args, None).reasons['talk'])
 
 
 if __name__ == '__main__':
