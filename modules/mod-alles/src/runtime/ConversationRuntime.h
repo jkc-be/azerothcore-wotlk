@@ -13,10 +13,15 @@ class Player;
 
 namespace Alles
 {
+namespace Telemetry
+{
+class Recorder;
+}
+
 class ConversationRuntime
 {
 public:
-    ConversationRuntime(ActorStore& store, Bridge::Service& bridge);
+    ConversationRuntime(ActorStore& store, Bridge::Service& bridge, Telemetry::Recorder* recorder = nullptr);
     ~ConversationRuntime();
     void Login(Player& player);
     void Logout(Player& player);

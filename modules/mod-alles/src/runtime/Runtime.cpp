@@ -113,11 +113,7 @@ struct Runtime::Impl
         if (settings.withholdFake)
             coordinator.SetFakeBehavior({Interpreter::FakeMode::Withhold, 0, true});
         if (settings.external)
-        {
             bridge = std::make_unique<Bridge::Service>(coordinator, settings.bridge);
-            if (settings.conversation)
-                conversation = std::make_unique<ConversationRuntime>(store, *bridge);
-        }
         if (bridge && !settings.telemetryDirectory.empty())
         {
             // The directory outlives runs: file the previous run's journals away so this run starts clean.
@@ -129,6 +125,8 @@ struct Runtime::Impl
             LOG_INFO("module.alles", "Alles telemetry journals in {} ({} previous-run files archived)",
                 settings.telemetryDirectory, archived);
         }
+        if (bridge && settings.conversation)
+            conversation = std::make_unique<ConversationRuntime>(store, *bridge, recorder.get());
     }
 
     ~Impl()
@@ -406,11 +404,13 @@ struct Runtime::Impl
             return;
         nextTelemetryMs = realMs + 1000;
         boost::json::array bots;
+        std::set<uint32_t> online;
         for (auto const owner : settings.owners)
         {
             auto* p = ObjectAccessor::FindConnectedPlayer(ObjectGuid(HighGuid::Player, uint32(owner.id)));
             if (!p || !p->IsInWorld() || !p->GetSession() || !p->GetSession()->IsBot())
                 continue;
+            online.insert(uint32_t(owner.id));
             boost::json::array gear, bags, quests;
             for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
             {
@@ -490,7 +490,8 @@ struct Runtime::Impl
             {"readOnly", true}, {"ready", true}, {"paused", false}, {"completed", false},
             {"requestedSpeed", 1}, {"achievedSpeed", 1.0}, {"backlogMs", 0}, {"maxTickUs", nullptr},
             {"expectedBots", bots.size()}, {"onlineBots", bots.size()},
-            {"activeBots", recorder ? boost::json::value(recorder->ActiveBots(realMs)) : boost::json::value(nullptr)},
+            {"activeBots", recorder ? boost::json::value(recorder->ActiveBots(online, realMs))
+                                   : boost::json::value(nullptr)},
             {"bots", bots}, {"interpreter", interpreter},
             {"alles", boost::json::object{{"owners", settings.owners.size()}, {"dropped", dropped.load()},
                 {"unsafePackets", unsafePackets.load()}, {"lifecycleFault", lifecycleFault.load()}}}};
@@ -526,8 +527,8 @@ struct Runtime::Impl
     Storage::SnapshotDao dao;
     Interpreter::PilotCoordinator coordinator;
     std::unique_ptr<Bridge::Service> bridge;
-    std::unique_ptr<ConversationRuntime> conversation;
     std::unique_ptr<TelemetryRecorder> recorder;
+    std::unique_ptr<ConversationRuntime> conversation;
     std::thread::id const thread;
     std::map<ActorKey, OwnerRuntime> owners;
     std::atomic<uint64_t> dropped{0};

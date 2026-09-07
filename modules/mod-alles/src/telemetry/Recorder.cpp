@@ -342,12 +342,13 @@ std::optional<BotCounters> Recorder::Counters(ActorKey owner) const
     return found->second;
 }
 
-uint32_t Recorder::ActiveBots(uint64_t realMs, uint64_t windowMs) const
+uint32_t Recorder::ActiveBots(std::set<uint32_t> const& online, uint64_t realMs, uint64_t windowMs) const
 {
     std::lock_guard lock(_mutex);
     uint32_t active = 0;
     for (auto const& [low, counters] : _counters)
-        if (counters.aiUpdates && realMs >= counters.lastAiMs && realMs - counters.lastAiMs < windowMs)
+        if (online.contains(low) && counters.aiUpdates && realMs >= counters.lastAiMs
+            && realMs - counters.lastAiMs < windowMs)
             ++active;
     return active;
 }

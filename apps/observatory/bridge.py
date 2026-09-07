@@ -638,7 +638,7 @@ class Spool:
         self.speed_status = 'Manual speed'
         self.viewers = threading.BoundedSemaphore(16)
         self.retain_bytes = retain_bytes
-        self.run = self.seen_run = self.current_run()
+        self.run = self.current_run()
         self.tail = EventTail(self.directory / 'events.ndjson', run=self.run)
         self.snapshots = SnapshotTail(self.directory / 'snapshots.ndjson', run=self.run)
         self.pruned = {stem: {'segments': 0, 'bytes': 0} for stem in JOURNALS}
@@ -660,8 +660,10 @@ class Spool:
         journal tiers afresh for it; the world files the previous run's journals away, and the run filter
         keeps any it left behind out of this run's history. Called by the follower thread, never mid-poll."""
         with self.lock:
-            run = self.seen_run
-            if run == self.run:
+            # Follow the producer even when no browser requests snapshots. During boot the file may
+            # briefly be absent; retain the current filter until the producer publishes a valid run.
+            run = self.current_run()
+            if run is None or run == self.run:
                 return False
             self.tail.close()
             self.snapshots.close()
@@ -747,8 +749,6 @@ class Spool:
             if current.get('source') != 'python-api' and age > 10:
                 current['telemetryStale'] = True
                 current['readOnly'] = True
-            if isinstance(current.get('run'), str):
-                self.seen_run = current['run']
             current['speedControl'] = {
                 'mode': 'max' if self.max_speed else 'manual',
                 'backlogLimitMs': self.backlog_limit_ms,

@@ -87,8 +87,8 @@ public:
     void Flush();
 
     std::optional<BotCounters> Counters(ActorKey owner) const;
-    // Bots whose AI updated within the window, the Observatory's `activeBots` definition.
-    uint32_t ActiveBots(uint64_t realMs, uint64_t windowMs = 10000) const;
+    // Online bots whose AI updated within the window, the Observatory's `activeBots` definition.
+    uint32_t ActiveBots(std::set<uint32_t> const& online, uint64_t realMs, uint64_t windowMs = 10000) const;
     RunTotals Totals() const;
     uint64_t SimMs(uint64_t realMs) const;
     boost::json::object Status() const;
