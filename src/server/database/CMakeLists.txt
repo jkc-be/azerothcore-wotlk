@@ -10,6 +10,31 @@
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 
+# Generate names from the public enum itself, preserving conditional compilation.
+# Reconfigure automatically whenever that enum changes; no second statement list can drift.
+set(CHARACTER_STATEMENT_HEADER
+  "${CMAKE_CURRENT_SOURCE_DIR}/Database/Implementation/CharacterDatabase.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CHARACTER_STATEMENT_HEADER}")
+file(STRINGS "${CHARACTER_STATEMENT_HEADER}" CHARACTER_STATEMENT_LINES)
+set(CHARACTER_STATEMENT_DESCRIPTORS "// Generated from CharacterDatabase.h. Do not edit.\n")
+set(IN_CHARACTER_STATEMENT_ENUM FALSE)
+foreach(STATEMENT_LINE IN LISTS CHARACTER_STATEMENT_LINES)
+  if(STATEMENT_LINE MATCHES "^enum CharacterDatabaseStatements")
+    set(IN_CHARACTER_STATEMENT_ENUM TRUE)
+  elseif(IN_CHARACTER_STATEMENT_ENUM)
+    if(STATEMENT_LINE MATCHES "^[ \t]*MAX_CHARACTERDATABASE_STATEMENTS")
+      break()
+    elseif(STATEMENT_LINE MATCHES "^[ \t]*(CHAR_[A-Z0-9_]+),")
+      string(APPEND CHARACTER_STATEMENT_DESCRIPTORS
+        "            {\"${CMAKE_MATCH_1}\", ${CMAKE_MATCH_1}},\n")
+    elseif(STATEMENT_LINE MATCHES "^[ \t]*#")
+      string(APPEND CHARACTER_STATEMENT_DESCRIPTORS "${STATEMENT_LINE}\n")
+    endif()
+  endif()
+endforeach()
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/CharacterDatabaseStatementDescriptors.inc"
+  CONTENT "${CHARACTER_STATEMENT_DESCRIPTORS}")
+
 CollectSourceFiles(
   ${CMAKE_CURRENT_SOURCE_DIR}
   PRIVATE_SOURCES
@@ -44,7 +69,6 @@ CollectIncludeDirectories(
 target_include_directories(database
   PUBLIC
     ${PUBLIC_INCLUDES}
-  PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR})
 
 target_link_libraries(database

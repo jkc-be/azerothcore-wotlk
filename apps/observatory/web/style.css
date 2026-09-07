@@ -433,8 +433,74 @@ header {
 /* Progression figures */
 .metrics {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 24px;
+}
+
+/* Interpreter region: worker facts, counters, owners and the worker log tail */
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.facts dt {
+  color: var(--ash);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+h3.spaced {
+  margin-top: 16px;
+}
+.log {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font: 12px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ash);
+  max-height: 220px;
+  overflow: auto;
+}
+.log li {
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(42, 57, 64, 0.6);
+  overflow-wrap: anywhere;
+}
+.log li.err {
+  color: var(--ember-text);
+}
+.interpreter-feed {
+  grid-template-columns: 1fr;
+  margin-top: 24px;
+}
+#alles-feed {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 13px;
+}
+#alles-feed li {
+  display: grid;
+  grid-template-columns: 8ch 12ch 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(42, 57, 64, 0.6);
+  overflow-wrap: anywhere;
+}
+#alles-feed time {
+  color: var(--ash);
+}
+#alles-feed b {
+  font-weight: 500;
+}
+#requests-bar {
+  width: 160px;
+  height: 20px;
 }
 .metric {
   display: grid;

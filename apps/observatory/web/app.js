@@ -30,6 +30,8 @@ import {
   bucketHistory,
   longTermSeries,
   formatBytes,
+  describeEvent,
+  isAllesEvent,
 } from "./model.js";
 import { surface, sparkline, speedBar, stackedArea, lineChart, tokens, labelFont, compactNumber } from "./charts.js";
 
@@ -71,6 +73,8 @@ let token = "",
   retention = null,
   freshAt = 0,
   abort = null,
+  workerLog = null,
+  chartMetricChosen = false,
   manifestRun = "";
 let view = { x: 0, y: 0, scale: 0.03 },
   needsFit = true,
@@ -149,6 +153,16 @@ async function loadManifest() {
       ["Initial target", manifest.expectedBots],
       ["Label", manifest.label],
       ["Time basis", manifest.timeBasis],
+      ["Model", manifest.model],
+      ["Worker profile", manifest.profile ? `${manifest.profile.slice(0, 16)}…` : null],
+      [
+        "Journal",
+        manifest.journal == null
+          ? null
+          : manifest.journal
+            ? "events and snapshots journaled by the world"
+            : "current snapshot only; this world build journals nothing",
+      ],
       [
         "History retention",
         "Up to 4,000 recent samples in this session; recent recorded history loads on connect. " +
@@ -298,6 +312,7 @@ function resetRun() {
   trails.clear();
   feedFrozen = null;
   eventStats = null;
+  workerLog = null;
 }
 
 // ------------------------------------------------------------------------------------------------ ingest
@@ -334,11 +349,17 @@ function ingest(snapshot, restoring = false) {
   renderAnalytics();
   drawChart();
   renderControlLog();
+  renderInterpreter();
   loadManifest();
 }
 
 function isPython() {
   return state?.source === "python-api";
+}
+
+// An ordinary realm publishing through mod-alles: read-only, real time, with an interpreter worker.
+function isAlles() {
+  return state?.source === "alles-live";
 }
 
 function isReadOnly() {
@@ -351,7 +372,39 @@ function renderHeader() {
   const python = isPython();
   $("run-label").textContent = python
     ? `${state.label}, Python observation feed, run ${state.run}`
-    : `Run ${state.run}, in-memory telemetry`;
+    : `Run ${state.run}, ${state.telemetryStale ? "recorded" : "in-memory"} telemetry`;
+  if (state.telemetryStale) {
+    notice(state.source === "alles-live"
+      ? "World telemetry is stale. Showing the last recorded sample until the server reports again."
+      : "Recorded Observatory run. No live world telemetry is connected to this dashboard.");
+    return;
+  }
+  if (isAlles()) {
+    const worker = state.interpreter || {};
+    const rolling = worker.budgetMode === "rolling";
+    const used = worker.usedRequests ?? 0,
+      max = worker.maxRequests ?? 0;
+    const conversation = state.conversation || {};
+    $("run-label").textContent = `Live realm, run ${state.run}`;
+    notice(
+      `Live world telemetry · ${worker.model || "no model"} · ` +
+        `${worker.connected ? "worker connected" : "worker disconnected"} · ` +
+        (rolling
+          ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute`
+          : `${used} of ${max} pilot requests used`) +
+        ` · ${formatNumber(worker.modelMemories)} model memories, ${formatNumber(worker.fallbackMemories)} by fallback` +
+        (conversation.enabled
+          ? ` · ${formatNumber(conversation.replies)} replies, ${formatNumber(conversation.pendingReplies)} pending, ` +
+            `${formatNumber(conversation.actions)} actions`
+          : "") +
+        (worker.ledgerFault
+          ? " · provider ledger fault"
+          : !rolling && max && used >= max
+            ? " · budget used; template fallback active"
+            : ""),
+    );
+    return;
+  }
   const backlog = `${((state.backlogMs ?? 0) / 1000).toFixed(1)} s`;
   notice(
     python
@@ -401,7 +454,7 @@ function renderInstruments(previousTarget) {
   const readOnly = isReadOnly();
   const time = clock(state.simMs);
   const perSecond = `${(ingestTimes.length / 10).toFixed(1)} snapshots/s`;
-  $("clock-label").textContent = python ? "Elapsed publisher time" : "Simulated time";
+  $("clock-label").textContent = state.source === "alles-live" ? "Realm uptime" : python ? "Elapsed publisher time" : "Simulated time";
   $("clock-time").textContent = time.time;
   $("clock-days").textContent = python ? "" : `day ${time.days + 1}`;
   $("clock-real").textContent = python ? perSecond : `${duration(state.realMs)} real, ${perSecond}`;
@@ -424,14 +477,19 @@ function renderInstruments(previousTarget) {
     : `${maxSpeed ? "Max · " : ""}requested ${state.requestedSpeed}×`;
   $("speed-ratio").textContent = python ? "" : state.paused ? ", paused" : `, ${Math.round(ratio * 100)}% achieved`;
 
-  $("backlog-figure").hidden = $("tick-figure").hidden = python;
-  if (!python) {
+  const alles = isAlles();
+  // An ordinary realm runs at 1× with no backlog or tick budget; its bench shows the interpreter instead.
+  $("speed-figure").hidden = alles;
+  $("backlog-figure").hidden = $("tick-figure").hidden = python || alles;
+  $("requests-figure").hidden = $("memories-figure").hidden = !alles;
+  if (!python && !alles) {
     $("backlog-value").textContent = `${(state.backlogMs / 1000).toFixed(2)} s`;
     $("backlog-value").dataset.state = state.overloaded ? "danger" : "";
     $("tick-value").textContent = `${(state.maxTickUs / 1000).toFixed(1)} ms`;
     figureSpark("backlog-spark", "backlogMs", state.overloaded ? palette.ember : palette.brass);
     figureSpark("tick-spark", "tickMs", palette.ash);
   }
+  if (alles) renderInterpreterFigures();
 
   $("deck").hidden = Boolean(readOnly);
   const locked = Boolean(readOnly || state.fault || state.completed || state.baseline || state.observers);
@@ -497,7 +555,9 @@ function renderInstruments(previousTarget) {
         ["ok", state.completed ? "Feed closed" : "Feed publishing", !state.completed],
         [performance.now() - freshAt > 3000 ? "warn" : "ok", "Snapshots fresh", performance.now() - freshAt <= 3000],
       ]
-    : [
+    : alles
+      ? allesLamps()
+      : [
         [
           state.ready ? "ok" : "warn",
           state.ready ? `Cohort ready since ${duration(state.readyAtMs)}` : "Cohort forming",
@@ -558,7 +618,63 @@ function renderMetrics() {
   const quests = questStats(state.bots);
   const levels = state.bots.map((bot) => bot.level);
   const last = history.at(-1);
-  const tiles = python
+  const worker = state.interpreter || {};
+  const unmeasured = "not measured by this world build";
+  const tiles = isAlles()
+    ? [
+        [
+          "Bots",
+          state.activeBots == null ? `${state.onlineBots}` : `${state.activeBots} of ${state.onlineBots}`,
+          state.activeBots == null ? "online; AI activity is not reported by this world build" : "active of online",
+        ],
+        [
+          "XP earned",
+          last?.xp == null ? "unknown" : formatNumber(state.runTotals?.xp ?? last.xp),
+          last?.xp == null ? unmeasured : `${perHour(xpRate, "realm")}, ${window}`,
+          "xp",
+          palette.brass,
+        ],
+        [
+          "Quests completed",
+          last?.quests == null ? "unknown" : formatNumber(state.runTotals?.quests ?? last.quests),
+          last?.quests == null ? `${quests.active} in logs; ${unmeasured}` : `${perHour(questRate, "realm")}, ${quests.active} in logs`,
+          "quests",
+          palette.moss,
+        ],
+        [
+          "Deaths",
+          last?.deaths == null ? "unknown" : formatNumber(state.runTotals?.deaths ?? last.deaths),
+          last?.deaths == null ? unmeasured : `${perHour(deathRate, "realm")}, ${window}`,
+          "deaths",
+          palette.ember,
+        ],
+        [
+          "Memories held",
+          formatNumber(last?.memories),
+          `${formatNumber(last?.pendingPerceptions)} perceptions pending`,
+          "memories",
+          palette.lilac,
+        ],
+        [
+          "Model memories",
+          formatNumber(worker.modelMemories),
+          `${formatNumber(worker.fallbackMemories)} by fallback` +
+            (worker.invalidResults ? `, ${formatNumber(worker.invalidResults)} invalid` : ""),
+          "modelMemories",
+          palette.sky,
+        ],
+        [
+          "Mean level",
+          formatNumber(last?.meanLevel, 1),
+          levels.length ? `lowest ${Math.min(...levels)}, highest ${Math.max(...levels)}` : "no bots",
+        ],
+        [
+          "Mean health",
+          health.mean == null ? "unknown" : `${health.mean.toFixed(0)}%`,
+          `${health.low} below 35%, ${health.dead} dead`,
+        ],
+      ]
+    : python
     ? [
         ["Observed bots", state.bots.length, `${state.bots.filter((bot) => observationAge(bot) > 3000).length} stale`],
         ["Alive", state.bots.filter((bot) => bot.alive).length, "last observation"],
@@ -1237,13 +1353,6 @@ function shortGuid(id) {
   return match ? `${match[1]}${match[2] ? ` ${match[2]}` : ""} #${match[3]}` : id;
 }
 
-function describeEvent(event) {
-  const what = event.detail || (event.value ? formatNumber(event.value) : "");
-  const spell = event.spell ? `, spell ${event.spell}` : "";
-  const context = event.context && event.context !== event.detail ? ` [${event.context}]` : "";
-  return `${event.kind.replaceAll("_", " ")}${what ? `: ${what}` : ""}${spell}${context}`;
-}
-
 function renderDetails() {
   const bot = state?.bots.find((bot) => bot.id === selected);
   for (const id of ["bot-bars", "bot-spark", "bot-details", "events-title", "events"]) $(id).hidden = !bot;
@@ -1256,6 +1365,8 @@ function renderDetails() {
     return;
   }
   const python = isPython();
+  const alles = isAlles();
+  const unmeasured = "not measured by this world build";
   $("bot-name").textContent = `${bot.name}, level ${bot.level}`;
   const health = healthPercent(bot);
   $("bot-bars").replaceChildren(
@@ -1315,20 +1426,49 @@ function renderDetails() {
             ["Registration kills, deaths, levels", `${bot.kills}, ${bot.deaths}, ${bot.levelGains}`],
           ]
         : [
-            ["Earned XP this run", formatNumber(bot.earnedXp)],
-            ["Quests completed", bot.questCompletions],
-            ["Deaths", bot.deaths],
+            ["Earned XP this run", bot.earnedXp == null && alles ? unmeasured : formatNumber(bot.earnedXp)],
+            ["Quests completed", bot.questCompletions == null && alles ? unmeasured : formatNumber(bot.questCompletions)],
+            ["Deaths", bot.deaths == null && alles ? unmeasured : formatNumber(bot.deaths)],
             ["Money", formatMoney(bot.money)],
             ["Equipped items", `${gearCount(bot)} of ${(bot.gear || []).length} slots`],
-            ["AI updates", formatNumber(bot.aiUpdates)],
+            ["AI updates", bot.aiUpdates == null && alles ? unmeasured : formatNumber(bot.aiUpdates)],
             [
               "Last AI update",
               silentMs == null
-                ? "unknown"
+                ? alles
+                  ? unmeasured
+                  : "unknown"
                 : silentMs > 10000
                   ? `${(silentMs / 1000).toFixed(1)} s ago, silent for over 10 s`
                   : `${(silentMs / 1000).toFixed(1)} s ago`,
             ],
+            ...(alles
+              ? [
+                  [
+                    "AI actions",
+                    bot.actions == null
+                      ? unmeasured
+                      : `${formatNumber(bot.actions)}` +
+                        (bot.lastAction ? `, last “${bot.lastAction}”` : "") +
+                        (bot.lastActionMs == null ? "" : ` ${((state.simMs - bot.lastActionMs) / 1000).toFixed(0)} s ago`),
+                  ],
+                  [
+                    "Memories",
+                    `${formatNumber(bot.memoryCount)} held, ${formatNumber(bot.pendingPerceptions)} perceptions pending`,
+                  ],
+                  [
+                    "Memory store",
+                    bot.memoryState == null
+                      ? "unknown"
+                      : `${bot.memoryState}, revision ${formatNumber(bot.memoryRevision)}, ` +
+                        `committed ${formatNumber(bot.committedRevision)}` +
+                        (bot.saving ? ", saving" : "") +
+                        (bot.saveFailed ? ", last save failed" : "") +
+                        (bot.droppedPerceptions ? `, ${formatNumber(bot.droppedPerceptions)} perceptions dropped` : ""),
+                  ],
+                  ["Bag slots", bot.bags?.map((bag) => bag.capacity).join(" / ") || "none"],
+                ]
+              : []),
           ]),
       ...(bot.quests || []).map((quest) => [
         `Quest ${quest.id}`,
@@ -1355,7 +1495,10 @@ function renderDetails() {
   );
   if (!$("events").children.length) {
     const li = document.createElement("li");
-    li.textContent = "No progression events for this bot yet.";
+    li.textContent =
+      alles && !state.journal
+        ? "No events: this world build publishes no journal."
+        : "No progression events for this bot yet.";
     $("events").replaceChildren(li);
   }
 }
@@ -1367,7 +1510,11 @@ function renderAnalytics() {
   const mix = summarize(state).activity;
   const python = isPython();
   const timeFormat = python ? duration : formatClock;
-  $("cohort-title").textContent = python ? "Cohort over elapsed time" : "Cohort over simulated time";
+  $("cohort-title").textContent = python
+    ? "Cohort over elapsed time"
+    : isAlles()
+      ? "Cohort over realm time"
+      : "Cohort over simulated time";
   requestAnimationFrame(() => {
     const points = bucketHistory(history, 120);
     const activity = surface($("activity-chart"));
@@ -1431,7 +1578,10 @@ function renderAnalytics() {
     ["Mean health", health.mean == null ? "unknown" : `${health.mean.toFixed(0)}%`],
     ["Lowest", health.min == null ? "unknown" : `${health.min.toFixed(0)}%`],
     ["Under 35%", health.low],
-    ["Silent AI", python ? "not reported" : stalledBots(state).length],
+    [
+      "Silent AI",
+      python || (isAlles() && !bots.some((bot) => bot.lastAiMs != null)) ? "not reported" : stalledBots(state).length,
+    ],
   ]);
   const levelsNow = bots.map((bot) => bot.level);
   const first = history[0],
@@ -1492,13 +1642,19 @@ function summaryLines(element, rows) {
 
 function renderBoard() {
   if (!state) return;
-  const metric = $("board-metric").value;
   for (const option of $("board-metric").options) {
     option.hidden = option.disabled = option.hasAttribute("data-python")
       ? !isPython()
-      : ["money", "stalled"].includes(option.value) && isPython();
+      : option.hasAttribute("data-alles")
+        ? !isAlles()
+        : ["money", "stalled"].includes(option.value) && isPython();
   }
-  if ($("board-metric").selectedOptions[0]?.disabled) $("board-metric").value = isPython() ? "level" : "earnedXp";
+  if ($("board-metric").selectedOptions[0]?.disabled)
+    $("board-metric").value = isPython() ? "level" : isAlles() ? "memoryCount" : "earnedXp";
+  // Until a journaling world build reports earned XP, the live realm's board starts with what it measures.
+  if (isAlles() && $("board-metric").value === "earnedXp" && !state.bots.some((bot) => bot.earnedXp != null))
+    $("board-metric").value = "memoryCount";
+  const metric = $("board-metric").value;
   const entries =
     metric === "stalled"
       ? stalledBots(state)
@@ -1562,6 +1718,16 @@ const CHART_SERIES = {
     { key: ["records", "progression"], name: "Progression / min", width: 2 },
     { key: ["records", "trace"], name: "Trace / min", dashed: true },
   ],
+  formation: [
+    { key: "modelMemories", name: "By model", width: 2 },
+    { key: "fallbackMemories", name: "By fallback", dashed: true },
+    { key: "invalidResults", name: "Invalid results", dashed: true },
+  ],
+  conversation: [
+    { key: "conversationReplies", name: "Replies", width: 2 },
+    { key: "conversationActions", name: "Actions" },
+    { key: "conversationPending", name: "Queued and pending", dashed: true },
+  ],
 };
 const CHART_MAX = { meanHealth: 100, health: 100 };
 
@@ -1592,13 +1758,19 @@ function chartSeries(metric, points) {
 
 function drawChart() {
   const python = isPython();
-  $("chart-title").textContent = python ? "Timeline over elapsed real time" : "Timeline";
+  const alles = isAlles();
+  $("chart-title").textContent = python ? "Timeline over elapsed real time" : alles ? "Timeline over realm time" : "Timeline";
   for (const option of $("chart-metric").options) {
     option.disabled = option.hidden = python
       ? !["levels", "deaths"].includes(option.value) && !option.hasAttribute("data-python")
-      : option.hasAttribute("data-python");
+      : option.hasAttribute("data-python") ||
+        (alles ? option.hasAttribute("data-simulation") : option.hasAttribute("data-alles"));
   }
-  if ($("chart-metric").selectedOptions[0]?.disabled) $("chart-metric").value = python ? "observed" : "xp";
+  if ($("chart-metric").selectedOptions[0]?.disabled)
+    $("chart-metric").value = python ? "observed" : alles ? "memories" : "xp";
+  // The live realm's first chart is something it measures; a deliberate choice is left alone.
+  if (alles && !chartMetricChosen && $("chart-metric").value === "xp" && history.at(-1)?.xp == null)
+    $("chart-metric").value = "memories";
   const { ctx, width, height } = surface($("chart-canvas"));
   const metric = $("chart-metric").value;
   // Whole-run views draw the bridge's long-term buckets; every other window uses this session's samples.
@@ -1656,7 +1828,11 @@ function drawChart() {
     }),
   );
 }
-$("chart-metric").onchange = $("chart-window").onchange = drawChart;
+$("chart-window").onchange = drawChart;
+$("chart-metric").onchange = () => {
+  chartMetricChosen = true;
+  drawChart();
+};
 $("chart-canvas").onpointermove = (event) => {
   chartHover = event.clientX - $("chart-canvas").getBoundingClientRect().left;
   drawChart();
@@ -1785,6 +1961,311 @@ function renderEventMix() {
   }
 }
 
+// ------------------------------------------------------------------------------------------- interpreter
+
+function allesLamps() {
+  const worker = state.interpreter || {};
+  const journal = state.journal?.events;
+  const trial = worker.budgetMode !== "rolling";
+  const exhausted = trial && worker.maxRequests != null && (worker.usedRequests ?? 0) >= worker.maxRequests;
+  return [
+    [
+      state.telemetryStale ? "danger" : "ok",
+      state.telemetryStale ? "World telemetry stale" : "World publishing",
+      !state.telemetryStale,
+    ],
+    [
+      worker.connected ? "ok" : "warn",
+      worker.connected ? "Worker connected" : "Worker disconnected",
+      Boolean(worker.connected),
+    ],
+    [
+      worker.ledgerFault ? "danger" : exhausted ? "warn" : "ok",
+      worker.ledgerFault ? "Ledger fault" : exhausted ? "Request budget used" : "Requests available",
+      !worker.ledgerFault && !exhausted,
+    ],
+    [
+      state.alles?.lifecycleFault ? "danger" : "ok",
+      state.alles?.lifecycleFault ? "Lifecycle ingress overflow" : "Ingress healthy",
+      !state.alles?.lifecycleFault,
+    ],
+    [
+      !journal ? "off" : journal.failed ? "danger" : journal.dropped ? "warn" : "ok",
+      !journal
+        ? "No journal from this world build"
+        : journal.failed
+          ? "Journal failed"
+          : journal.dropped
+            ? `Journal dropped ${formatNumber(journal.dropped)} records`
+            : "Journal healthy",
+      Boolean(journal) && !journal.failed && !journal.dropped,
+    ],
+  ];
+}
+
+function renderInterpreterFigures() {
+  const worker = state.interpreter || {};
+  const rolling = worker.budgetMode === "rolling";
+  const used = worker.usedRequests ?? 0;
+  const max = rolling ? (worker.requestsPerMinute ?? 0) : (worker.maxRequests ?? 0);
+  const remaining = worker.remainingRequests ?? Math.max(0, max - used);
+  const exhausted = Boolean(max) && (rolling ? remaining === 0 : used >= max);
+  $("requests-value").textContent = rolling ? `${remaining} / ${max}` : `${used} / ${max}`;
+  $("requests-sub").textContent = worker.ledgerFault
+    ? "provider ledger fault"
+    : rolling
+      ? `left this minute, ${formatNumber(used)} charged since boot`
+      : exhausted
+        ? "trial budget used; template fallback"
+        : "trial requests used";
+  requestAnimationFrame(() => {
+    const { ctx, width, height } = surface($("requests-bar"));
+    speedBar(ctx, width, height, max ? (rolling ? remaining / max : used / max) : 0, {
+      color: worker.ledgerFault || exhausted ? palette.ember : palette.moss,
+      requested: "",
+      empty: !max,
+    });
+  });
+  const last = history.at(-1);
+  $("memories-value").textContent = formatNumber(last?.memories);
+  $("memories-sub").textContent =
+    `${formatNumber(worker.modelMemories)} by model, ${formatNumber(worker.fallbackMemories)} by fallback` +
+    (worker.invalidResults ? `, ${formatNumber(worker.invalidResults)} invalid` : "");
+  figureSpark("memories-spark", "memories", palette.lilac);
+}
+
+function words(key) {
+  return key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+function cell(text, className) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+function renderInterpreter() {
+  const alles = isAlles();
+  $("interpreter-region").hidden = !alles;
+  if (!alles) return;
+  const worker = state.interpreter || {};
+  const stats = worker.stats || {};
+  const rolling = worker.budgetMode === "rolling";
+  $("interpreter-note").textContent = `${worker.mode || "provider"} mode, ${worker.model || "no model"}`;
+  const facts = [
+    ["Worker", worker.connected ? "connected" : "disconnected"],
+    ["Model", worker.model || "unknown"],
+    ["Profile", worker.profile ? `${worker.profile.slice(0, 16)}…` : "unknown"],
+    [
+      "Budget",
+      rolling
+        ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute, ` +
+          `${formatNumber(worker.usedRequests)} charged since boot`
+        : `${formatNumber(worker.usedRequests)} of ${formatNumber(worker.maxRequests)} trial requests used`,
+    ],
+    ["Ledger", worker.ledgerFault ? "fault: no further model requests" : "healthy"],
+    [
+      "Memories",
+      `${formatNumber(worker.modelMemories)} by model, ${formatNumber(worker.fallbackMemories)} by fallback, ` +
+        `${formatNumber(worker.invalidResults)} invalid results`,
+    ],
+  ];
+  if (worker.conversationQueued != null)
+    facts.push([
+      "Conversations",
+      `${formatNumber(worker.conversationQueued)} queued, ${formatNumber(worker.conversationCompleted)} completed, ` +
+        `${formatNumber(worker.conversationFailed)} failed`,
+    ]);
+  // Any other scalar the world publishes is listed as is, so a newer world build needs no dashboard change.
+  const known = new Set([
+    "mode", "connected", "model", "profile", "usedRequests", "maxRequests", "ledgerFault", "modelMemories",
+    "invalidResults", "fallbackMemories", "stats", "budgetMode", "requestsPerMinute", "remainingRequests",
+    "conversationQueued", "conversationCompleted", "conversationFailed",
+  ]);
+  for (const [key, value] of Object.entries(worker))
+    if (!known.has(key) && (typeof value !== "object" || value === null)) facts.push([words(key), String(value)]);
+  const definitions = (rows) =>
+    rows.flatMap(([key, value]) => {
+      const dt = document.createElement("dt"),
+        dd = document.createElement("dd");
+      dt.textContent = key;
+      dd.textContent = value;
+      return [dt, dd];
+    });
+  $("worker-status").replaceChildren(...definitions(facts));
+  // Human-to-bot conversations: the world's live counters plus the worker log's per-turn outcomes.
+  const talk = state.conversation;
+  const turns = workerLog?.available ? workerLog.summary.conversations : null;
+  const actionMix = turns
+    ? Object.entries(turns.actions)
+        .sort((a, b) => b[1] - a[1])
+        .map(([action, count]) => `${action} ${count}`)
+        .join(", ")
+    : "";
+  $("conversation-status").replaceChildren(
+    ...definitions(
+      !talk
+        ? [["Conversations", "not reported by this world build"]]
+        : [
+            ["Enabled", talk.enabled ? "yes" : "no"],
+            ["Backlog", `${formatNumber(talk.queuedTurns)} turns queued, ${formatNumber(talk.pendingReplies)} replies pending`],
+            ["Replies", `${formatNumber(talk.replies)} delivered, ${formatNumber(talk.omitted)} omitted`],
+            ["Actions", `${formatNumber(talk.actions)} performed, ${formatNumber(talk.following)} following`],
+            ...(worker.conversationQueued != null
+              ? [
+                  [
+                    "Worker queue",
+                    `${formatNumber(worker.conversationQueued)} queued, ${formatNumber(worker.conversationCompleted)} completed, ` +
+                      `${formatNumber(worker.conversationFailed)} failed`,
+                  ],
+                ]
+              : []),
+            ...(turns && turns.turns
+              ? [
+                  [
+                    "Log tail",
+                    `${turns.turns} turns: ${turns.accepted} accepted, ${turns.otherStatus} other, ${turns.failed} failed; ` +
+                      `${turns.replies} replied` +
+                      (turns.meanLatencyMs == null ? "" : `; ${turns.meanLatencyMs} ms mean, ${turns.maxLatencyMs} ms max`),
+                  ],
+                  ["Actions in tail", actionMix || "none"],
+                  ["Tokens in tail", `${formatNumber(turns.promptTokens)} prompt, ${formatNumber(turns.completionTokens)} completion`],
+                ]
+              : []),
+          ],
+    ),
+  );
+  const counters = Object.entries(stats);
+  const statsBody = $("coordinator-stats").tBodies[0];
+  statsBody.replaceChildren(
+    ...counters.map(([key, value]) => {
+      const tr = document.createElement("tr");
+      tr.append(cell(words(key)), cell(formatNumber(value)));
+      return tr;
+    }),
+  );
+  if (!counters.length) {
+    const tr = document.createElement("tr");
+    const td = cell("Coordinator counters are not reported by this world build.");
+    td.colSpan = 2;
+    tr.append(td);
+    statsBody.replaceChildren(tr);
+  }
+  $("owner-table").tBodies[0].replaceChildren(
+    ...state.bots.map((bot) => {
+      const tr = document.createElement("tr");
+      const name = document.createElement("td");
+      const link = document.createElement("button");
+      link.className = "link";
+      link.type = "button";
+      link.textContent = bot.name;
+      link.onclick = () => selectBot(bot.id);
+      name.append(link);
+      const saved =
+        bot.committedRevision == null
+          ? "unknown"
+          : `${formatNumber(bot.committedRevision)} of ${formatNumber(bot.memoryRevision)}` +
+            (bot.saving ? ", saving" : "") +
+            (bot.saveFailed ? ", failed" : "");
+      tr.append(
+        name,
+        cell(bot.memoryState ?? "unknown"),
+        cell(formatNumber(bot.memoryCount)),
+        cell(formatNumber(bot.pendingPerceptions)),
+        cell(saved),
+      );
+      return tr;
+    }),
+  );
+  renderWorkerLog();
+  renderAllesFeed();
+}
+
+function renderWorkerLog() {
+  const list = $("worker-log");
+  if (!workerLog || !workerLog.available) {
+    summaryLines($("worker-summary"), [
+      [
+        "Worker log",
+        !workerLog
+          ? "not configured on the bridge (start it with --worker-log)"
+          : `unavailable at ${workerLog.path || "the configured path"}`,
+      ],
+    ]);
+    list.replaceChildren();
+    return;
+  }
+  const s = workerLog.summary;
+  summaryLines($("worker-summary"), [
+    ["Jobs in tail", `${s.jobs}: ${s.applied} applied, ${s.otherStatus} other, ${s.failed} failed`],
+    ["Latency", s.meanLatencyMs == null ? "no completed jobs" : `${s.meanLatencyMs} ms mean, ${s.maxLatencyMs} ms max`],
+    ["Tokens", `${formatNumber(s.promptTokens)} prompt, ${formatNumber(s.completionTokens)} completion`],
+    ["Last connected", s.lastConnected || "not in this tail"],
+    ...(s.lastError ? [["Last error", `${s.lastError.time || ""} ${s.lastError.text}`.trim()]] : []),
+    ...(s.budgetExhausted
+      ? [["Budget", `reported exhausted at ${s.budgetExhaustedAt || "an earlier time"}; gameplay continues with fallback`]]
+      : []),
+  ]);
+  list.replaceChildren(
+    ...workerLog.lines
+      .slice(-40)
+      .reverse()
+      .map((line) => {
+        const li = document.createElement("li");
+        li.textContent = line;
+        if (/failed|refused|fault|error/i.test(line)) li.className = "err";
+        return li;
+      }),
+  );
+}
+
+function renderAllesFeed() {
+  if (!state) return;
+  const select = $("alles-kind");
+  const listed = events.filter((event) => event.run === state.run && isAllesEvent(event));
+  const kinds = [...new Set(listed.map((event) => event.kind))].sort();
+  const current = select.value;
+  if ([...select.options].slice(1).map((option) => option.value).join() !== kinds.join()) {
+    select.replaceChildren(
+      new Option("All alles events", ""),
+      ...kinds.map((kind) => new Option(kind.replace("alles_", "").replaceAll("_", " "), kind)),
+    );
+    select.value = kinds.includes(current) ? current : "";
+  }
+  const names = new Map(state.bots.map((bot) => [bot.id, bot.name]));
+  const shown = listed
+    .filter((event) => !select.value || event.kind === select.value)
+    .slice(-80)
+    .reverse();
+  $("alles-feed").replaceChildren(
+    ...shown.map((event) => {
+      const li = document.createElement("li");
+      const time = document.createElement("time");
+      time.textContent = formatClock(event.simMs);
+      let who;
+      if (event.bot && names.has(event.bot)) {
+        who = document.createElement("button");
+        who.className = "link";
+        who.type = "button";
+        who.onclick = () => selectBot(event.bot);
+      } else who = document.createElement("b");
+      who.textContent = event.bot ? names.get(event.bot) || shortGuid(event.bot) : "world";
+      const text = document.createElement("span");
+      text.textContent = describeEvent(event);
+      li.append(time, who, text);
+      return li;
+    }),
+  );
+  $("alles-feed-status").textContent = listed.length
+    ? `${shown.length} shown of ${listed.length} alles events in the bridge's recent window.`
+    : state.journal
+      ? "No perceptions, memories or speech journaled yet."
+      : "No journal: this world build publishes only the current snapshot. Deploy the telemetry update to see " +
+        "actions, perceptions, memories and speech here.";
+}
+$("alles-kind").onchange = renderAllesFeed;
+
 // ----------------------------------------------------------------------------------------------- polling
 
 let pollCount = 0;
@@ -1806,8 +2287,17 @@ setInterval(async () => {
     events = await (await api("/api/events?scope=progression")).json();
     renderDetails();
     renderFeed();
+    renderAllesFeed();
   } catch {
     /* freshness is shown above */
+  }
+  if (isAlles() && pollCount % 2 === 0) {
+    try {
+      workerLog = await (await api("/api/worker-log")).json();
+    } catch {
+      workerLog = null;
+    }
+    renderInterpreter();
   }
   if (pollCount % 2 === 1) {
     try {

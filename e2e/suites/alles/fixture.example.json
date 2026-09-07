@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "disposable": true,
+  "formation": "fake",
+  "actors": [
+    {"role": "speaker", "account": "ALLESE2EA", "name": "Allesource", "guid": 101},
+    {"role": "listener", "account": "ALLESE2EB", "name": "Alleslisten", "guid": 102},
+    {"role": "distant", "account": "ALLESE2EC", "name": "Allesfar", "guid": 103}
+  ]
+}

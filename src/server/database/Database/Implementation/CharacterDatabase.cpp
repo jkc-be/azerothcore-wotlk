@@ -16,6 +16,7 @@
  */
 
 #include "CharacterDatabase.h"
+#include "CharacterDatabaseStatementLayout.h"
 #include "MySQLPreparedStatement.h"
 
 void CharacterDatabaseConnection::DoPrepareStatements()
@@ -649,6 +650,46 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     // By providing the realm ID explicitly, this ensures that mysql reverse proxy will use
     // correct realm database for the transaction.
     PrepareStatement(CHAR_NO_OP_PROVIDE_REALM_CONTEXT, "SELECT ? AS no_op", CONNECTION_ASYNC);
+
+#ifdef MOD_ALLES
+    // LEFT JOIN seeds preserve one result row for an empty owner/table. A null result now means query failure.
+    PrepareStatement(CHAR_SEL_ALLES_ACTOR,
+        "SELECT a.owner_id, a.committed_revision, a.next_perception_id, a.next_memory_id, "
+        "a.decay_game_time_ms, a.next_consolidation_game_time_ms FROM (SELECT 1) AS seed "
+        "LEFT JOIN alles_actor AS a ON a.owner_kind = ? AND a.owner_id = ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_SEL_ALLES_PERCEPTIONS,
+        "SELECT p.perception_id, p.kind, p.subject_kind, p.subject_id, p.subject_name, p.source_kind, "
+        "p.source_id, p.source_name, p.comprehended, p.language, p.gated_text, p.place, "
+        "p.game_time_ms, p.self_context FROM (SELECT 1) AS seed LEFT JOIN alles_perception AS p "
+        "ON p.owner_kind = ? AND p.owner_id = ? ORDER BY p.perception_id LIMIT ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_SEL_ALLES_MEMORIES,
+        "SELECT m.memory_id, m.content_revision, m.kind, m.subject_kind, m.subject_id, "
+        "m.subject_name, m.source_kind, m.source_id, m.source_name, m.claim, m.attribution, "
+        "m.reported_depth, m.confidence, m.salience, m.formed_game_time_ms, m.recalled_game_time_ms, "
+        "m.decay_game_time_ms, m.formation_mode FROM (SELECT 1) AS seed LEFT JOIN alles_memory AS m "
+        "ON m.owner_kind = ? AND m.owner_id = ? ORDER BY m.salience DESC, m.memory_id LIMIT ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_SEL_ALLES_COMMITTED_REVISION,
+        "SELECT `committed_revision` FROM `alles_actor` WHERE `owner_kind` = ? AND `owner_id` = ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_REP_ALLES_ACTOR,
+        "REPLACE INTO `alles_actor` (`owner_kind`, `owner_id`, `committed_revision`, "
+        "`next_perception_id`, `next_memory_id`, `decay_game_time_ms`, "
+        "`next_consolidation_game_time_ms`) VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
+    PrepareStatement(CHAR_DEL_ALLES_PERCEPTIONS,
+        "DELETE FROM `alles_perception` WHERE `owner_kind` = ? AND `owner_id` = ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_INS_ALLES_PERCEPTION,
+        "INSERT INTO `alles_perception` (`owner_kind`, `owner_id`, `perception_id`, `kind`, "
+        "`subject_kind`, `subject_id`, `subject_name`, `source_kind`, `source_id`, `source_name`, "
+        "`comprehended`, `language`, `gated_text`, `place`, `game_time_ms`, `self_context`) VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
+    PrepareStatement(CHAR_DEL_ALLES_MEMORIES,
+        "DELETE FROM `alles_memory` WHERE `owner_kind` = ? AND `owner_id` = ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_INS_ALLES_MEMORY,
+        "INSERT INTO `alles_memory` (`owner_kind`, `owner_id`, `memory_id`, `content_revision`, "
+        "`kind`, `subject_kind`, `subject_id`, `subject_name`, `source_kind`, `source_id`, "
+        "`source_name`, `claim`, `attribution`, `reported_depth`, `confidence`, `salience`, "
+        "`formed_game_time_ms`, `recalled_game_time_ms`, `decay_game_time_ms`, `formation_mode`) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
+#endif
 }
 
 CharacterDatabaseConnection::CharacterDatabaseConnection(MySQLConnectionInfo& connInfo) : MySQLConnection(connInfo)
@@ -661,4 +702,9 @@ CharacterDatabaseConnection::CharacterDatabaseConnection(ProducerConsumerQueue<S
 
 CharacterDatabaseConnection::~CharacterDatabaseConnection()
 {
+}
+
+CharacterDatabaseStatementLayout GetCharacterDatabaseStatementLayout()
+{
+    return Acore::Impl::CompiledCharacterDatabaseStatementLayout();
 }

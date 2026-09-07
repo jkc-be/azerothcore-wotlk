@@ -548,8 +548,29 @@ enum CharacterDatabaseStatements : uint32
 
     CHAR_NO_OP_PROVIDE_REALM_CONTEXT,
 
+#ifdef MOD_ALLES
+    CHAR_SEL_ALLES_ACTOR,
+    CHAR_SEL_ALLES_PERCEPTIONS,
+    CHAR_SEL_ALLES_MEMORIES,
+    CHAR_SEL_ALLES_COMMITTED_REVISION,
+    CHAR_REP_ALLES_ACTOR,
+    CHAR_DEL_ALLES_PERCEPTIONS,
+    CHAR_DEL_ALLES_MEMORIES,
+    CHAR_INS_ALLES_PERCEPTION,
+    CHAR_INS_ALLES_MEMORY,
+#endif
+
     MAX_CHARACTERDATABASE_STATEMENTS
 };
+
+struct CharacterDatabaseStatementLayout
+{
+    uint32 count;
+    uint64 fingerprint;
+};
+
+// Unconditional export: consumers compare their own header layout with the database library.
+AC_DATABASE_API CharacterDatabaseStatementLayout GetCharacterDatabaseStatementLayout();
 
 class AC_DATABASE_API CharacterDatabaseConnection : public MySQLConnection
 {

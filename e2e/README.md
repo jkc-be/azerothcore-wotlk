@@ -377,3 +377,22 @@ See [the validation instructions](../apps/observatory/docs/VALIDATION.md#gm-only
 Without that opt-in the special-realm test is excluded from ordinary realm suites. Addon visual rendering and
 cinematic exit remain manual-only. The pinned harness OS FourCC issue is handled in test account setup, without
 changing the harness pin or disabling Warden.
+
+### alles memory coverage
+
+P1, compiled but not run: `suites/alles/TestAlles_HeardMemorySurvivesRelog` asserts ordinary heard text becomes
+locally attributed hearsay, a same-map distant receiver retains nothing, and the listener's memory survives an
+acknowledged flush, cache eviction and login. It requires an exclusive configured mod-alles realm and explicit
+`E2E_ALLES_FIXTURE` opt-in. See [the fixture and fake/fallback runs](suites/alles/README.md). The six-actor watched
+death-to-rumor scene remains manual-only; bot/human takeover, foreign-language and hidden-killer live coverage
+remain gaps.
+
+P1, covered: `suites/alles/TestAlles_OnlineHumanAudience` passed on 2026-09-07. It verifies privileged-account
+local SAY/YELL capture and autonomous bot SAY reaching a nearby unmanaged human with no other configured
+audience nearby. Requires `E2E_ALLES_AUDIENCE_FIXTURE`; see the same suite guide. This does not assert an LLM
+conversation or HELP action.
+
+P1, covered: `suites/alles/TestAlles_NaturalConversationAndFollow` passed on 2026-09-07 with the Ollama provider.
+It verifies natural SAY/YELL, multiple respondents, short history, direct address, physical follow/stop, and
+combat assistance against an engaged NPC. Requires `E2E_ALLES_CONVERSATION_FIXTURE` and permission to summon
+and recall its two bots; see the suite guide. Language interpretation remains model-dependent.

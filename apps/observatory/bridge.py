@@ -132,12 +132,33 @@ def summarize(frame):
     """One chart-ready long-term point per snapshot; mirrors summarize() in web/model.js."""
     bots = [bot for bot in frame.get('bots') or [] if isinstance(bot, dict)]
     levels = [bot.get('level') or 0 for bot in bots]
+    interpreter = frame.get('interpreter') if isinstance(frame.get('interpreter'), dict) else {}
+    conversation = frame.get('conversation') if isinstance(frame.get('conversation'), dict) else {}
+
+    def total(key):
+        # A counter nobody reports is unknown, never zero: an ordinary realm only measures what its world build taps.
+        if not any(bot.get(key) is not None for bot in bots):
+            return None
+        return sum(bot.get(key) or 0 for bot in bots)
+
     point = {
         'bucket': frame['simMs'] // BUCKET_MS * BUCKET_MS, 'samples': 1, 'run': frame.get('run'),
         'simMs': frame['simMs'], 'realMs': frame.get('realMs'), 'seq': frame.get('seq'),
-        'xp': sum(bot.get('earnedXp') or 0 for bot in bots),
-        'quests': sum(bot.get('questCompletions') or 0 for bot in bots),
-        'deaths': sum(bot.get('deaths') or 0 for bot in bots),
+        'xp': total('earnedXp'),
+        'quests': total('questCompletions'),
+        'deaths': total('deaths'),
+        'memories': total('memoryCount'),
+        'pendingPerceptions': total('pendingPerceptions'),
+        'modelMemories': interpreter.get('modelMemories'),
+        'fallbackMemories': interpreter.get('fallbackMemories'),
+        'invalidResults': interpreter.get('invalidResults'),
+        'usedRequests': interpreter.get('usedRequests'),
+        'remainingRequests': interpreter.get('remainingRequests'),
+        'workerConnected': None if interpreter.get('connected') is None else int(bool(interpreter['connected'])),
+        'conversationReplies': conversation.get('replies'),
+        'conversationActions': conversation.get('actions'),
+        'conversationPending': (None if conversation.get('pendingReplies') is None
+                                else (conversation.get('pendingReplies') or 0) + (conversation.get('queuedTurns') or 0)),
         'levels': dict(Counter(f'Level {level}' for level in levels)),
         'zones': dict(Counter(f"{bot.get('map')}/{bot.get('zone')}" for bot in bots)),
         'activity': {activity: 0 for activity in ACTIVITIES},
@@ -162,7 +183,7 @@ def summarize(frame):
 
 
 MEAN_KEYS = ('meanLevel', 'meanHealth', 'achievedSpeed', 'requestedSpeed', 'backlogMs', 'inWorld', 'online',
-             'active', 'expected', 'pausedShare')
+             'active', 'expected', 'pausedShare', 'workerConnected')
 
 
 def weighted(a, b, weight_a, weight_b):
@@ -236,11 +257,13 @@ def coarsen(points, limit, combine):
 
 class Rollup:
     """Long-term tier of one stream: fixed simulated-time buckets combined as records arrive, appended to
-    an NDJSON file when they close, and folded on read so a run of any length fits one bounded response."""
+    an NDJSON file when they close, and folded on read so a run of any length fits one bounded response.
+    With a known run, stored points of another run are ignored: a reused directory never folds runs together."""
 
-    def __init__(self, path, combine, limit=LONG_TERM_POINTS):
+    def __init__(self, path, combine, limit=LONG_TERM_POINTS, run=None):
         self.path = Path(path)
         self.combine = combine
+        self.run = run
         self.points = deque(maxlen=limit)
         self.current = None
         self.stored = 0
@@ -262,7 +285,8 @@ class Rollup:
                         value = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(value, dict) and type(value.get('bucket')) is int and 'samples' in value:
+                    if (isinstance(value, dict) and type(value.get('bucket')) is int and 'samples' in value
+                            and (self.run is None or value.get('run') in (None, self.run))):
                         yield value
         except OSError:
             return
@@ -383,8 +407,9 @@ class EventTail(JournalFollower):
     hides progression. The follower reads only newly appended bytes and never rescans the file.
     """
 
-    def __init__(self, path, recent=500, progression=2000, start_at_end=True, long_term=True):
+    def __init__(self, path, recent=500, progression=2000, start_at_end=True, long_term=True, run=None):
         super().__init__(path, start_at_end=start_at_end)
+        self.run = run
         self.recent = deque(maxlen=recent)
         self.progression = deque(maxlen=progression)
         self.kinds = Counter()
@@ -393,10 +418,12 @@ class EventTail(JournalFollower):
         self.rates = self.progression_file = None
         self.progression_seq = -1
         if long_term:
-            self.rates = Rollup(self.path.with_name('events-rollup.ndjson'), combine_counts)
+            self.rates = Rollup(self.path.with_name('events-rollup.ndjson'), combine_counts, run=run)
             self.progression_file = self.path.with_name('progression.ndjson')
             last = journal_tail(self.progression_file, 1, 65536)
-            self.progression_seq = (last[-1].get('seq') if last else None) or -1
+            # Sequence numbers restart with every run; only the same run's watermark deduplicates.
+            if last and (run is None or last[-1].get('run') in (None, run)):
+                self.progression_seq = last[-1].get('seq') or -1
 
     def handle(self, records, counted):
         now = time.time()
@@ -405,6 +432,8 @@ class EventTail(JournalFollower):
         with self.lock:
             for value in records:
                 if not isinstance(value.get('kind'), str):
+                    continue
+                if self.run is not None and value.get('run') not in (None, self.run):
                     continue
                 self.recent.append(value)
                 if counted:
@@ -415,6 +444,7 @@ class EventTail(JournalFollower):
                         bucket = buckets.setdefault(int(stamp // BUCKET_MS * BUCKET_MS), {'kinds': Counter()})
                         bucket['kinds'][value['kind']] += 1
                         bucket['simMs'], bucket['seq'] = stamp, value.get('seq')
+                        bucket['run'] = value.get('run')
                 if value['kind'] not in TRACE_KINDS:
                     self.progression.append(value)
                     if (self.progression_file and type(value.get('seq')) is int
@@ -426,7 +456,8 @@ class EventTail(JournalFollower):
             for start in sorted(buckets):
                 bucket = buckets[start]
                 self.rates.add({'bucket': start, 'simMs': bucket['simMs'], 'seq': bucket['seq'],
-                                'samples': sum(bucket['kinds'].values()), 'kinds': dict(bucket['kinds'])})
+                                'run': bucket.get('run'), 'samples': sum(bucket['kinds'].values()),
+                                'kinds': dict(bucket['kinds'])})
             if kept:
                 with self.progression_file.open('a') as target:
                     target.writelines(json.dumps(value) + '\n' for value in kept)
@@ -458,9 +489,10 @@ class SnapshotTail(JournalFollower):
     milestones.ndjson. Seed frames are real history and enter the rollup unless it already holds them; a bridge
     without a rollup yet backfills it from the whole retained snapshot journal instead of only its tail."""
 
-    def __init__(self, path, seed_bytes=4 * 1024 * 1024):
+    def __init__(self, path, seed_bytes=4 * 1024 * 1024, run=None):
         super().__init__(path, seed_bytes=seed_bytes)
-        self.rollup = Rollup(self.path.with_name('rollup.ndjson'), combine_points)
+        self.run = run
+        self.rollup = Rollup(self.path.with_name('rollup.ndjson'), combine_points, run=run)
         self.start_at_end = self.rollup.stored > 0
         self.milestones = self.path.with_name('milestones.ndjson')
         self.milestone_count = 0
@@ -479,7 +511,8 @@ class SnapshotTail(JournalFollower):
         with self.lock:
             for frame in records:
                 if (type(frame.get('simMs')) is not int or type(frame.get('seq')) is not int
-                        or not isinstance(frame.get('bots'), list) or frame['seq'] <= self.rollup.last_seq):
+                        or not isinstance(frame.get('bots'), list) or frame['seq'] <= self.rollup.last_seq
+                        or (self.run is not None and frame.get('run') not in (None, self.run))):
                     continue
                 self.rollup.add(summarize(frame))
                 slot = frame['simMs'] // MILESTONE_MS
@@ -594,9 +627,10 @@ class MaxSpeed:
 
 
 class Spool:
-    def __init__(self, directory, token, follow=True, retain_bytes=2 * 1024 ** 3):
+    def __init__(self, directory, token, follow=True, retain_bytes=2 * 1024 ** 3, worker_log=None):
         self.directory = Path(directory)
         self.token = token
+        self.worker_log = Path(worker_log) if worker_log else None
         self.lock = threading.RLock()
         self.sequence = 0
         self.max_speed = None
@@ -604,14 +638,37 @@ class Spool:
         self.speed_status = 'Manual speed'
         self.viewers = threading.BoundedSemaphore(16)
         self.retain_bytes = retain_bytes
-        self.tail = EventTail(self.directory / 'events.ndjson')
-        self.snapshots = SnapshotTail(self.directory / 'snapshots.ndjson')
+        self.run = self.seen_run = self.current_run()
+        self.tail = EventTail(self.directory / 'events.ndjson', run=self.run)
+        self.snapshots = SnapshotTail(self.directory / 'snapshots.ndjson', run=self.run)
         self.pruned = {stem: {'segments': 0, 'bytes': 0} for stem in JOURNALS}
         self.rotated = False
         self.stop = threading.Event()
         if follow:
             threading.Thread(target=self.follow_journals, daemon=True).start()
             threading.Thread(target=self.follow_speed, daemon=True).start()
+
+    def current_run(self):
+        try:
+            run = json.loads((self.directory / 'latest.json').read_text()).get('run')
+        except (OSError, ValueError, AttributeError):
+            return None
+        return run if isinstance(run, str) else None
+
+    def rotate_run(self):
+        """An ordinary realm publishes every boot into the same directory under a new run id. Start the
+        journal tiers afresh for it; the world files the previous run's journals away, and the run filter
+        keeps any it left behind out of this run's history. Called by the follower thread, never mid-poll."""
+        with self.lock:
+            run = self.seen_run
+            if run == self.run:
+                return False
+            self.tail.close()
+            self.snapshots.close()
+            self.run = run
+            self.tail = EventTail(self.directory / 'events.ndjson', run=run)
+            self.snapshots = SnapshotTail(self.directory / 'snapshots.ndjson', run=run)
+            return True
 
     def close(self):
         self.stop.set()
@@ -621,6 +678,7 @@ class Spool:
     def follow_journals(self, interval=0.25):
         pruned_at = time.monotonic()
         while not self.stop.wait(interval):
+            self.rotate_run()
             self.tail.poll()
             self.snapshots.poll()
             if time.monotonic() - pruned_at >= 30:
@@ -681,7 +739,16 @@ class Spool:
 
     def snapshot(self):
         with self.lock:
-            current = json.loads((self.directory / 'latest.json').read_text())
+            with (self.directory / 'latest.json').open() as source:
+                current = json.load(source)
+                age = time.time() - os.fstat(source.fileno()).st_mtime
+            # An available HTTP bridge does not imply a world is still publishing this run.
+            # Use the sampled file's timestamp so an atomic replacement cannot freshen older data.
+            if current.get('source') != 'python-api' and age > 10:
+                current['telemetryStale'] = True
+                current['readOnly'] = True
+            if isinstance(current.get('run'), str):
+                self.seen_run = current['run']
             current['speedControl'] = {
                 'mode': 'max' if self.max_speed else 'manual',
                 'backlogLimitMs': self.backlog_limit_ms,
@@ -772,7 +839,7 @@ class Spool:
         with self.lock:
             current = self.snapshot()
             if current.get('readOnly') or current.get('source') == 'python-api':
-                raise ValueError('This observation feed is read-only; use the Python controller for actions')
+                raise ValueError('This observation feed is read-only; live world telemetry is required for controls')
             if request['run'] != current['run']:
                 raise ValueError('Run changed; reconnect before controlling')
             if request['speed'] not in available_speeds(current):
@@ -821,6 +888,110 @@ class Spool:
             temporary.write_text(text)
             os.replace(temporary, self.directory / 'control.txt')
             return {'run': request['run'], 'sequence': self.sequence, 'status': 'accepted'}
+
+
+WORKER_JOB = re.compile(
+    r'job=(?P<job>[0-9a-f]+) (?:status=(?P<status>\S+) memories=(?P<memories>\d+) prompt_tokens=(?P<prompt>\d+) '
+    r'completion_tokens=(?P<completion>\d+) latency_ms=(?P<latency>\d+)|failed: (?P<error>.*))$')
+WORKER_CONVERSATION = re.compile(
+    r'conversation=(?P<id>\S+) (?:status=(?P<status>\S+) action=(?P<action>\S+) reply=(?P<reply>true|false) '
+    r'prompt_tokens=(?P<prompt>\d+) completion_tokens=(?P<completion>\d+) latency_ms=(?P<latency>\d+)'
+    r'|failed: (?P<error>.*))$')
+WORKER_LINE = re.compile(r'^(?P<time>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) (?P<message>.*)$')
+# The worker log lives in the checkout's install tree; the bridge looks there unless told otherwise.
+DEFAULT_WORKER_LOG = Path(__file__).resolve().parents[2] / 'env' / 'dist' / 'logs' / 'alles-interpreter.log'
+
+
+def tail_lines(path, byte_limit):
+    """Complete text lines from a bounded file tail; the first partial line of a cut tail is dropped."""
+    try:
+        with Path(path).open('rb') as source:
+            size = os.fstat(source.fileno()).st_size
+            start = max(0, size - byte_limit)
+            source.seek(start)
+            data = source.read(byte_limit)
+    except OSError:
+        return None
+    lines = data.decode('utf-8', 'replace').split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()
+    if start and lines:
+        lines.pop(0)
+    return lines
+
+
+def worker_log(path, limit=200, byte_limit=262144):
+    """The alles worker's log tail with its per-job lines parsed: model outcome, token usage and latency.
+    The log holds operational metadata only; the bridge never reads the game databases or the ledger."""
+    lines = None if path is None else tail_lines(path, byte_limit)
+    if lines is None:
+        return {'available': False, 'path': None if path is None else str(path), 'lines': [], 'jobs': [],
+                'summary': None}
+    lines = lines[-limit:]
+    jobs, conversations, latencies, turn_latencies = [], [], [], []
+    summary = {'jobs': 0, 'applied': 0, 'otherStatus': 0, 'failed': 0, 'promptTokens': 0, 'completionTokens': 0,
+               'meanLatencyMs': None, 'maxLatencyMs': None, 'lastConnected': None, 'lastError': None,
+               'budgetExhausted': False, 'budgetExhaustedAt': None,
+               'conversations': {'turns': 0, 'accepted': 0, 'otherStatus': 0, 'failed': 0, 'replies': 0,
+                                 'actions': {}, 'promptTokens': 0, 'completionTokens': 0,
+                                 'meanLatencyMs': None, 'maxLatencyMs': None}}
+    talk = summary['conversations']
+    for line in lines:
+        match = WORKER_LINE.match(line)
+        stamp, message = (match.group('time'), match.group('message')) if match else (None, line)
+        job = WORKER_JOB.match(message)
+        turn = None if job else WORKER_CONVERSATION.match(message)
+        if job:
+            entry = {'time': stamp, 'job': job.group('job')}
+            if job.group('error') is not None:
+                entry.update(status='failed', error=job.group('error'))
+                summary['failed'] += 1
+                summary['lastError'] = {'time': stamp, 'text': job.group('error')}
+            else:
+                entry.update(status=job.group('status'), memories=int(job.group('memories')),
+                             promptTokens=int(job.group('prompt')), completionTokens=int(job.group('completion')),
+                             latencyMs=int(job.group('latency')))
+                summary['applied' if entry['status'] == 'applied' else 'otherStatus'] += 1
+                summary['promptTokens'] += entry['promptTokens']
+                summary['completionTokens'] += entry['completionTokens']
+                latencies.append(entry['latencyMs'])
+            summary['jobs'] += 1
+            jobs.append(entry)
+        elif turn:
+            entry = {'time': stamp, 'conversation': turn.group('id')}
+            if turn.group('error') is not None:
+                entry.update(status='failed', error=turn.group('error'))
+                talk['failed'] += 1
+                summary['lastError'] = {'time': stamp, 'text': turn.group('error')}
+            else:
+                entry.update(status=turn.group('status'), action=turn.group('action'),
+                             reply=turn.group('reply') == 'true', promptTokens=int(turn.group('prompt')),
+                             completionTokens=int(turn.group('completion')), latencyMs=int(turn.group('latency')))
+                talk['accepted' if entry['status'] == 'accepted' else 'otherStatus'] += 1
+                talk['replies'] += int(entry['reply'])
+                talk['actions'][entry['action']] = talk['actions'].get(entry['action'], 0) + 1
+                talk['promptTokens'] += entry['promptTokens']
+                talk['completionTokens'] += entry['completionTokens']
+                turn_latencies.append(entry['latencyMs'])
+            talk['turns'] += 1
+            conversations.append(entry)
+        elif message.startswith('connected model='):
+            summary['lastConnected'] = stamp
+            # A reconnected worker starts with a fresh allowance report.
+            summary['budgetExhausted'] = False
+        elif message.startswith('worker:'):
+            summary['lastError'] = {'time': stamp, 'text': message[len('worker:'):].strip()}
+        elif message.startswith('pilot request budget exhausted'):
+            summary['budgetExhausted'] = True
+            summary['budgetExhaustedAt'] = stamp
+    if latencies:
+        summary['meanLatencyMs'] = round(sum(latencies) / len(latencies))
+        summary['maxLatencyMs'] = max(latencies)
+    if turn_latencies:
+        talk['meanLatencyMs'] = round(sum(turn_latencies) / len(turn_latencies))
+        talk['maxLatencyMs'] = max(turn_latencies)
+    return {'available': True, 'path': str(path), 'lines': lines, 'jobs': jobs[-50:],
+            'conversations': conversations[-50:], 'summary': summary}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -900,6 +1071,8 @@ class Handler(BaseHTTPRequestHandler):
                                                    4 * 1024 * 1024))
         elif path == '/api/retention':
             self.reply(200, spool.retention())
+        elif path == '/api/worker-log':
+            self.reply(200, worker_log(spool.worker_log))
         else:
             self.reply(404, {'error': 'Not found'})
 
@@ -963,7 +1136,7 @@ class Handler(BaseHTTPRequestHandler):
             while True:
                 try:
                     data = spool.snapshot()
-                    identity = (data['run'], data['seq'])
+                    identity = (data['run'], data['seq'], data.get('telemetryStale', False))
                     if identity != previous:
                         self.wfile.write(f'data: {json.dumps(data)}\n\n'.encode())
                         previous = identity
@@ -1012,7 +1185,12 @@ def main():
     parser.add_argument('--retain-bytes', type=int, default=2 * 1024 ** 3,
                         help='Rotated journal segments kept per journal before the oldest are deleted '
                              '(default 2 GiB; requires Observatory.JournalSegmentBytes in the world)')
+    parser.add_argument('--worker-log', type=Path,
+                        help='Alles interpreter worker log to expose at /api/worker-log; defaults to '
+                             f'{DEFAULT_WORKER_LOG} when that file exists')
     args = parser.parse_args()
+    if args.worker_log is None and DEFAULT_WORKER_LOG.is_file():
+        args.worker_log = DEFAULT_WORKER_LOG
     try:
         token = load_token(args.token_file)
     except OSError as error:
@@ -1021,7 +1199,7 @@ def main():
         parser.error(str(error))
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.daemon_threads = True
-    server.spool = Spool(args.spool, token, retain_bytes=max(0, args.retain_bytes))
+    server.spool = Spool(args.spool, token, retain_bytes=max(0, args.retain_bytes), worker_log=args.worker_log)
     server.maps = args.maps
     print(f'Observatory: http://127.0.0.1:{args.port}; token: {args.token_file}')
     # A service stop must flush the open long-term buckets, so SIGTERM ends serve_forever through SystemExit.
