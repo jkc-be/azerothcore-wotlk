@@ -396,3 +396,7 @@ P1, covered: `suites/alles/TestAlles_NaturalConversationAndFollow` passed on 202
 It verifies natural SAY/YELL, multiple respondents, short history, direct address, physical follow/stop, and
 combat assistance against an engaged NPC. Requires `E2E_ALLES_CONVERSATION_FIXTURE` and permission to summon
 and recall its two bots; see the suite guide. Language interpretation remains model-dependent.
+
+P2, conversation telemetry: `suites/alles/TestAlles_ConversationJournal` drives actual SAY/YELL and checks
+matching delivered replies and action results in the live journal. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
+moves only the disposable human; see the suite guide for conversation and journal prerequisites.

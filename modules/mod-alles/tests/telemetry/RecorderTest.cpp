@@ -99,8 +99,8 @@ TEST(AllesTelemetryRecorder, CountsAiUpdatesAndProgressionForConfiguredOwnersOnl
     EXPECT_EQ(counters->quests, 1u);
     EXPECT_FALSE(recorder.Counters({ActorKind::Player, 99}));
     EXPECT_FALSE(recorder.Counters({ActorKind::CreatureSpawn, 7}));
-    EXPECT_EQ(recorder.ActiveBots(5000), 1u);
-    EXPECT_EQ(recorder.ActiveBots(20000), 0u);
+    EXPECT_EQ(recorder.ActiveBots({7, 8}, 5000), 1u);
+    EXPECT_EQ(recorder.ActiveBots({7, 8}, 20000), 0u);
     EXPECT_EQ(recorder.Totals().xp, 30u);
     EXPECT_EQ(recorder.Totals().deaths, 1u);
     EXPECT_EQ(recorder.SimMs(2500), 1500u);
@@ -119,6 +119,22 @@ TEST(AllesTelemetryRecorder, CountsAiUpdatesAndProgressionForConfiguredOwnersOnl
     EXPECT_EQ(records[0].at("context").as_string(), "ctx");
     EXPECT_EQ(records[0].at("map").to_number<uint64_t>(), 0u);
     EXPECT_EQ(recorder.Status().at("liveDropped").to_number<uint64_t>(), 0u);
+    std::filesystem::remove_all(directory);
+}
+
+TEST(AllesTelemetryRecorder, OfflineOwnersKeepProgressWithoutCountingAsActive)
+{
+    auto const directory = FreshDirectory("offline");
+    Recorder recorder(directory, "run-1", {Humana, Humanb}, 0, 1000);
+    recorder.Live(Event(7, "ai_update", 0, "", 1500));
+    recorder.Live(Event(7, "xp", 30, "", 1500));
+    recorder.Live(Event(8, "ai_update", 0, "", 1500));
+    EXPECT_EQ(recorder.ActiveBots({7, 8}, 1600), 2u);
+    EXPECT_EQ(recorder.ActiveBots({8}, 1600), 1u);
+    EXPECT_EQ(recorder.ActiveBots({}, 1600), 0u);
+    EXPECT_EQ(recorder.ActiveBots({99}, 1600), 0u);
+    EXPECT_EQ(recorder.Totals().xp, 30u);
+    EXPECT_EQ(recorder.Counters(Humana)->xp, 30u);
     std::filesystem::remove_all(directory);
 }
 

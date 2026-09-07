@@ -265,6 +265,34 @@ class LiveRealm(unittest.TestCase):
                          [('run-a', 1), ('run-a', 2), ('run-a', 3), ('run-b', 1), ('run-b', 2)])
         self.assertFalse(spool.rotate_run())
 
+    def test_run_change_without_snapshot_requests_keeps_recording(self):
+        latest = self.path / 'latest.json'
+        latest.write_text(json.dumps({'run': 'run-a'}))
+        journal = self.path / 'events.ndjson'
+        journal.write_text(self.record('run-a', 1))
+        spool = bridge.Spool(self.path, 'test-token', follow=False)
+        self.addCleanup(spool.close)
+        spool.tail.poll()
+        journal.rename(self.path / 'previous-events')
+        latest.unlink()
+        self.assertFalse(spool.rotate_run())
+        self.assertEqual(spool.run, 'run-a')
+        latest.write_text('incomplete')
+        self.assertFalse(spool.rotate_run())
+
+        journal.write_text(self.record('run-b', 1))
+        latest.write_text(json.dumps({'run': 'run-b'}))
+        # This is the follower's own rotation path. No HTTP/snapshot request wakes it up.
+        self.assertTrue(spool.rotate_run())
+        spool.tail.poll()
+        with journal.open('a') as output:
+            output.write(self.record('run-b', 2))
+        spool.tail.poll()
+        self.assertEqual(spool.run, 'run-b')
+        self.assertEqual([(event['run'], event['seq']) for event in spool.tail.events('progression')],
+                         [('run-b', 1), ('run-b', 2)])
+        self.assertEqual(spool.tail.stats()['kinds'], {'xp': 1})
+
     def test_worker_log_tail_is_parsed_into_jobs_and_a_summary(self):
         log = self.path / 'alles-interpreter.log'
         log.write_text(

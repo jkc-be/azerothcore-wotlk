@@ -17,6 +17,8 @@
 #include "PlayerbotMgr.h"
 #include "World.h"
 #include "WorldSession.h"
+#include "StringFormat.h"
+#include "telemetry/Recorder.h"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -142,7 +144,8 @@ struct ConversationRuntime::Impl
         uint64_t expires = 0;
         std::vector<std::string> strategies;
     };
-    Impl(ActorStore& value, Bridge::Service& service) : store(value), bridge(service) {}
+    Impl(ActorStore& value, Bridge::Service& service, Telemetry::Recorder* telemetry)
+        : store(value), bridge(service), recorder(telemetry) {}
 
     void Remember(uint64_t human, uint64_t bot, std::string const& who, std::string const& text, uint64_t now)
     {
@@ -288,6 +291,7 @@ struct ConversationRuntime::Impl
 
     ActorStore& store;
     Bridge::Service& bridge;
+    Telemetry::Recorder* const recorder;
     std::map<uint64_t, uint64_t> generations;
     uint64_t nextGeneration = 0;
     uint64_t nextJob = 0;
@@ -303,8 +307,8 @@ struct ConversationRuntime::Impl
     uint64_t omitted = 0;
 };
 
-ConversationRuntime::ConversationRuntime(ActorStore& store, Bridge::Service& bridge)
-    : impl(std::make_unique<Impl>(store, bridge))
+ConversationRuntime::ConversationRuntime(ActorStore& store, Bridge::Service& bridge, Telemetry::Recorder* recorder)
+    : impl(std::make_unique<Impl>(store, bridge, recorder))
 {
 }
 ConversationRuntime::~ConversationRuntime() = default;
@@ -410,6 +414,12 @@ void ConversationRuntime::Update(uint64_t gameMs, uint64_t realMs)
                     impl->nextDelivery = realMs + 1000;
                     LOG_INFO("module.alles", "Conversation {} delivered bot={} human={} action={} actionOk={}",
                              result.id, pending.candidate.bot, pending.turn.human, action, failure.empty());
+                    if (impl->recorder)
+                        impl->recorder->Record({ActorKind::Player, pending.candidate.bot}, "alles_conversation",
+                            failure.empty() ? 1 : 0, text,
+                            Acore::StringFormat("human={} channel={} action={} actionOk={} job={}",
+                                pending.turn.human, pending.turn.channel == CHAT_MSG_YELL ? "yell" : "say",
+                                action, failure.empty(), result.id), realMs);
                 }
                 else if (result.status != "success")
                     ChatHandler(human->GetSession())

@@ -150,3 +150,9 @@ Provider wording is nondeterministic. Earlier attempts exposed fixture arrival r
 artificial nickname; a successful run with a natural nickname does not prove exact recall of arbitrary tokens.
 Vague requests may still need better model clarification. Budget refill, durable charging, and rejection of
 invalid or late actions have separate C++ coverage.
+
+`TestAlles_ConversationJournal` reuses `E2E_ALLES_AUDIENCE_FIXTURE` to validate the delivery-to-journal path.
+Enable conversation and telemetry journals and disable ambient speech. It moves only the disposable human to
+the named existing bot, sends directly addressed SAY and YELL requests to wave, and matches each received reply
+to its journal text, bot identity, human, channel, action result and job. Bot positions and strategies are not
+changed by setup. Run it alone with `-run '^TestAlles_ConversationJournal$' -timeout=3m`.

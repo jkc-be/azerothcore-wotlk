@@ -101,6 +101,11 @@ alles event feed. Counters a world build does not report are shown as unmeasured
 
 ## Natural conversation
 
+Delivered replies are journaled as `alles_conversation`, including the actual spoken text and context naming
+the human, SAY/YELL channel, proposed action, its server-validated result, and provider job. This works with
+ambient speech disabled. Active-bot counts include only the current online cohort; lifetime progression
+totals retain offline owners. The bridge detects new runs from the producer without needing a browser request.
+
 With bridge mode and `Alles.Conversation.Enable=1`, actually heard, understood human SAY/YELL enters a separate
 conversation queue. No HELP keyword or punctuation is required. Each nearby autonomous configured bot receives
 its own context and may answer. A direct name at the start (optionally after a greeting) routes only to that bot;
