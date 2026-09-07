@@ -1,0 +1,45 @@
+{
+  "perceptions": [
+    {
+      "token": "p1",
+      "kind": 0,
+      "subjectToken": "e1",
+      "sourceToken": "e1",
+      "placeToken": "l1",
+      "text": "I saw a wounded wolf beside the abbey. I am not sure what hurt it.",
+      "selfContext": "I am a human innkeeper near Northshire Abbey.",
+      "comprehended": true
+    }
+  ],
+  "memories": [],
+  "entities": [
+    {
+      "token": "e1",
+      "name": "Mara"
+    }
+  ],
+  "places": [
+    {
+      "token": "l1",
+      "name": "Northshire Abbey"
+    }
+  ],
+  "draft": {
+    "memories": [
+      {
+        "operation": 0,
+        "supportingPerceptions": [
+          "p1"
+        ],
+        "targetMemoryToken": "",
+        "subjectToken": "e1",
+        "sourceToken": "e1",
+        "placeToken": "l1",
+        "text": "I saw a wounded wolf beside the abbey. I am not sure what hurt it.",
+        "confidence": 0.5,
+        "salience": 0.7,
+        "kind": 0
+      }
+    ]
+  }
+}

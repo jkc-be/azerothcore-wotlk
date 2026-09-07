@@ -24,6 +24,8 @@ import {
   bucketHistory,
   longTermSeries,
   formatBytes,
+  describeEvent,
+  isAllesEvent,
 } from "../web/model.js";
 const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
@@ -294,4 +296,124 @@ test("trails keep bounded per-bot samples keyed by simulated time", () => {
     [2, 3],
   );
   assert.equal(trails.get("a")[0].health, 50);
+});
+
+test("ordinary live telemetry leaves unmeasured cumulative totals unknown", () => {
+  const snapshot = {source: "alles-live", simMs: 1000, bots: [
+    {id: "one", level: 2, health: 30, maxHealth: 40, activity: "moving", money: 12},
+  ]};
+  const result = summarize(snapshot);
+  assert.equal(result.xp, null);
+  assert.equal(result.quests, null);
+  assert.equal(result.deaths, null);
+  assert.equal(result.money, 12);
+  assert.equal(result.memories, null);
+  assert.equal(result.modelMemories, null);
+  assert.equal(result.workerConnected, null);
+});
+
+test("live realm summaries total only what the bots report and carry the interpreter figures", () => {
+  const snapshot = {
+    source: "alles-live",
+    simMs: 5000,
+    activeBots: 2,
+    onlineBots: 3,
+    interpreter: {
+      connected: true,
+      usedRequests: 40,
+      maxRequests: 100,
+      remainingRequests: 60,
+      modelMemories: 12,
+      fallbackMemories: 3,
+      invalidResults: 1,
+    },
+    bots: [
+      { id: "a", level: 3, memoryCount: 10, pendingPerceptions: 2, earnedXp: 50, deaths: 0, questCompletions: 1 },
+      { id: "b", level: 4, memoryCount: 6, pendingPerceptions: 0, earnedXp: 20, deaths: 1, questCompletions: 0 },
+    ],
+  };
+  const result = summarize(snapshot);
+  assert.equal(result.memories, 16);
+  assert.equal(result.pendingPerceptions, 2);
+  assert.equal(result.modelMemories, 12);
+  assert.equal(result.fallbackMemories, 3);
+  assert.equal(result.invalidResults, 1);
+  assert.equal(result.usedRequests, 40);
+  assert.equal(result.remainingRequests, 60);
+  assert.equal(result.workerConnected, 1);
+  assert.equal(result.xp, 70);
+  assert.equal(result.quests, 1);
+  assert.equal(result.deaths, 1);
+  assert.equal(result.active, 2);
+  assert.equal(result.conversationReplies, null);
+  const talking = summarize({
+    ...snapshot,
+    conversation: { enabled: true, queuedTurns: 2, pendingReplies: 1, replies: 66, actions: 19, following: 0, omitted: 3 },
+  });
+  assert.equal(talking.conversationReplies, 66);
+  assert.equal(talking.conversationActions, 19);
+  assert.equal(talking.conversationPending, 3);
+  // One reporting bot is enough for a total; a bot without the counter contributes nothing, not zero.
+  const partial = summarize({ simMs: 1, bots: [{ id: "a", level: 1, deaths: 2 }, { id: "b", level: 1 }] });
+  assert.equal(partial.deaths, 2);
+  assert.equal(partial.xp, null);
+});
+
+test("alles journal records are described in their own words", () => {
+  assert.equal(
+    describeEvent({ kind: "alles_memory", value: 3, detail: "Hogger is near the mill.", context: "model" }),
+    "memory formed by model: Hogger is near the mill.",
+  );
+  assert.equal(describeEvent({ kind: "alles_memory", value: 3, detail: "text", context: "revised" }), "memory 3 revised: text");
+  assert.equal(
+    describeEvent({ kind: "alles_perception", value: 0, detail: '"hello" from Humanb', context: "speech" }),
+    'perceived speech: "hello" from Humanb (not retained)',
+  );
+  assert.equal(describeEvent({ kind: "alles_said", value: 1, detail: "I saw Humanb die." }), "said “I saw Humanb die.”");
+  assert.equal(describeEvent({ kind: "alles_said", value: 0, detail: "x" }), "said “x” (nobody in range)");
+  assert.equal(describeEvent({ kind: "alles_worker", value: 1, detail: "connected" }), "interpreter worker connected");
+  assert.equal(describeEvent({ kind: "alles_request", value: 41 }), "pilot request charged, 41 used");
+  assert.equal(describeEvent({ kind: "alles_save", value: 5, detail: "committed" }), "memory save committed, revision 5");
+  assert.equal(describeEvent({ kind: "alles_owner", value: 1, detail: "ready" }), "memory store ready");
+  assert.equal(describeEvent({ kind: "bot_action", detail: "loot", context: "loot" }), "action: loot");
+  assert.equal(describeEvent({ kind: "bot_action", detail: "loot", context: "gather" }), "action: loot [gather]");
+  assert.equal(describeEvent({ kind: "xp", value: 120, context: "attack" }), "xp: 120 [attack]");
+  assert.ok(isAllesEvent({ kind: "alles_said" }));
+  assert.ok(!isAllesEvent({ kind: "xp" }));
+  assert.ok(!isAllesEvent({}));
+});
+
+test("live realm alerts name the worker, the budget, the journal and stale telemetry", () => {
+  const base = {
+    source: "alles-live",
+    simMs: 1,
+    bots: [],
+    interpreter: { connected: false, usedRequests: 100, maxRequests: 100 },
+    journal: { events: { dropped: 2 }, liveDropped: 1 },
+  };
+  const texts = alerts(base).map((alert) => alert.text);
+  assert.equal(texts.length, 3);
+  assert.match(texts[0], /Interpreter worker not connected/);
+  assert.match(texts[1], /budget used \(100 of 100\)/);
+  assert.match(texts[2], /3 journal records dropped/);
+  const stale = alerts({ ...base, telemetryStale: true }, { stale: true });
+  assert.equal(stale[0].level, "danger");
+  assert.match(stale[0].text, /World telemetry is stale/);
+  const rolling = alerts({
+    source: "alles-live",
+    bots: [],
+    interpreter: { connected: true, budgetMode: "rolling", usedRequests: 100, maxRequests: 100 },
+  });
+  assert.deepEqual(rolling, []);
+  const faults = alerts({
+    source: "alles-live",
+    bots: [],
+    interpreter: { connected: true, ledgerFault: true },
+    alles: { lifecycleFault: true },
+    journal: { events: { failed: true } },
+  });
+  assert.deepEqual(
+    faults.map((alert) => alert.level),
+    ["danger", "danger", "warn"],
+  );
 });

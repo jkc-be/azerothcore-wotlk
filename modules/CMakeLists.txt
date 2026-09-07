@@ -110,6 +110,20 @@ foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
   endif()
 endforeach()
 
+# Linkage is fully resolved before enabling the public CharacterDatabase extension.
+if("mod-alles" IN_LIST MODULES_MODULE_LIST)
+  if("${MODULE_MOD-ALLES}" STREQUAL "dynamic")
+    message(FATAL_ERROR "mod-alles requires static module linkage")
+  elseif("${MODULE_MOD-ALLES}" STREQUAL "static")
+    if(NOT "mod-playerbots" IN_LIST MODULES_MODULE_LIST
+        OR NOT "${MODULE_MOD-PLAYERBOTS}" STREQUAL "static")
+      message(FATAL_ERROR "mod-alles requires mod-playerbots with static module linkage")
+    endif()
+    target_compile_definitions(database PUBLIC MOD_ALLES)
+    target_compile_definitions(game-interface INTERFACE MOD_ALLES)
+  endif()
+endif()
+
 list(SORT MODULE_GRAPH_KEYS)
 list(REMOVE_DUPLICATES MODULE_GRAPH_KEYS)
 

@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -37,6 +39,67 @@ class Controls(unittest.TestCase):
         self.spool = bridge.Spool(self.path, 'test-token', follow=False)
         self.snapshot = {'run': 'run-a', 'controlSeq': 5, 'fault': ''}
         (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+
+    def test_stopped_world_is_recorded_read_only_until_fresh_telemetry_arrives(self):
+        path = self.path / 'latest.json'
+        old = time.time() - 30
+        os.utime(path, (old, old))
+        recorded = self.spool.snapshot()
+        self.assertTrue(recorded['telemetryStale'])
+        self.assertTrue(recorded['readOnly'])
+        with self.assertRaisesRegex(ValueError, 'read-only'):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False})
+        self.assertFalse((self.path / 'control.txt').exists())
+        self.assertEqual(json.loads(path.read_text()), self.snapshot)
+
+        path.write_text(json.dumps(self.snapshot))
+        fresh = self.spool.snapshot()
+        self.assertNotIn('telemetryStale', fresh)
+        self.assertNotIn('readOnly', fresh)
+        self.assertEqual(self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False})['status'], 'accepted')
+
+    def test_ordinary_live_feed_stays_read_only_and_does_not_invent_totals(self):
+        self.snapshot.update(source='alles-live', readOnly=True, simMs=1000, bots=[
+            {'name': 'Humana', 'level': 2, 'health': 30, 'maxHealth': 40, 'activity': 'moving', 'money': 12}])
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        self.assertNotIn('telemetryStale', self.spool.snapshot())
+        self.assertTrue(self.spool.snapshot()['readOnly'])
+        with self.assertRaisesRegex(ValueError, 'read-only'):
+            self.spool.control({'run': 'run-a', 'speed': 1, 'paused': True})
+        summary = bridge.summarize(self.snapshot)
+        self.assertIsNone(summary['xp'])
+        self.assertIsNone(summary['quests'])
+        self.assertIsNone(summary['deaths'])
+        self.assertEqual(summary['money'], 12)
+
+    def test_live_feed_summary_totals_only_reported_counters_and_carries_interpreter_figures(self):
+        frame = {'run': 'r', 'simMs': 1000, 'seq': 1, 'source': 'alles-live', 'activeBots': 1,
+                 'interpreter': {'connected': False, 'usedRequests': 7, 'maxRequests': 100, 'remainingRequests': 93,
+                                 'modelMemories': 4, 'fallbackMemories': 9, 'invalidResults': 0},
+                 'bots': [{'level': 2, 'memoryCount': 5, 'pendingPerceptions': 1, 'earnedXp': 30, 'deaths': 1,
+                           'questCompletions': 0},
+                          {'level': 3, 'memoryCount': 7}]}
+        point = bridge.summarize(frame)
+        self.assertEqual(point['memories'], 12)
+        self.assertEqual(point['pendingPerceptions'], 1)
+        self.assertEqual(point['xp'], 30)
+        self.assertEqual(point['deaths'], 1)
+        self.assertEqual(point['quests'], 0)
+        self.assertEqual(point['modelMemories'], 4)
+        self.assertEqual(point['fallbackMemories'], 9)
+        self.assertEqual(point['usedRequests'], 7)
+        self.assertEqual(point['remainingRequests'], 93)
+        self.assertEqual(point['workerConnected'], 0)
+        self.assertEqual(point['active'], 1)
+        empty = bridge.summarize({'simMs': 0, 'bots': []})
+        self.assertIsNone(empty['xp'])
+        self.assertIsNone(empty['memories'])
+        self.assertIsNone(empty['workerConnected'])
+        # The connected share averages like the other gauges when buckets fold.
+        merged = bridge.combine_points(dict(point, bucket=0, samples=1),
+                                       dict(point, bucket=0, samples=1, workerConnected=1, seq=2))
+        self.assertEqual(merged['workerConnected'], 0.5)
+        self.assertEqual(merged['memories'], 12)
 
     def test_control_is_atomic_sequenced_and_not_a_false_ack(self):
         result = self.spool.control({'run': 'run-a', 'speed': 10, 'paused': True})
@@ -155,6 +218,106 @@ class Controls(unittest.TestCase):
         self.assertEqual(bridge.journal_tail(path, 100, 35), [{'seq': 8}, {'seq': 9}])
         path.write_text('null\n[]\nbad\n' + lines[0])
         self.assertEqual(bridge.journal_tail(path, 100, 4096), [{'seq': 0}])
+
+
+class LiveRealm(unittest.TestCase):
+    """An ordinary realm publishes every boot into the same directory under a new run id."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name)
+
+    def record(self, run, seq, kind='xp'):
+        return json.dumps({'run': run, 'seq': seq, 'simMs': seq * 1000, 'bot': 'b', 'kind': kind, 'value': 1}) + '\n'
+
+    def test_run_change_starts_fresh_journal_tiers_that_keep_other_runs_out(self):
+        (self.path / 'latest.json').write_text(json.dumps({'run': 'run-a', 'seq': 3, 'simMs': 3000, 'bots': []}))
+        with (self.path / 'events.ndjson').open('w') as journal:
+            journal.writelines(self.record('run-a', seq) for seq in (1, 2, 3))
+        with (self.path / 'events-rollup.ndjson').open('w') as rollup:
+            rollup.write(json.dumps({'bucket': 0, 'samples': 1, 'kinds': {'xp': 1}, 'run': 'run-a', 'seq': 1}) + '\n')
+            rollup.write(json.dumps({'bucket': 0, 'samples': 1, 'kinds': {'xp': 1}, 'run': 'run-b', 'seq': 1}) + '\n')
+            rollup.write(json.dumps({'bucket': 300000, 'samples': 1, 'kinds': {'xp': 1}}) + '\n')
+        spool = bridge.Spool(self.path, 'test-token', follow=False)
+        self.addCleanup(spool.close)
+        self.assertEqual(spool.run, 'run-a')
+        self.assertEqual(spool.tail.rates.stored, 2)  # run-a and the legacy point without a run
+        spool.tail.poll()
+        self.assertEqual([event['seq'] for event in spool.tail.events('progression')], [1, 2, 3])
+        self.assertEqual(spool.tail.progression_seq, 3)
+        self.assertFalse(spool.rotate_run())
+
+        # A new world boot: the same files carry the new run's records after the world archived the old ones.
+        with (self.path / 'events.ndjson').open('a') as journal:
+            journal.writelines(self.record('run-b', seq) for seq in (1, 2))
+        (self.path / 'latest.json').write_text(json.dumps({'run': 'run-b', 'seq': 1, 'simMs': 1000, 'bots': []}))
+        self.assertEqual(spool.snapshot()['run'], 'run-b')
+        self.assertTrue(spool.rotate_run())
+        self.assertEqual(spool.run, 'run-b')
+        self.assertEqual(spool.tail.rates.stored, 2)  # run-b and the legacy point; run-a is gone
+        self.assertEqual(spool.tail.progression_seq, -1)
+        spool.tail.poll()
+        self.assertEqual([(event['run'], event['seq']) for event in spool.tail.events('progression')],
+                         [('run-b', 1), ('run-b', 2)])
+        lines = [json.loads(line) for line in (self.path / 'progression.ndjson').read_text().splitlines()]
+        self.assertEqual([(line['run'], line['seq']) for line in lines],
+                         [('run-a', 1), ('run-a', 2), ('run-a', 3), ('run-b', 1), ('run-b', 2)])
+        self.assertFalse(spool.rotate_run())
+
+    def test_worker_log_tail_is_parsed_into_jobs_and_a_summary(self):
+        log = self.path / 'alles-interpreter.log'
+        log.write_text(
+            '2026/09/07 14:27:57 worker: dial tcp 127.0.0.1:8779: connect: connection refused\n'
+            '2026/09/07 14:28:12 connected model=qwen3:8b-q8_0 charged_requests=98\n'
+            '2026/09/07 14:28:20 job=73b84fd4ec401ee3 status=applied memories=1 prompt_tokens=1427 '
+            'completion_tokens=69 latency_ms=1556\n'
+            '2026/09/07 14:28:30 job=95c5c815b32a3daf status=rejected memories=0 prompt_tokens=1400 '
+            'completion_tokens=44 latency_ms=1200\n'
+            '2026/09/07 14:28:40 job=249f638e8f067812 failed: HTTP permit denied\n'
+            '2026/09/07 14:28:41 pilot request budget exhausted; gameplay continues with fallback\n'
+            '2026/09/07 14:29:00 conversation=conversation-1788794048535-60 status=accepted action=wave '
+            'reply=true prompt_tokens=761 completion_tokens=40 latency_ms=800\n'
+            '2026/09/07 14:29:01 conversation=conversation-1788794051534-61 status=accepted action=none '
+            'reply=false prompt_tokens=841 completion_tokens=22 latency_ms=400\n'
+            '2026/09/07 14:29:02 conversation=conversation-1788794051534-62 failed: context deadline exceeded\n')
+        result = bridge.worker_log(log)
+        self.assertTrue(result['available'])
+        self.assertEqual(len(result['lines']), 9)
+        self.assertEqual([turn['status'] for turn in result['conversations']], ['accepted', 'accepted', 'failed'])
+        self.assertEqual(result['conversations'][0], {
+            'time': '2026/09/07 14:29:00', 'conversation': 'conversation-1788794048535-60', 'status': 'accepted',
+            'action': 'wave', 'reply': True, 'promptTokens': 761, 'completionTokens': 40, 'latencyMs': 800})
+        talk = result['summary']['conversations']
+        self.assertEqual((talk['turns'], talk['accepted'], talk['otherStatus'], talk['failed'], talk['replies']),
+                         (3, 2, 0, 1, 1))
+        self.assertEqual(talk['actions'], {'wave': 1, 'none': 1})
+        self.assertEqual((talk['meanLatencyMs'], talk['maxLatencyMs']), (600, 800))
+        self.assertEqual((talk['promptTokens'], talk['completionTokens']), (1602, 62))
+        self.assertEqual(result['summary']['lastError'], {'time': '2026/09/07 14:29:02',
+                                                          'text': 'context deadline exceeded'})
+        self.assertEqual(result['summary']['budgetExhaustedAt'], '2026/09/07 14:28:41')
+        log.write_text(log.read_text() + '2026/09/07 14:30:00 connected model=qwen3:8b-q8_0 charged_requests=0\n')
+        self.assertFalse(bridge.worker_log(log)['summary']['budgetExhausted'])
+        # Job lines are unaffected by the conversation lines.
+        result = bridge.worker_log(log)
+        self.assertEqual([job['status'] for job in result['jobs']], ['applied', 'rejected', 'failed'])
+        self.assertEqual(result['jobs'][0], {'time': '2026/09/07 14:28:20', 'job': '73b84fd4ec401ee3',
+                                             'status': 'applied', 'memories': 1, 'promptTokens': 1427,
+                                             'completionTokens': 69, 'latencyMs': 1556})
+        self.assertEqual(result['jobs'][2]['error'], 'HTTP permit denied')
+        summary = result['summary']
+        self.assertEqual((summary['jobs'], summary['applied'], summary['otherStatus'], summary['failed']),
+                         (3, 1, 1, 1))
+        self.assertEqual(summary['meanLatencyMs'], 1378)
+        self.assertEqual(summary['maxLatencyMs'], 1556)
+        self.assertEqual(summary['promptTokens'], 2827)
+        self.assertEqual(summary['completionTokens'], 113)
+        self.assertEqual(summary['lastConnected'], '2026/09/07 14:30:00')
+        self.assertFalse(bridge.worker_log(self.path / 'missing.log')['available'])
+        self.assertFalse(bridge.worker_log(None)['available'])
+        self.assertEqual(bridge.worker_log(log, limit=2)['lines'],
+                         result['lines'][-2:])
 
 
 class AdaptiveSpeed(unittest.TestCase):

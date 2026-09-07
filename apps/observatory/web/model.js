@@ -57,15 +57,67 @@ export function activityMix(bots) {
   return mix;
 }
 
+export function isAllesEvent(event) {
+  return typeof event?.kind === "string" && event.kind.startsWith("alles_");
+}
+
+// One line per journal record for the feeds and the inspector; alles kinds carry their own wording.
+export function describeEvent(event) {
+  const what = event.detail || (event.value ? formatNumber(event.value) : "");
+  const spell = event.spell ? `, spell ${event.spell}` : "";
+  const context = event.context && event.context !== event.detail ? ` [${event.context}]` : "";
+  switch (event.kind) {
+    case "bot_action":
+      return `action: ${event.detail || "unnamed"}${context}`;
+    case "alles_perception":
+      return `perceived ${event.context || "something"}: ${event.detail}${event.value ? "" : " (not retained)"}`;
+    case "alles_memory":
+      return event.context === "revised"
+        ? `memory ${event.value} revised: ${event.detail}`
+        : `memory formed by ${event.context || "unknown"}: ${event.detail}`;
+    case "alles_said":
+      return `said “${event.detail}”${event.value ? "" : " (nobody in range)"}`;
+    case "alles_owner":
+      return `memory store ${event.detail}`;
+    case "alles_save":
+      return `memory save ${event.detail}, revision ${formatNumber(event.value)}`;
+    case "alles_worker":
+      return `interpreter worker ${event.detail}`;
+    case "alles_request":
+      return `pilot request charged, ${formatNumber(event.value)} used`;
+    case "alles_conversation":
+      return `conversation ${event.detail || ""}${context}`.trim();
+    default:
+      return `${event.kind.replaceAll("_", " ")}${what ? `: ${what}` : ""}${spell}${context}`;
+  }
+}
+
 export function summarize(snapshot) {
   const bots = snapshot.bots;
+  const interpreter = snapshot.interpreter || {};
+  const conversation = snapshot.conversation || {};
+  // A counter nobody reports is unknown, never zero: an ordinary realm only measures what its world build taps.
+  const total = (key) =>
+    bots.some((bot) => bot[key] != null) ? bots.reduce((sum, bot) => sum + (bot[key] ?? 0), 0) : null;
   const result = {
     simMs: snapshot.simMs,
     realMs: snapshot.realMs ?? null,
     seq: snapshot.seq ?? null,
-    xp: 0,
-    quests: 0,
-    deaths: 0,
+    xp: total("earnedXp"),
+    quests: total("questCompletions"),
+    deaths: total("deaths"),
+    memories: total("memoryCount"),
+    pendingPerceptions: total("pendingPerceptions"),
+    modelMemories: interpreter.modelMemories ?? null,
+    fallbackMemories: interpreter.fallbackMemories ?? null,
+    invalidResults: interpreter.invalidResults ?? null,
+    usedRequests: interpreter.usedRequests ?? null,
+    remainingRequests: interpreter.remainingRequests ?? null,
+    workerConnected: interpreter.connected == null ? null : Number(Boolean(interpreter.connected)),
+    conversationReplies: conversation.replies ?? null,
+    conversationActions: conversation.actions ?? null,
+    conversationPending:
+      conversation.pendingReplies == null ? null : (conversation.pendingReplies ?? 0) + (conversation.queuedTurns ?? 0),
     levels: {},
     zones: {},
     activity: activityMix(bots),
@@ -86,9 +138,6 @@ export function summarize(snapshot) {
     maxLevel: bots.length ? Math.max(...bots.map((bot) => bot.level)) : null,
   };
   for (const bot of bots) {
-    result.xp += bot.earnedXp ?? 0;
-    result.quests += bot.questCompletions ?? 0;
-    result.deaths += bot.deaths;
     const level = `Level ${bot.level}`;
     const zone = `${bot.map}/${bot.zone}`;
     result.levels[level] = (result.levels[level] || 0) + 1;
@@ -253,8 +302,36 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
       level: "info",
       text: python ? "Feed closed, showing recorded history." : "Simulated duration complete.",
     });
-  if (stale) list.push({ level: "danger", text: "No snapshot for 3 s. Check the bridge." });
+  if (stale)
+    list.push({
+      level: "danger",
+      text: state.telemetryStale
+        ? "World telemetry is stale: the realm stopped publishing samples. Showing the last one."
+        : "No snapshot for 3 s. Check the bridge.",
+    });
   if (state.controlError) list.push({ level: "warn", text: `Control rejected: ${state.controlError}` });
+  if (state.source === "alles-live") {
+    const worker = state.interpreter || {};
+    const trial = worker.budgetMode !== "rolling";
+    if (worker.connected === false)
+      list.push({ level: "warn", text: "Interpreter worker not connected: perceptions form by template fallback." });
+    if (worker.ledgerFault)
+      list.push({ level: "danger", text: "Provider ledger fault: no further model requests are permitted." });
+    else if (trial && worker.maxRequests != null && (worker.usedRequests ?? 0) >= worker.maxRequests)
+      list.push({
+        level: "info",
+        text: `Pilot request budget used (${worker.usedRequests} of ${worker.maxRequests}); memories form by template fallback.`,
+      });
+    if (state.alles?.lifecycleFault)
+      list.push({ level: "danger", text: "Lifecycle ingress overflow: interpretation and speech are suspended." });
+    if (state.journal?.events?.failed)
+      list.push({ level: "warn", text: "Telemetry journal failed on disk; the event feed is incomplete." });
+    else if (state.journal?.events?.dropped || state.journal?.liveDropped)
+      list.push({
+        level: "info",
+        text: `${formatNumber((state.journal.events?.dropped ?? 0) + (state.journal.liveDropped ?? 0))} journal records dropped under load.`,
+      });
+  }
   if (!python) {
     if (state.overloaded) list.push({ level: "warn", text: `Overloaded: ${backlog} of simulated steps queued.` });
     if (state.populationPending)

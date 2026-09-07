@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Control this checkout's native AzerothCore user services."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import time
+
+
+ROOT = Path(__file__).resolve().parent
+AUTH = "acore-authserver"
+WORLD = "acore-worldserver"
+DASHBOARD = "acore-observatory-bridge"
+WORKER = "acore-alles-interpreter"
+
+
+def state(service, user=True):
+    command = ["systemctl"] + (["--user"] if user else [])
+    result = subprocess.run(command + ["is-active", service], capture_output=True, text=True)
+    value = result.stdout.strip()
+    if value not in {"active", "inactive", "failed", "activating", "deactivating", "reloading"}:
+        raise RuntimeError(f"Cannot read {service} state: {result.stderr.strip() or value}")
+    return value
+
+
+def config(path):
+    values = {}
+    for line in path.read_text().splitlines():
+        match = re.match(r'^\s*([\w.]+)\s*=\s*(?:"([^"]*)"|([^#]*))', line)
+        if match:
+            values[match[1]] = match[2] if match[2] is not None else match[3].strip()
+    return values
+
+
+def check_start():
+    if state("mysql", user=False) != "active":
+        raise RuntimeError("MySQL is stopped. Start it with: sudo systemctl start mysql")
+    if state("acore-observatory") not in {"inactive", "failed"}:
+        raise RuntimeError("Observatory is running; finish that run before starting this realm.")
+    etc = ROOT / "env/dist/etc"
+    world = config(etc / "worldserver.conf")
+    bots = config(etc / "modules/playerbots.conf")
+    if world.get("Observatory.Enable", "0") != "0":
+        raise RuntimeError("worldserver.conf has Observatory enabled; this command starts the ordinary realm.")
+    expected = {
+        "LoginDatabaseInfo": "acore_auth",
+        "WorldDatabaseInfo": "acore_world",
+        "CharacterDatabaseInfo": "acore_characters",
+        "PlayerbotsDatabaseInfo": "acore_playerbots",
+    }
+    for filename, settings in (
+        ("worldserver.conf", world),
+        ("authserver.conf", config(etc / "authserver.conf")),
+        ("dbimport.conf", config(etc / "dbimport.conf")),
+        ("modules/playerbots.conf", bots),
+    ):
+        for key, database in expected.items():
+            if key in settings and settings[key].split(";")[-1] != database:
+                raise RuntimeError(f"{filename}: {key} must select {database} for the ordinary realm.")
+
+
+def status():
+    print(f"MySQL: {state('mysql', user=False)}")
+    print(f"Auth:  {state(AUTH)}")
+    print(f"World: {state(WORLD)}")
+    print(f"Dashboard: {state(DASHBOARD)} — http://localhost:8778/")
+    print(f"Ollama worker: {state(WORKER)}")
+    settings = config(ROOT / "env/dist/etc/modules/alles.conf")
+    directory = settings.get("Alles.Telemetry.Directory")
+    if directory:
+        path = Path(directory) / "latest.json"
+        try:
+            snapshot = json.loads(path.read_text())
+            age = max(0, time.time() - path.stat().st_mtime)
+            worker = snapshot.get("interpreter", {})
+            print(f"Telemetry: {'live' if age < 10 else 'stale'}, {age:.0f}s old, run {snapshot['run']}")
+            budget = (f"{worker.get('remainingRequests', 0)}/{worker.get('requestsPerMinute', 0)} available per minute"
+                      if worker.get("budgetMode") == "rolling" else
+                      f"{worker.get('usedRequests', 0)}/{worker.get('maxRequests', 0)} trial requests")
+            print(f"Model: {worker.get('model', 'unknown')}; {budget}; "
+                  f"model memories: {worker.get('modelMemories', 0)}")
+            conversation = snapshot.get("conversation", {})
+            if conversation.get("enabled"):
+                print(f"Conversation: {conversation.get('replies', 0)} replies, "
+                      f"{conversation.get('pendingReplies', 0)} pending, {conversation.get('actions', 0)} actions")
+        except (OSError, ValueError, KeyError):
+            print("Telemetry: waiting for the worldserver's first sample")
+    print("Service state only; use ./server logs to check world startup and errors.")
+
+
+def start():
+    check_start()
+    world_state = state(WORLD)
+    if world_state == "active":
+        subprocess.run(["systemctl", "--user", "start", AUTH], check=True)
+    elif world_state in {"inactive", "failed"}:
+        helper = ROOT / "var/setup/start-servers.sh"
+        if not helper.is_file():
+            raise RuntimeError("Missing var/setup/start-servers.sh; complete the native host setup first.")
+        subprocess.run(["bash", str(helper)], cwd=ROOT, check=True)
+    else:
+        raise RuntimeError(f"World is {world_state}; wait for it to finish before starting.")
+    settings = config(ROOT / "env/dist/etc/modules/alles.conf")
+    if settings.get("Alles.Enable") == "1" and settings.get("Alles.Worker.Mode") == "bridge":
+        subprocess.run(["systemctl", "--user", "start", WORKER], check=True)
+    subprocess.run(["systemctl", "--user", "start", DASHBOARD], check=True)
+    status()
+
+
+def stop():
+    if state(WORKER) not in {"inactive", "failed"}:
+        subprocess.run(["systemctl", "--user", "stop", WORKER], check=True)
+    world_state = state(WORLD)
+    if world_state not in {"inactive", "failed"}:
+        if world_state != "deactivating":
+            fifo = ROOT / "var/run/worldserver.stdin"
+            if not stat.S_ISFIFO(fifo.stat().st_mode):
+                raise RuntimeError(f"World console is not a FIFO: {fifo}")
+            descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                os.write(descriptor, b"server shutdown 1\n")
+            finally:
+                os.close(descriptor)
+            print("World shutdown requested; waiting for character saves...", flush=True)
+        deadline = time.monotonic() + 300
+        while state(WORLD) not in {"inactive", "failed"}:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("World has not stopped after 5 minutes. Inspect ./server logs; no force-kill sent.")
+            time.sleep(1)
+    subprocess.run(["systemctl", "--user", "stop", DASHBOARD, WORLD, AUTH], check=True)
+    print("Ollama worker, dashboard, auth and world stopped. MySQL remains running.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("start", "stop", "restart", "status", "logs"))
+    args = parser.parse_args()
+    if args.command == "start":
+        start()
+    elif args.command == "stop":
+        stop()
+    elif args.command == "restart":
+        check_start()
+        stop()
+        start()
+    elif args.command == "status":
+        status()
+    else:
+        subprocess.run([
+            "tail", "-n", "40", "-F",
+            str(ROOT / "env/dist/logs/authserver-console.log"),
+            str(ROOT / "env/dist/logs/worldserver-console.log"),
+            str(ROOT / "env/dist/logs/observatory-bridge.log"),
+            str(ROOT / "env/dist/logs/alles-interpreter.log"),
+        ], check=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        print(f"server: {error}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(130)

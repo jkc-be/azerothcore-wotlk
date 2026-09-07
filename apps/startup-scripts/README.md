@@ -1,5 +1,23 @@
 # AzerothCore Startup Scripts
 
+For this checkout's existing native `env/dist` install and `acore-*` user services, run from the repository root:
+
+```sh
+./server start
+./server stop
+./server restart
+./server status
+./server logs
+```
+
+This shortcut requires the local setup in `var/setup/`. Start checks MySQL and ordinary-realm database settings,
+then runs the existing import/start helper and starts the dashboard bridge at `http://localhost:8778/`.
+Stop requests a graceful world shutdown, waits for character saves, and stops auth and the dashboard; MySQL stays
+running. `logs` follows auth/world/dashboard output until Ctrl-C. It does not build or install.
+The dashboard displays its configured Observatory spool. Without fresh world telemetry it labels the data as a
+recorded run and disables controls. With Alles bridge mode enabled, start also launches the Ollama worker;
+`Alles.Telemetry.Directory` supplies ordinary-realm live telemetry. See [the Alles guide](../alles/README.md).
+
 A comprehensive suite of scripts for managing AzerothCore server instances with advanced session management, automatic restart capabilities, and production-ready service management.
 
 ## 📋 Table of Contents
@@ -681,5 +699,3 @@ sudo npm install -g pm2
 # If you have a very old registry format, migrate it
 ./migrate-registry.sh
 ```
-
-

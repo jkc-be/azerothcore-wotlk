@@ -1,0 +1,52 @@
+[worldserver]
+
+# Optional memory-bearing village module. Requires static mod-playerbots linkage.
+# The schema is required whenever mod-alles is compiled, including when disabled here.
+Alles.Enable = 0
+
+# First-light cohort: exact typed character IDs, including the human's character.
+# Example syntax only: player:42,player:43,player:44,player:45,player:46,player:47
+# No accounts are created or changed by this configuration. NPC owners require the later W7 adapter.
+Alles.Owners = ""
+
+# Ordinary-realm pilot. Use bridge for the external Ollama worker; pause-safe lab support is separate.
+Alles.Worker.Mode = "inprocess-fake"
+Alles.SchedulingProfile = "pilot"
+# Withhold fake replies to exercise normal permit/lease/deadline fallback (the earliest expiry wins).
+Alles.Worker.FakeWithhold = 0
+
+Alles.Memory.MaxMemories = 256
+Alles.Memory.MaxPerceptions = 128
+Alles.Memory.HearsayCap = "0.6"
+Alles.Memory.HalfLifeSeconds = 86400
+Alles.WitnessRange = 40
+
+Alles.Speech.Enable = 1
+Alles.Speech.CooldownSeconds = 30
+Alles.Speech.RepeatSeconds = 300
+
+# Bounds older-future waits and admission of final DB calls. An admitted core synchronous call
+# cannot currently be cancelled; this is not a hard maximum worldserver shutdown duration.
+Alles.Shutdown.DrainSeconds = 10
+
+# Optional external Ollama pilot: authenticated loopback, one fleet slot, one attempt per job.
+# Set Mode=bridge and all paths/profile fields explicitly after running the worker's offline fixtures.
+Alles.Worker.Port = 8779
+Alles.Worker.TokenFile = ""
+Alles.Worker.Model = ""
+# SHA256 printed by apps/alles worker --config FILE --fingerprint.
+Alles.Worker.Profile = ""
+# Durable trial file: restarting either process never resets its charged request count.
+Alles.Interpreter.TrialLedger = ""
+Alles.Interpreter.TrialMaxRequests = 100
+# Existing private directory, served read-only by the Observatory bridge (ordinary realm only).
+Alles.Telemetry.Directory = ""
+
+# Natural local conversation is separate from memory formation and ambient memory retelling.
+# Requires bridge mode. Every eligible nearby autonomous bot may respond; direct naming limits the audience.
+Alles.Conversation.Enable = 0
+
+# "trial": lifetime TrialMaxRequests cap; "rolling": a replenishing, shared one-minute request allowance.
+# Use a new profile-matched ledger for a changed model/prompt contract; preserve old trial evidence.
+Alles.Interpreter.BudgetMode = "trial"
+Alles.Interpreter.RequestsPerMinute = 30

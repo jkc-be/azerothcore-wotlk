@@ -1,0 +1,6 @@
+{
+  "base_url": "http://fedora-gpu:11434/v1",
+  "model": "qwen3:8b-q8_0",
+  "bridge": "127.0.0.1:8779",
+  "token_file": "/private/alles/bridge-token"
+}
