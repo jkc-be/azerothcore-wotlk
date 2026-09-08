@@ -70,13 +70,14 @@ RuntimeSettings ReadRuntimeSettings()
     for (auto const owner : settings.owners)
         if (owner.kind != ActorKind::Player || owner.id > std::numeric_limits<uint32_t>::max())
             throw std::invalid_argument("First-light runtime supports player owners; NPC registration follows in W7");
-    if (sConfigMgr->GetOption<bool>("Observatory.Enable", false))
-        throw std::invalid_argument("Alles pilot requires an ordinary realm; pause-safe lab maintenance follows in W9");
     auto const mode = sConfigMgr->GetOption<std::string>("Alles.Worker.Mode", "inprocess-fake");
     if (mode != "inprocess-fake" && mode != "bridge")
         throw std::invalid_argument("Alles.Worker.Mode must be inprocess-fake or bridge");
     settings.external = mode == "bridge";
     settings.objectives = sConfigMgr->GetOption<bool>("Alles.Objectives.Enable", false);
+    settings.brain = sConfigMgr->GetOption<bool>("Alles.Brain.Enable", false);
+    if (settings.brain && !settings.objectives)
+        throw std::invalid_argument("Alles.Brain.Enable requires Alles.Objectives.Enable");
     if (settings.external)
     {
         auto port = sConfigMgr->GetOption<uint32_t>("Alles.Worker.Port", 8779);

@@ -40,6 +40,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -63,6 +64,9 @@ namespace
         bool paused = false;
         uint32 bots = 100;
         uint32 observerMode = Observatory::OBSERVER_LOCKED;
+        uint32 llmLimit = 8;
+        bool llmGuard = false;
+        std::map<uint32, uint32> races;
     };
     Control pending;
     std::atomic<uint32> expectedBots{100};
@@ -98,6 +102,37 @@ namespace
     std::map<std::string, Totals> totals;
     std::set<std::string> cohort;
     std::set<uint32> configuredBots;
+    std::map<uint32, std::vector<uint32>> racePool;
+    std::set<uint32> selectedBots;
+    constexpr uint32 PlayableRaces[] = {1, 2, 3, 4, 5, 6, 7, 8, 10, 11};
+    Observatory::MaintenanceSink maintenanceSink = nullptr;
+    Observatory::SnapshotSink snapshotSink = nullptr;
+    uint32 llmQueued = 0;
+    uint32 llmLimit = 64;
+
+    bool ValidRaces(Control const& control)
+    {
+        if (racePool.empty())
+            return control.races.empty();
+        uint32 total = 0;
+        for (uint32 race : PlayableRaces)
+        {
+            auto found = control.races.find(race);
+            auto pool = racePool.find(race);
+            if (found == control.races.end() || found->second > (pool == racePool.end() ? 0 : pool->second.size()))
+                return false;
+            total += found->second;
+        }
+        return total == control.bots;
+    }
+
+    void SelectRoster(Control const& control)
+    {
+        selectedBots.clear();
+        for (auto const& [race, count] : control.races)
+            for (uint32 index = 0; index < count; ++index)
+                selectedBots.insert(racePool.at(race)[index]);
+    }
 
     std::string Quote(std::string_view input)
     {
@@ -209,26 +244,40 @@ namespace
                 uint32 mode = 0;
                 if (control >> requestedRun >> sequence >> speed >> paused >> bots)
                 {
-                    // Older bridges omit the observer mode; the current mode is then retained.
-                    bool hasMode = bool(control >> mode);
-                    if ((!baseline || (speed == 1 && paused == 0 && bots == pending.bots)) &&
-                        bots <= maxBots && requestedRun == runId &&
-                        SimulationBudget::IsValidSpeed(speed) && paused <= 1 &&
-                        (!hasMode || mode <= Observatory::OBSERVER_FULL_GM))
+                    std::lock_guard<std::mutex> lock(mutex);
+                    Control requested = pending;
+                    requested.sequence = sequence;
+                    requested.speed = speed;
+                    requested.paused = paused != 0;
+                    requested.bots = bots;
+                    if (control >> mode)
                     {
-                        std::lock_guard<std::mutex> lock(mutex);
-                        if (sequence > pending.sequence)
+                        requested.observerMode = mode;
+                        uint32 guard = 0;
+                        if (control >> requested.llmLimit >> guard)
                         {
-                            controlError.clear();
-                            if (!observerSessions.empty() && (speed != 1 || paused))
-                            {
-                                controlError = "GM POV requires 1x without pause until all observers disconnect";
-                                pending.sequence = sequence;
-                            }
-                            else
-                                pending = {sequence, speed, paused != 0, bots,
-                                    hasMode ? mode : pending.observerMode};
+                            requested.llmGuard = guard == 1;
+                            if (guard > 1)
+                                continue;
+                            if (!racePool.empty())
+                                for (uint32 race : PlayableRaces)
+                                    if (!(control >> requested.races[race]))
+                                        requested.races[race] = UINT32_MAX;
                         }
+                    }
+                    if (requestedRun == runId && sequence > pending.sequence)
+                    {
+                        controlError.clear();
+                        if (!SimulationBudget::IsValidSpeed(speed) || paused > 1 || bots > maxBots ||
+                            requested.observerMode > Observatory::OBSERVER_FULL_GM ||
+                            !requested.llmLimit || requested.llmLimit > 64 || !ValidRaces(requested) ||
+                            (baseline && (speed != 1 || paused || bots != pending.bots)))
+                            controlError = "Invalid speed, population, race quota or LLM queue limit";
+                        else if (!observerSessions.empty() && (speed != 1 || paused))
+                            controlError = "GM POV requires 1x without pause until all observers disconnect";
+                        else
+                            pending = requested;
+                        pending.sequence = sequence;
                     }
                 }
                 if (stopping.load())
@@ -260,6 +309,7 @@ namespace
                 << ",\"map\":" << player->GetMapId() << ",\"instance\":" << player->GetInstanceId()
                 << ",\"zone\":" << player->GetZoneId() << ",\"x\":" << player->GetPositionX()
                 << ",\"y\":" << player->GetPositionY() << ",\"z\":" << player->GetPositionZ()
+                << ",\"race\":" << unsigned(player->getRace()) << ",\"class\":" << unsigned(player->getClass())
                 << ",\"level\":" << unsigned(player->GetLevel()) << ",\"xp\":" << player->GetUInt32Value(PLAYER_XP)
                 << ",\"nextLevelXp\":" << player->GetUInt32Value(PLAYER_NEXT_LEVEL_XP)
                 << ",\"health\":" << player->GetHealth() << ",\"maxHealth\":" << player->GetMaxHealth()
@@ -375,6 +425,35 @@ bool Observatory::Initialize()
         maxBots = configuredBots.size();
     }
     pending.bots = expectedBots;
+    pending.llmLimit = sConfigMgr->GetOption<uint32>("Observatory.LlmQueueLimit", 8);
+    if (!pending.llmLimit || pending.llmLimit > 64)
+        return false;
+    std::istringstream roster(sConfigMgr->GetOption<std::string>("Observatory.RaceRoster", ""));
+    std::set<uint32> rosterIds;
+    while (std::getline(roster, identity, ','))
+    {
+        std::replace(identity.begin(), identity.end(), ':', ' ');
+        std::istringstream entry(identity);
+        uint32 id, race;
+        std::string extra;
+        if (!(entry >> id >> race) || (entry >> extra) || !configuredBots.contains(id) ||
+            std::find(std::begin(PlayableRaces), std::end(PlayableRaces), race) == std::end(PlayableRaces) ||
+            !rosterIds.insert(id).second)
+            return false;
+        racePool[race].push_back(id);
+    }
+    if (!racePool.empty())
+    {
+        if (rosterIds != configuredBots)
+            return false;
+        std::istringstream counts(sConfigMgr->GetOption<std::string>("Observatory.RaceCounts", ""));
+        for (uint32 race : PlayableRaces)
+            if (!(counts >> pending.races[race]))
+                return false;
+        if (!ValidRaces(pending))
+            return false;
+        SelectRoster(pending);
+    }
 
     directory = sConfigMgr->GetOption<std::string>("Observatory.Directory", "");
     try
@@ -414,7 +493,11 @@ bool Observatory::Initialize()
 
 bool Observatory::AllowsBot(uint32 characterId)
 {
-    return !SimulationClock::Enabled() || configuredBots.empty() || configuredBots.contains(characterId);
+    if (!SimulationClock::Enabled())
+        return true;
+    std::lock_guard<std::mutex> lock(mutex);
+    return racePool.empty() ? configuredBots.empty() || configuredBots.contains(characterId)
+                           : selectedBots.contains(characterId);
 }
 
 bool Observatory::AllowsObservers()
@@ -714,6 +797,22 @@ void Observatory::Probe(Unit const* actor, std::string_view kind, uint64 value, 
     events.push_back(out.str());
 }
 
+void Observatory::SetModuleHooks(MaintenanceSink maintenance, SnapshotSink snapshot)
+{
+    maintenanceSink = maintenance;
+    snapshotSink = snapshot;
+}
+
+uint32 Observatory::LlmQueueLimit()
+{
+    return llmLimit;
+}
+
+void Observatory::SetLlmQueueSize(uint32 queued)
+{
+    llmQueued = queued;
+}
+
 void Observatory::Run()
 {
     auto start = Clock::now();
@@ -727,11 +826,13 @@ void Observatory::Run()
     SimulationBudget budget;
     uint64 maxTickUs = 0;
     Control applied;
-    applied.bots = expectedBots;
+    applied = pending;
     uint64 populationSince = 0;
     std::string problem;
     bool ready = false;
     auto nextObserverTick = Clock::now();
+    auto nextMaintenance = Clock::now();
+    bool queueHeld = false;
     observerAdmissionOpen.store(true);
     while (!World::IsStopped())
     {
@@ -740,7 +841,8 @@ void Observatory::Run()
         auto realUs = std::chrono::duration_cast<Microseconds>(now - previous).count();
         previous = now;
         completed = ready && durationMs && SimulationClock::Elapsed().count() >= int64(readyAt + durationMs);
-        budget.Accrue(uint64(realUs), applied.speed, applied.paused || fault.load() || !problem.empty() || completed);
+        budget.Accrue(uint64(realUs), applied.speed,
+            applied.paused || queueHeld || fault.load() || !problem.empty() || completed);
         bool observing;
         {
             std::lock_guard<std::mutex> lock(mutex);
@@ -753,7 +855,17 @@ void Observatory::Run()
             Event(nullptr, "observer_mode", applied.observerMode, std::to_string(applied.sequence));
         }
         observerAdmissionOpen.store(!fault.load() && problem.empty() && !completed);
-        if (applied.bots != expectedBots)
+        llmLimit = applied.llmGuard ? applied.llmLimit : 64;
+        queueHeld = applied.llmGuard && !observing &&
+            (queueHeld ? llmQueued > applied.llmLimit / 2 : llmQueued >= applied.llmLimit);
+        bool rosterChanged = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            auto previousRoster = selectedBots;
+            SelectRoster(applied);
+            rosterChanged = previousRoster != selectedBots;
+        }
+        if (applied.bots != expectedBots || rosterChanged)
         {
             expectedBots = applied.bots;
             populationSettled = false;
@@ -762,7 +874,7 @@ void Observatory::Run()
         }
         // One normal-sized tick at a time. Debt is retained across speed changes, overload and pauses.
         if ((!observing || now >= nextObserverTick) &&
-            budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
+            budget.Consume(applied.paused || queueHeld || fault.load() || !problem.empty() || completed))
         {
             auto tickStart = Clock::now();
             // Retain accumulated debt, but never run a burst of catch-up steps under a native client.
@@ -784,6 +896,12 @@ void Observatory::Run()
         else
             std::this_thread::sleep_for(1ms);
 
+        if (maintenanceSink && Clock::now() >= nextMaintenance &&
+            (applied.paused || queueHeld || fault.load() || !problem.empty() || completed))
+        {
+            maintenanceSink(true);
+            nextMaintenance = Clock::now() + 10ms;
+        }
         auto sampleNow = Clock::now();
         if (sampleNow - sampled < 250ms)
             continue;
@@ -820,7 +938,7 @@ void Observatory::Run()
         }
         double realMs = std::chrono::duration<double, std::milli>(sampleNow - sampled).count();
         double achieved = (sim - sampledSim) / realMs;
-        std::lock_guard<std::mutex> lock(mutex);
+        std::unique_lock<std::mutex> lock(mutex);
         uint32 activeBots = 0;
         for (auto const& id : online)
             if (totals[id].aiUpdates && sim - totals[id].lastAiMs < 10000)
@@ -837,7 +955,9 @@ void Observatory::Run()
         out << "{\"schema\":1,\"run\":" << Quote(runId) << ",\"seq\":" << ++snapshotSequence << ",\"simMs\":" << sim
             << ",\"realMs\":" << std::chrono::duration_cast<Milliseconds>(sampleNow - start).count()
             << ",\"requestedSpeed\":" << applied.speed << ",\"achievedSpeed\":" << achieved
-            << ",\"speedStep\":0.1"
+            << ",\"speedStep\":0.1,\"llmQueued\":" << llmQueued << ",\"llmQueueLimit\":" << applied.llmLimit
+            << ",\"llmGuard\":" << (applied.llmGuard ? "true" : "false")
+            << ",\"queueHeld\":" << (queueHeld ? "true" : "false")
             << ",\"baseline\":" << (baseline ? "true" : "false") << ",\"completed\":" << (completed ? "true" : "false")
             << ",\"readyAtMs\":" << readyAt << ",\"paused\":" << (applied.paused ? "true" : "false")
             << ",\"observersAllowed\":" << (AllowsObservers() ? "true" : "false")
@@ -851,8 +971,27 @@ void Observatory::Run()
             << ",\"runTotals\":{\"xp\":" << runTotals.xp << ",\"quests\":" << runTotals.quests
             << ",\"deaths\":" << runTotals.deaths << '}'
             << ",\"onlineBots\":" << online.size() << ",\"fault\":" << Quote(fault.load() ? faultReason : problem)
-            << ",\"bots\":" << Players() << '}';
-        latest = out.str();
+            << ",\"bots\":" << Players();
+        if (!racePool.empty())
+        {
+            out << ",\"racePopulation\":[";
+            bool firstRace = true;
+            for (uint32 race : PlayableRaces)
+            {
+                if (!firstRace)
+                    out << ',';
+                firstRace = false;
+                auto pool = racePool.find(race);
+                out << "{\"race\":" << race << ",\"target\":" << applied.races.at(race)
+                    << ",\"capacity\":" << (pool == racePool.end() ? 0 : pool->second.size()) << '}';
+            }
+            out << ']';
+        }
+        out << '}';
+        lock.unlock();
+        auto snapshot = snapshotSink ? snapshotSink(out.str()) : out.str();
+        lock.lock();
+        latest = std::move(snapshot);
         maxTickUs = 0;
         sampled = sampleNow;
         sampledSim = sim;

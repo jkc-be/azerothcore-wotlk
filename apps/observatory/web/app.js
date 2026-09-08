@@ -1,4 +1,5 @@
 import {
+  resizePopulation,
   ACTIVITIES,
   TRACE_KINDS,
   attention,
@@ -76,6 +77,9 @@ const SIMULATION_CONTROLS = [
   "max-speed-status",
   "population",
   "population-status",
+  "population-draft-status",
+  "population-error",
+  "race-population",
   "observer-group",
   "observer-status",
 ];
@@ -353,9 +357,12 @@ function ingest(snapshot, restoring = false) {
   if (!restoring && state?.run === snapshot.run && snapshot.seq > state.seq + 1) gaps += snapshot.seq - state.seq - 1;
   const previousTarget = state?.expectedBots;
   const previousLimit = state?.speedControl?.backlogLimitMs;
+  const previousQueueLimit = state?.llmQueueLimit;
   state = snapshot;
   if (previousLimit !== state.speedControl?.backlogLimitMs && state.speedControl)
     $("backlog-limit").value = state.speedControl.backlogLimitMs;
+  if (previousQueueLimit !== state.llmQueueLimit && state.llmQueueLimit !== undefined)
+    $("llm-queue-limit").value = state.llmQueueLimit;
   freshAt = performance.now();
   ingestTimes.push(freshAt);
   ingestTimes = ingestTimes.filter((time) => freshAt - time <= 10000);
@@ -423,7 +430,7 @@ function isPython() {
 
 // An ordinary realm publishing through mod-alles: read-only, real time, with an interpreter worker.
 function isAlles() {
-  return state?.source === "alles-live";
+  return state?.source === "alles-live" || state?.source === "alles-simulation";
 }
 
 function isReadOnly() {
@@ -542,11 +549,12 @@ function renderInstruments(previousTarget) {
   $("speed-ratio").textContent = python ? "" : state.paused ? ", paused" : `, ${Math.round(ratio * 100)}% achieved`;
 
   const alles = isAlles();
+  document.querySelector(".bench").classList.toggle("alles-simulation", state.source === "alles-simulation");
   // An ordinary realm runs at 1× with no backlog or tick budget; its bench shows the interpreter instead.
-  $("speed-figure").hidden = alles;
-  $("backlog-figure").hidden = $("tick-figure").hidden = python || alles;
+  $("speed-figure").hidden = alles && readOnly;
+  $("backlog-figure").hidden = $("tick-figure").hidden = python || (alles && readOnly);
   $("requests-figure").hidden = $("memories-figure").hidden = !alles;
-  if (!python && !alles) {
+  if (!python && !(alles && readOnly)) {
     $("backlog-value").textContent = `${(state.backlogMs / 1000).toFixed(2)} s`;
     $("backlog-value").dataset.state = state.overloaded ? "danger" : "";
     $("tick-value").textContent = `${(state.maxTickUs / 1000).toFixed(1)} ms`;
@@ -569,6 +577,14 @@ function renderInstruments(previousTarget) {
   const locked = Boolean(readOnly || state.fault || state.completed || state.baseline || state.observers);
   $("pause").disabled = locked;
   $("pause").textContent = state.paused ? "Resume" : "Pause";
+  $("compact-clock").textContent = time.time;
+  $("compact-speed").textContent = state.paused ? "Paused" :
+    `${state.achievedSpeed.toFixed(1)}×${maxSpeed ? " · Max" : ""}${state.queueHeld ? " · waiting for LLM" : ""}`;
+  $("compact-status").textContent = `${state.onlineBots ?? 0} bots` +
+    (state.llmQueueLimit === undefined ? "" : ` · LLM ${state.llmQueued ?? 0}/${state.llmQueueLimit}`);
+  $("compact-pause").disabled = locked;
+  $("compact-pause").hidden = readOnly;
+  $("compact-pause").textContent = state.paused ? "Resume" : "Pause";
   for (const button of $("speed-control").querySelectorAll("button")) {
     const isMax = button.dataset.speed === "max";
     button.disabled = locked || (isMax && !state.speedControl);
@@ -577,6 +593,7 @@ function renderInstruments(previousTarget) {
       String(isMax ? maxSpeed : !maxSpeed && Number(button.dataset.speed) === state.requestedSpeed),
     );
   }
+  $("llm-queue-limit").disabled = locked || state.llmQueueLimit === undefined;
   $("backlog-limit").disabled = $("set-max-speed").disabled = locked || !state.speedControl;
   $("max-speed-status").textContent = maxSpeed
     ? `${state.speedControl.status}. Backlog target: ${state.speedControl.backlogLimitMs} ms; ` +
@@ -586,12 +603,17 @@ function renderInstruments(previousTarget) {
         ? "Max adjusts from 1× to 10× in 0.1× steps using the backlog trend."
         : "Max selects 1×, 2×, 5× or 10×. Update the worldserver to enable 0.1× steps."
       : "Bridge update required for Max speed.";
+  if (state.llmQueueLimit !== undefined)
+    $("max-speed-status").textContent += ` LLM jobs: ${state.llmQueued ?? 0}/${state.llmQueueLimit}. ` +
+      (state.queueHeld ? "Simulation waiting for the queue to drain." : "Max holds gameplay at the queue limit.");
   const populationLocked = Boolean(
     readOnly || state.fault || state.completed || state.baseline || state.maxBots === undefined,
   );
   $("bot-count").disabled = $("set-bots").disabled = $("bot-range").disabled = populationLocked;
   $("bot-count").max = $("bot-range").max = state.maxBots ?? 100;
-  if (previousTarget !== state.expectedBots) $("bot-count").value = $("bot-range").value = state.expectedBots;
+  if (!state.racePopulation && previousTarget !== state.expectedBots)
+    $("bot-count").value = $("bot-range").value = state.expectedBots;
+  renderRacePopulation(populationLocked);
   const observerLocked = Boolean(
     readOnly || state.fault || state.completed || state.baseline || state.observerMode === undefined,
   );
@@ -693,7 +715,9 @@ function renderMetrics() {
   const levels = state.bots.map((bot) => bot.level);
   const last = history.at(-1);
   const worker = state.interpreter || {};
-  const unmeasured = "not measured by this world build";
+  const unmeasured = state?.source === "alles-simulation"
+    ? "not reported by this simulation feed"
+    : "not measured by this world build";
   const tiles = isAlles()
     ? [
         [
@@ -828,7 +852,7 @@ function observerModeLabel(mode) {
   return mode === 2 ? "full GM" : mode === 1 ? "roam" : "locked";
 }
 
-async function control(paused, speed, bots, observerMode) {
+async function control(paused, speed, bots, observerMode, raceCounts) {
   if (!state || isReadOnly()) return;
   if (speed === "max" && !$("max-speed-settings").reportValidity()) return;
   const speedLabel = speed === "max" ? `Max (backlog target ${$("backlog-limit").value} ms)` : `${speed}×`;
@@ -847,6 +871,9 @@ async function control(paused, speed, bots, observerMode) {
         speed,
         paused,
         ...(bots === undefined ? {} : { bots }),
+        ...(raceCounts === undefined ? {} : { raceCounts }),
+        ...(speed === "max" && state.llmQueueLimit !== undefined
+          ? { llmQueueLimit: Number($("llm-queue-limit").value) } : {}),
         ...(observerMode === undefined ? {} : { observerMode }),
         ...(speed === "max" ? { backlogLimitMs: Number($("backlog-limit").value) } : {}),
       }),
@@ -859,8 +886,12 @@ async function control(paused, speed, bots, observerMode) {
     controlLog.push({ sequence: null, text, sentAt: performance.now(), ackMs: 0, error: error.message });
     controlLog = controlLog.slice(-8);
     notice(error.message);
+    if (raceCounts !== undefined) $("population-error").textContent = error.message;
+    renderControlLog();
+    return false;
   }
   renderControlLog();
+  return true;
 }
 
 function renderControlLog() {
@@ -907,20 +938,41 @@ $("change-token").onclick = () => {
   $("token").focus();
   $("token").select();
 };
-$("population").onsubmit = (event) => {
+$("population").onsubmit = async (event) => {
   event.preventDefault();
-  if ($("population").reportValidity()) control(state.paused, selectedSpeed(), Number($("bot-count").value));
+  if (!$("population").reportValidity()) return;
+  if (!state.racePopulation) return control(state.paused, selectedSpeed(), Number($("bot-count").value));
+  await applyPopulation();
 };
+function resizePopulationDraft(value) {
+  $("population-mode").value = "auto";
+  try {
+    if (value === "") return;
+    populationDraft = resizePopulation(populationResizeBase ?? populationDraft, Number(value),
+      Object.fromEntries(state.racePopulation.map((row) => [row.race, row.capacity])));
+    populationDirty = true;
+    $("population-error").textContent = "";
+    writePopulationDraft();
+  } catch (error) {
+    $("population-error").textContent = error.message;
+  }
+}
 $("bot-range").oninput = () => {
   $("bot-count").value = $("bot-range").value;
+  if (state?.racePopulation) resizePopulationDraft($("bot-range").value);
 };
 $("bot-count").oninput = () => {
   $("bot-range").value = $("bot-count").value;
+  if (state?.racePopulation) resizePopulationDraft($("bot-count").value);
+};
+$("population-mode").onchange = () => {
+  if ($("population-mode").value === "races") $("race-population").open = true;
 };
 function selectedSpeed() {
   return state.speedControl?.mode === "max" ? "max" : state.requestedSpeed;
 }
-$("pause").onclick = () => control(!state.paused, selectedSpeed());
+$("pause").onclick = $("compact-pause").onclick = () => control(!state.paused, selectedSpeed());
+$("expand-controls").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
 $("max-speed-settings").onsubmit = (event) => {
   event.preventDefault();
   control(state.paused, "max");
@@ -1404,7 +1456,7 @@ function renderRoster() {
       if (observationAge(bot) > 3000) row.classList.add("stale");
       const swatch = document.createElement("i");
       swatch.style.setProperty("--swatch", markerColor(bot, all));
-      const cells = [bot.name, bot.level, bot.activity, `${Math.round(healthPercent(bot))}%`].map((text) => {
+      const cells = [bot.controlGroup ? `${bot.name} (control)` : bot.name, bot.level, bot.activity, `${Math.round(healthPercent(bot))}%`].map((text) => {
         const span = document.createElement("span");
         span.textContent = String(text);
         return span;
@@ -1513,8 +1565,10 @@ function renderDetails() {
   }
   const python = isPython();
   const alles = isAlles();
-  const unmeasured = "not measured by this world build";
-  $("bot-name").textContent = `${bot.name}, level ${bot.level}`;
+  const unmeasured = state?.source === "alles-simulation"
+    ? "not reported by this simulation feed"
+    : "not measured by this world build";
+  $("bot-name").textContent = `${bot.name}, level ${bot.level}${bot.controlGroup ? " · Troll control group" : ""}`;
   renderBotObjective(bot);
   const health = healthPercent(bot);
   $("bot-bars").replaceChildren(
@@ -2961,15 +3015,114 @@ function refreshRegionNav() {
 const benchElement = document.querySelector(".bench");
 new ResizeObserver(() => {
   const height = Math.round(benchElement.getBoundingClientRect().height);
-  document.documentElement.style.setProperty("--bench-height", `${height}px`);
+  document.documentElement.style.setProperty("--bench-height", `${Math.min(height, 72)}px`);
 }).observe(benchElement);
-// The bench only needs to lift off the page once something has scrolled underneath it.
-document.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 4), {
-  passive: true,
-});
+// Preserve the page's layout while replacing the full bench with a small fixed strip.
+// This avoids scroll jumps and leaves the other regions readable beneath the essentials.
+function collapseBench() {
+  const compact = window.scrollY > 120;
+  if (compact === benchElement.classList.contains("compact")) return;
+  const placeholder = $("bench-placeholder");
+  if (compact) placeholder.style.height = `${benchElement.getBoundingClientRect().height}px`;
+  placeholder.hidden = !compact;
+  benchElement.classList.toggle("compact", compact);
+  document.body.classList.toggle("scrolled", compact);
+}
+document.addEventListener("scroll", collapseBench, { passive: true });
+collapseBench();
 
 renderLegend();
 renderControlLog();
 renderHold();
 refreshRegionNav();
 drawMap();
+
+const raceNames = { 1: "Human", 2: "Orc", 3: "Dwarf", 4: "Night Elf", 5: "Undead", 6: "Tauren",
+  7: "Gnome", 8: "Troll (control)", 10: "Blood Elf", 11: "Draenei" };
+let populationDraft = null;
+let populationResizeBase = null;
+let populationDraftRun = "";
+let populationDirty = false;
+let populationPendingDraft = null;
+let raceCapacitySignature = "";
+function populationTotal(counts) {
+  return Object.values(counts).reduce((sum, count) => sum + count, 0);
+}
+function samePopulation(left, right) {
+  return left && right && Object.keys(left).every((race) => left[race] === right[race]);
+}
+function writePopulationDraft() {
+  const total = populationTotal(populationDraft);
+  $("bot-count").value = $("bot-range").value = total;
+  for (const input of $("race-counts").querySelectorAll("input"))
+    input.value = populationDraft[input.dataset.race] ?? 0;
+  $("population-draft-status").textContent = `${total} requested: ` +
+    Object.entries(populationDraft).filter(([, count]) => count > 0)
+      .map(([race, count]) => `${count} ${raceNames[race]}`).join(", ") +
+    (populationPendingDraft ? " · applying" : populationDirty ? " · not applied" : "");
+}
+function renderRacePopulation(locked) {
+  $("race-population").hidden = !state.racePopulation || isReadOnly();
+  $("population-mode").disabled = locked || !state.racePopulation;
+  if (!state.racePopulation) return;
+  const actual = Object.fromEntries(state.racePopulation.map((row) => [row.race, row.target]));
+  if (populationDraftRun !== state.run) {
+    populationDraftRun = state.run;
+    populationDraft = actual;
+    populationResizeBase = null;
+    populationDirty = false;
+    populationPendingDraft = null;
+    raceCapacitySignature = "";
+  }
+  if (samePopulation(actual, populationPendingDraft)) {
+    if (samePopulation(populationDraft, populationPendingDraft)) populationDirty = false;
+    populationPendingDraft = null;
+  }
+  if (!populationDirty && !populationPendingDraft) populationDraft = actual;
+  const signature = JSON.stringify(state.racePopulation.map(({race, capacity}) => [race, capacity]));
+  if (signature !== raceCapacitySignature) {
+    raceCapacitySignature = signature;
+    $("race-counts").replaceChildren(...state.racePopulation.map((row) => {
+      const label = document.createElement("label");
+      label.textContent = `${raceNames[row.race]} (max ${row.capacity}) `;
+      const input = document.createElement("input");
+      Object.assign(input, { type: "number", min: "0", max: String(row.capacity), step: "1",
+        value: String(populationDraft[row.race]), required: true });
+      input.dataset.race = row.race;
+      input.oninput = () => {
+        if (!input.validity.valid) return;
+        populationDraft[row.race] = Number(input.value);
+        populationDirty = true;
+        $("population-mode").value = "races";
+        $("population-error").textContent = "";
+        writePopulationDraft();
+      };
+      label.append(input);
+      return label;
+    }));
+  }
+  for (const input of $("race-counts").querySelectorAll("input")) input.disabled = locked;
+  $("set-races").disabled = locked;
+  // Leave the user's partially typed input alone while fresh snapshots arrive.
+  if (!document.activeElement?.matches("#race-counts input, #bot-count")) writePopulationDraft();
+}
+async function applyPopulation() {
+  if (!$("race-population-form").reportValidity() || $("population-error").textContent) return;
+  const counts = { ...populationDraft };
+  populationPendingDraft = counts;
+  populationDirty = true;
+  writePopulationDraft();
+  if (!(await control(state.paused, selectedSpeed(), populationTotal(counts), undefined, counts))) {
+    populationPendingDraft = null;
+    writePopulationDraft();
+  }
+}
+$("race-population-form").onsubmit = async (event) => {
+  event.preventDefault();
+  await applyPopulation();
+};
+
+for (const id of ["bot-count", "bot-range"]) {
+  $(id).onfocus = () => { populationResizeBase = { ...populationDraft }; };
+  $(id).onblur = () => { populationResizeBase = null; };
+}

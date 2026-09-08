@@ -4938,3 +4938,13 @@ Cluster.IsCrossrealm=0
 # CLUSTER SETTINGS END                                                                            #
 #                                                                                                 #
 ###################################################################################################
+
+# Optional fixed race roster for a disposable Observatory run. Every GUID must also be in BotGuids.
+# Entries: GUID:RACE,GUID:RACE. Order within a race determines activation order; prepare random classes upstream.
+# Counts are for Human, Orc, Dwarf, Night Elf, Undead, Tauren, Gnome, Troll, Blood Elf, Draenei, in that order.
+# The sum must equal Observatory.BotCount. Empty roster retains the existing total-only population control.
+Observatory.RaceRoster = ""
+Observatory.RaceCounts = ""
+# Max mode caps admitted memory/planning/conversation jobs and holds gameplay while the queue drains.
+# Lowering the limit retains already admitted work until it finishes. Range 1-64, editable in the dashboard.
+Observatory.LlmQueueLimit = 8

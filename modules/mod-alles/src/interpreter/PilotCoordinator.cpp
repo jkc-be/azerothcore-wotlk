@@ -509,6 +509,7 @@ struct PilotCoordinator::Impl
     ActorStore& store;
     MemoryPolicy policy;
     CoordinatorLimits limits;
+    std::size_t admissionLimit = 64;
     std::string bootEpoch;
     std::thread::id thread = std::this_thread::get_id();
     std::map<ActorKey, Owner> owners;
@@ -713,7 +714,7 @@ void PilotCoordinator::Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::siz
                 --itemBudget;
             }
         }
-        else if (Elapsed(gameTimeMs, first.gameTimeMs, DebounceMs) && _impl->jobs.size() < _impl->limits.jobs)
+        else if (Elapsed(gameTimeMs, first.gameTimeMs, DebounceMs) && _impl->jobs.size() < std::min(_impl->limits.jobs, _impl->admissionLimit))
         {
             if (auto job = _impl->Capture(owner))
             {
@@ -909,4 +910,16 @@ std::size_t PilotCoordinator::DrainFallback(uint64_t gameTimeMs, uint64_t realTi
     }
     return applied;
 }
+}
+
+void Alles::Interpreter::PilotCoordinator::SetJobLimit(std::size_t limit)
+{
+    _impl->CheckThread();
+    _impl->admissionLimit = limit;
+}
+
+std::size_t Alles::Interpreter::PilotCoordinator::PendingJobs() const
+{
+    _impl->CheckThread();
+    return _impl->jobs.size();
 }

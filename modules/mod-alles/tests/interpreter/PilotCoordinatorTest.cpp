@@ -791,3 +791,21 @@ TEST(AllesPilotTest, EarlyReceiptDoesNotExtendFakePermitLifetime)
 
 }
 }
+
+namespace Alles::Interpreter
+{
+TEST(AllesPilotTest, QueueAdmissionCanPauseWithoutDiscardingInputs)
+{
+    Village village;
+    ASSERT_NE(village.Add(Player), 0u);
+    ASSERT_TRUE(village.Hear(Player, "news"));
+    village.coordinator.SetJobLimit(0);
+    village.coordinator.Update(5000, 5000);
+    EXPECT_EQ(village.coordinator.PendingJobs(), 0u);
+    EXPECT_EQ(village.store.FindReady(Player)->perceptions.size(), 1u);
+    village.coordinator.SetJobLimit(1);
+    village.coordinator.Update(5001, 5001);
+    EXPECT_EQ(village.coordinator.PendingJobs(), 1u);
+    ASSERT_TRUE(village.coordinator.Inspect(Player));
+}
+}

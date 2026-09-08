@@ -53,6 +53,12 @@ namespace Observatory
     AC_GAME_API void PopulationSettled(bool settled);
     // World-thread pump; controls and observation keep running while gameplay is paused.
     AC_GAME_API void Run();
+    // World-thread module maintenance continues while gameplay is paused or waiting for an external worker.
+    using MaintenanceSink = void (*)(bool paused);
+    using SnapshotSink = std::string (*)(std::string const& snapshot);
+    AC_GAME_API void SetModuleHooks(MaintenanceSink maintenance, SnapshotSink snapshot);
+    AC_GAME_API uint32 LlmQueueLimit();
+    AC_GAME_API void SetLlmQueueSize(uint32 queued);
     AC_GAME_API void Event(Player const* player, std::string_view kind, uint64 value = 0, std::string_view detail = {});
     AC_GAME_API void Probe(Unit const* actor, std::string_view kind, uint64 value = 0, uint32 spell = 0,
                            Unit const* other = nullptr);

@@ -31,7 +31,8 @@ public:
     Runtime(Runtime const&) = delete;
     Runtime& operator=(Runtime const&) = delete;
 
-    void Update();
+    void Update(bool paused = false);
+    std::string EnrichSnapshot(std::string const& snapshot) const;
     void BeginShutdown();
     void FinishShutdown();
     void Login(Player& player);

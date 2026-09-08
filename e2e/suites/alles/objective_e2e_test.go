@@ -18,23 +18,26 @@ import (
 )
 
 type objectiveFixture struct {
-	Version        int
-	Disposable     bool
-	ClientTakeover bool
-	Actor          actorFixture
-	Target         actorFixture
-	Telemetry      string
-	Origin         uint32
-	Destination    uint32
-	Quest          uint32
-	Repairer       uint64
-	RepairItem     uint32
-	RecallRepair   bool
-	SupplyItem     uint32
-	FundingItem    uint32
-	FundingQuest   uint32
-	SupplyVendor   uint32
-	Companions     []actorFixture
+	Version            int
+	Disposable         bool
+	ClientTakeover     bool
+	Actor              actorFixture
+	Target             actorFixture
+	Telemetry          string
+	Origin             uint32
+	Destination        uint32
+	Quest              uint32
+	Repairer           uint64
+	RepairItem         uint32
+	RecallRepair       bool
+	SupplyItem         uint32
+	FundingItem        uint32
+	FundingQuest       uint32
+	SupplyVendor       uint32
+	Companions         []actorFixture
+	Brain              bool
+	TravelStarted      bool
+	CombatInterruption bool
 }
 
 type objectiveView struct {
@@ -67,7 +70,15 @@ type objectiveBotView struct {
 	Planning struct {
 		Engine     string
 		Objectives []objectiveView
-		Survey     struct {
+		Body       struct {
+			Attached                   bool
+			Objective                  uint64
+			Skill, State, Interruption string
+			Route                      struct {
+				Advances, Failures uint32
+			}
+		}
+		Survey struct {
 			ActiveMs              uint64
 			EmptyScans, Positions uint32
 		}
@@ -200,25 +211,47 @@ func TestAlles_ExplorationAcquiresWork(t *testing.T) {
 	f, guest := objectiveScene(t)
 	run, start := readObjectiveBot(t, f)
 	var local objectiveView
+	var intention objectiveView
 	for _, objective := range start.Planning.Objectives {
 		if objective.Place == f.Origin && objective.Quest == 0 && objective.State == "active" {
 			local = objective
 		}
+		if f.TravelStarted && objective.Place == f.Destination && objective.Quest == 0 &&
+			objective.State == "active" && objective.ArrivedMs == 0 {
+			intention = objective
+		}
 	}
-	if f.Origin == 0 || f.Destination == 0 || f.Origin == f.Destination || local.ID == 0 ||
+	if f.Origin == 0 || f.Destination == 0 || f.Origin == f.Destination ||
+		(!f.TravelStarted && local.ID == 0) || (f.TravelStarted && intention.ID == 0) ||
 		start.Planning.Engine != "new_rpg" {
-		e2eharness.Preconditionf(t, "fixture must start local investigation with no useful remaining local quests")
+		e2eharness.Preconditionf(t, "fixture must start local investigation or its explicitly configured active journey")
+	}
+	if (f.Brain && !start.Planning.Body.Attached) || (f.CombatInterruption && !f.Brain) {
+		e2eharness.Preconditionf(t, "brain fixture requires an attached body; combat interruption requires brain mode")
 	}
 	watchObjectiveBot(t, guest, start)
 	visibleTravel := false
-	searched := false
-	var intention objectiveView
+	searched := f.TravelStarted
+	interrupted, resumed, routeAdvanced := false, false, false
 	previous := start
 	var acquired uint32
 	if !eventually(10*time.Minute, func() bool {
 		currentRun, bot := readObjectiveBot(t, f)
 		if currentRun != run {
 			e2eharness.HarnessFailf(t, "world restarted during exploration")
+		}
+		if f.Brain && !bot.Planning.Body.Attached {
+			e2eharness.Assertf(t, "Alles lost body ownership during autonomous exploration")
+		}
+		body := bot.Planning.Body
+		if intention.ID != 0 && body.Objective == intention.ID {
+			if body.Interruption == "combat" {
+				interrupted = true
+			}
+			if interrupted && body.Skill == "travel" && body.State == "running" && body.Interruption == "none" {
+				resumed = true
+			}
+			routeAdvanced = routeAdvanced || body.Route.Advances > 0
 		}
 		if bot.sampleMs > previous.sampleMs {
 			elapsed := float64(bot.sampleMs-previous.sampleMs) / 1000
@@ -254,6 +287,12 @@ func TestAlles_ExplorationAcquiresWork(t *testing.T) {
 	}
 	if !visibleTravel || !savedQuestPresent(t, guest, f, acquired, false) {
 		e2eharness.Assertf(t, "exploration claim lacks client-visible travel or an actually saved new quest")
+	}
+	if f.Brain && !routeAdvanced {
+		e2eharness.Assertf(t, "body never measured route advancement for the committed journey")
+	}
+	if f.CombatInterruption && (!interrupted || !resumed) {
+		e2eharness.Assertf(t, "fixture did not observe combat interruption and resumption of the same travel intention")
 	}
 	t.Logf("PASS bot=%d place=%d objective=%d acquiredQuest=%d", f.Target.GUID, f.Destination, intention.ID, acquired)
 }

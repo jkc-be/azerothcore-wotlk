@@ -1,5 +1,26 @@
 # alles live persistence fixture
 
+## Brain/body exploration variant
+
+The existing `TestAlles_ExplorationAcquiresWork` also supports the optional body controller. These additions
+are source-only and have not been compiled or run live yet. Set `brain: true` in the exclusive disposable
+objective fixture and enable `Alles.Brain.Enable` on that test realm. The test additionally requires attached
+body ownership and measured path advancement, alongside client-visible movement and a saved newly accepted quest.
+
+`travelStarted: true` starts the oracle at an already active, unarrived place intention for `destination`,
+instead of waiting for the ordinary local-survey deferral. This supports small navigation trials before testing
+the complete exploration loop. `origin` and `destination` must still be distinct valid area IDs.
+
+`combatInterruption: true` requires brain mode and a route fixture with a survivable hostile encounter before
+arrival. The test must observe combat and subsequent running travel for the **same** intention, followed by
+arrival and useful work. Missing combat is a failed oracle, not a skipped success. It never grants quest credit
+or teleports the target to finish the journey. Only the observer follows through the existing fixture helper.
+
+Use separate prepared trials for uninterrupted travel, combat/resumption and full local investigation. The
+existing reward, preparation, cooperation and handoff tests remain regression requirements for the controller.
+
+## Memory persistence
+
 `TestAlles_HeardMemorySurvivesRelog` has been compiled but has not been executed. It exercises the
 ordinary client SAY, self recall, explicit module flush acknowledgment, cache eviction and login paths. Its
 primary oracle is a locally attributed heard memory surviving an actual reload. An actor moved to another

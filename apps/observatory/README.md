@@ -16,6 +16,21 @@ equivalence and population benchmarks remain pending.
 - [Local map artwork setup](docs/MAPS.md)
 - [Python controller dashboard and synthetic preview](docs/PYTHON.md)
 
+On the configured native host, run `./server reset` from the checkout to start a clean accelerated realm.
+The default is **4 Humans (Humana–Humand) and 2 Troll controls (Trolla–Trollb)**, all level one, with random
+valid classes and empty Alles memories. Trolls retain the original Playerbots AI. Reset copies the four ordinary
+`acore_*` fixture databases into new `obs_alles_*` databases, renders private configs, then gracefully replaces the
+managed auth/world/bridge/worker services. It uses the installed binaries without rebuilding. The ordinary databases
+and earlier runs remain intact; run files and fixture exports accumulate under `var/run/alles-accelerated-*`.
+
+The dashboard starts at **1×**, with acceleration/Max available and an editable LLM queue limit (default **8**).
+Its race controls can activate up to 20 Humans and 5 of each other race from the prepared pool. `./server status`
+reads the active realm; `./server stop` stops it gracefully. A stopped accelerated realm cannot resume:
+use `./server reset` again instead of `start` or `restart`. Native setup must already provide MySQL,
+`var/setup/mysql-client.cnf`, installed configs/binaries, the four user services, and `worker.json` beside
+`Alles.Worker.TokenFile`. Reset waits for the exact six-bot roster; a failed launch stays stopped with its artifacts
+available for inspection.
+
 The dashboard is a simulation control panel. A sticky instrument bench carries the simulated-time clock, a linear
 achieved-versus-requested speed instrument, backlog and longest-tick figures with sparklines, pause/resume,
 1/2/5/10×/Max speed with a backlog target, target-population controls, a **Hold** toggle, and one status line with
@@ -86,3 +101,8 @@ python3 apps/codestyle/codestyle-cpp.py
 python3 apps/codestyle/codestyle-sql.py
 git diff --check
 ```
+
+On an Alles simulation the clock and interpreter figures share the bench, with an editable Max LLM queue limit
+and expandable per-race population controls. Scrolling collapses the bench to a small strip showing time, achieved
+speed, bot count, LLM queue and Pause; **Controls ↑** returns to the full controls. Memory inspection uses the
+simulation's character database and joins live store revisions by character GUID.

@@ -18,6 +18,8 @@
 #include "GameTime.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
+#include "Observatory.h"
+#include "SimulationClock.h"
 #include "ObjectVisibilityContainer.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -106,6 +108,15 @@ struct Runtime::Impl
         store(settings.limits, settings.memory), dao(settings.limits, settings.memory),
         coordinator(store, settings.memory), thread(std::this_thread::get_id())
     {
+        Observatory::SetModuleHooks([](bool paused)
+        {
+            if (auto* runtime = ActiveRuntime())
+                runtime->Update(paused);
+        }, [](std::string const& snapshot)
+        {
+            auto* runtime = ActiveRuntime();
+            return runtime ? runtime->EnrichSnapshot(snapshot) : snapshot;
+        });
         for (auto const owner : settings.owners)
         {
             if (!store.Activate(owner, 0) || !coordinator.Track(owner))
@@ -135,11 +146,12 @@ struct Runtime::Impl
             conversation = std::make_unique<ConversationRuntime>(store, *bridge, recorder.get());
         if (settings.objectives || conversation)
             objectives = std::make_unique<ObjectiveRuntime>(store, settings.owners, recorder.get(),
-                conversation.get(), bridge.get(), settings.objectives);
+                conversation.get(), bridge.get(), settings.objectives, settings.brain);
     }
 
     ~Impl()
     {
+        Observatory::SetModuleHooks(nullptr, nullptr);
         ::Alles::Telemetry::InstallLiveSink(nullptr);
     }
 
@@ -480,7 +492,8 @@ struct Runtime::Impl
                         : boost::json::value(nullptr);
                     bot["actions"] = counters->actions;
                     bot["lastAction"] = counters->lastAction;
-                    bot["lastActionMs"] = counters->actions ? boost::json::value(recorder->SimMs(counters->lastActionMs))
+                    bot["lastActionMs"] = counters->actions
+                        ? boost::json::value(recorder->SimMs(counters->lastActionMs))
                         : boost::json::value(nullptr);
                 }
             }
@@ -523,9 +536,11 @@ struct Runtime::Impl
                 used = value->to_number<uint64_t>();
             recorder->RecordInterpreter(connected, used, realMs);
         }
+        latestTelemetry = snapshot;
         recorder->RecordSnapshot(boost::json::serialize(snapshot));
     }
 
+    boost::json::object latestTelemetry;
     RuntimeSettings const settings;
     Ingress ingress;
     ActorStore store;
@@ -670,7 +685,7 @@ void Runtime::WitnessDeath(Unit& victim, Unit* killer)
     }
 }
 
-void Runtime::Update()
+void Runtime::Update(bool paused)
 {
     _impl->CheckThread();
     auto const gameMs = GameNow();
@@ -690,22 +705,29 @@ void Runtime::Update()
             if (player && !Token(*player))
                 Login(*player);
         }
-        if (!_impl->lifecycleFault)
+        if (!_impl->lifecycleFault && !paused)
             _impl->Meetings(gameMs, realMs);
     }
     _impl->StartLoads(realMs);
     if (!_impl->lifecycleFault)
     {
         _impl->store.Decay(gameMs, realMs);
+        auto const limit = Observatory::LlmQueueLimit();
+        auto const workerJobs = _impl->bridge ? _impl->bridge->WorkerJobs() : 0;
+        _impl->coordinator.SetJobLimit(limit > workerJobs ? limit - workerJobs : 0);
+        if (_impl->bridge)
+            _impl->bridge->SetQueueLimit(limit);
         _impl->coordinator.Update(gameMs, realMs, _impl->settings.itemBudget);
         if (_impl->bridge)
             _impl->bridge->Update(gameMs, realMs);
-        if (_impl->conversation)
+        if (_impl->conversation && !paused)
             _impl->conversation->Update(gameMs, realMs);
-        if (_impl->objectives)
+        if (_impl->objectives && !paused)
             _impl->objectives->Update(gameMs, realMs);
-        _impl->Speech(gameMs, realMs);
+        if (!paused)
+            _impl->Speech(gameMs, realMs);
     }
+    Observatory::SetLlmQueueSize(_impl->bridge ? _impl->bridge->PendingJobs() : _impl->coordinator.PendingJobs());
     _impl->Telemetry(gameMs, realMs);
     _impl->StartSaves(realMs);
     for (auto const owner : _impl->settings.owners)
@@ -808,4 +830,35 @@ std::optional<uint64_t> Runtime::Flush(ActorKey owner)
 
 Runtime* ActiveRuntime() { return PublishedRuntime.load(std::memory_order_acquire); }
 void PublishRuntime(Runtime* runtime) { PublishedRuntime.store(runtime, std::memory_order_release); }
+}
+
+std::string Alles::Runtime::EnrichSnapshot(std::string const& snapshot) const
+{
+    _impl->CheckThread();
+    auto result = boost::json::parse(snapshot).as_object();
+    auto const& module = _impl->latestTelemetry;
+    result["source"] = "alles-simulation";
+    for (auto key : {"interpreter", "alles", "conversation"})
+        if (auto const* value = module.if_contains(key))
+            result[key] = *value;
+    auto const* bots = module.if_contains("bots");
+    for (auto& item : result.at("bots").as_array())
+    {
+        auto& bot = item.as_object();
+        bot["controlGroup"] = bot.at("race").to_number<uint32>() == RACE_TROLL;
+        if (!bots)
+            continue;
+        for (auto const& source : bots->as_array())
+        {
+            auto const& detail = source.as_object();
+            if (detail.at("id") != bot.at("id"))
+                continue;
+            for (auto key : {"guid", "planning", "memoryCount", "pendingPerceptions", "memoryState", "memoryRevision",
+                "committedRevision", "saving", "saveFailed", "droppedPerceptions"})
+                if (auto const* value = detail.if_contains(key))
+                    bot[key] = *value;
+            break;
+        }
+    }
+    return boost::json::serialize(result);
 }

@@ -310,7 +310,7 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
         : "No snapshot for 3 s. Check the bridge.",
     });
   if (state.controlError) list.push({ level: "warn", text: `Control rejected: ${state.controlError}` });
-  if (state.source === "alles-live") {
+  if (state.source === "alles-live" || state.source === "alles-simulation") {
     const worker = state.interpreter || {};
     const budget = budgetState(worker);
     if (worker.connected === false)
@@ -697,4 +697,25 @@ export function relativeTime(unixMs, now = Date.now()) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ${Math.floor(seconds / 60) % 60} min ago`;
   return `${Math.floor(seconds / 86400)} d ${Math.floor(seconds / 3600) % 24} h ago`;
+}
+
+// A total-only change preserves explicit races. Extra slots belong to Humans.
+// Reductions remove Humans first, then other races in race ID order.
+export function resizePopulation(counts, total, capacities) {
+  if (!Number.isInteger(total) || total < 0) throw new Error("Enter a whole bot count of zero or more.");
+  const result = { ...counts };
+  const current = Object.values(result).reduce((sum, count) => sum + count, 0);
+  if (total >= current) {
+    result[1] = (result[1] ?? 0) + total - current;
+    if (result[1] > (capacities[1] ?? 0))
+      throw new Error(`Automatic increases add Humans; this run has capacity for ${capacities[1] ?? 0} Humans.`);
+  } else {
+    let remove = current - total;
+    for (const race of Object.keys(result).sort((a, b) => Number(a) - Number(b))) {
+      const count = Math.min(result[race], remove);
+      result[race] -= count;
+      remove -= count;
+    }
+  }
+  return result;
 }
