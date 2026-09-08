@@ -11,6 +11,7 @@
 #define MOD_ALLES_ACTOR_STORE_H
 
 #include "Memory.h"
+#include "Planning.h"
 #include <deque>
 #include <map>
 #include <vector>
@@ -34,6 +35,7 @@ struct OwnerSnapshot
     uint64_t nextConsolidationGameTimeMs = 0;
     std::vector<Perception> perceptions;
     std::vector<Memory> memories;
+    std::optional<PlanningSnapshot> planning;
 };
 
 struct SaveRequest
@@ -104,6 +106,9 @@ public:
         uint64_t gameTimeMs, uint64_t realTimeMs);
     void Close(ActorKey owner, uint64_t attachment);
     void RequestFlush(ActorKey owner);
+    // A planning revision is independent of memory/decay revisions. Publish atomically into the same owner snapshot.
+    std::optional<uint64_t> UpdatePlanning(ActorKey owner, uint64_t generation, uint64_t expectedRevision,
+        ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs);
 
     // During Loading this only accepts a bounded ingress value; merge admission can still drop it
     // if persisted inputs fill the pending cap. Such drops are exposed in OwnerStatus.

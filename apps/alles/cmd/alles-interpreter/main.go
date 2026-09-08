@@ -28,8 +28,8 @@ type Config struct {
 func fingerprint(c Config) string {
 	sum := sha256.Sum256([]byte(c.BaseURL +
 		"\n" +
-		c.Model + "\n" + provider.Contract + "\n" + provider.ConversationContract +
-		"\nslots=1;timeout=20;output=1024;chatOutput=512;inputBytes=12288;pilot=v2"))
+		c.Model + "\n" + provider.Contract + "\n" + provider.ConversationContract + "\n" + provider.PlanningContract +
+		"\nslots=1;timeout=20;output=1024;chatOutput=512;inputBytes=12288;planningVersion=1;planningOutput=512;pilot=v3"))
 	return hex.EncodeToString(sum[:])
 }
 func call(ctx context.Context, c *protocol.Client, op string, args, dst any) error {
@@ -173,6 +173,32 @@ func converse(ctx context.Context, c *protocol.Client, p *provider.Client, job p
 	return reportErr
 }
 
+func plan(ctx context.Context, c *protocol.Client, p *provider.Client, job protocol.Planning) error {
+	attemptCtx, stop := context.WithTimeout(ctx, min(20*time.Second, time.Duration(job.Remaining)*time.Millisecond))
+	response, result, err := p.Plan(attemptCtx, job)
+	stop()
+	outcome := "success"
+	if err != nil {
+		outcome = "failed"
+		response = protocol.PlanningResponse{}
+	}
+	var receipt struct {
+		Status string `json:"status"`
+	}
+	reportErr := call(ctx, c, "submit_planning", map[string]any{
+		"jobToken": job.Token, "permitId": job.Permit, "response": response, "outcome": outcome,
+		"promptTokens": result.Usage.Prompt, "completionTokens": result.Usage.Completion,
+		"latencyMs": result.Latency.Milliseconds(),
+	}, &receipt)
+	log.Printf("planning=%s status=%s capability=%s prompt_tokens=%d completion_tokens=%d latency_ms=%d",
+		job.Token, receipt.Status, response.Capability, result.Usage.Prompt,
+		result.Usage.Completion, result.Latency.Milliseconds())
+	if err != nil {
+		return err
+	}
+	return reportErr
+}
+
 func run(ctx context.Context, config Config, p *provider.Client, token string) error {
 	c, e := protocol.Connect(ctx, config.Bridge, token)
 	if e != nil {
@@ -188,9 +214,10 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 		c,
 		"worker_hello",
 		map[string]any{"profile": fingerprint(config),
-			"model":          config.Model,
-			"maxInFlight":    1,
-			"timeoutSeconds": 20},
+			"model":           config.Model,
+			"maxInFlight":     1,
+			"timeoutSeconds":  20,
+			"planningVersion": 1},
 		&hello); e != nil {
 		return e
 	}
@@ -200,6 +227,7 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 		var r struct {
 			Job          *protocol.Job          `json:"job"`
 			Conversation *protocol.Conversation `json:"conversation"`
+			Planning     *protocol.Planning     `json:"planning"`
 			Retry        uint64                 `json:"retryMs"`
 			Exhausted    bool                   `json:"budgetExhausted"`
 			Fault        bool                   `json:"ledgerFault"`
@@ -209,6 +237,12 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 		}
 		if r.Fault {
 			return errors.New("provider ledger fault")
+		}
+		if r.Planning != nil {
+			if e = plan(ctx, c, p, *r.Planning); e != nil {
+				log.Printf("planning=%s failed: %v", r.Planning.Token, e)
+			}
+			continue
 		}
 		if r.Conversation != nil {
 			if e = converse(ctx, c, p, *r.Conversation); e != nil {

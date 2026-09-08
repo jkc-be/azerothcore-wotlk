@@ -31,6 +31,7 @@ struct RuntimeSettings
     bool withholdFake = false;
     bool external = false;
     bool conversation = false;
+    bool objectives = false;
     Bridge::Settings bridge;
     std::string telemetryDirectory;
     uint64_t telemetrySegmentBytes = 64 * 1024 * 1024; // 0 keeps one growing journal per stream

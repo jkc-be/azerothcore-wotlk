@@ -47,9 +47,10 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
             return Parse(response).as_object();
         };
         call("worker_hello", {{"profile", "profile"}, {"model", "model"}, {"maxInFlight", 1}, {"timeoutSeconds", 20}});
-        auto claim = [&](std::string const& id)
+        auto claim = [&](std::string const& id, bool enqueue = true)
         {
-            EXPECT_TRUE(service.QueueConversation(id, {{"message", "Could you lend a hand?"}}, now));
+            if (enqueue)
+                EXPECT_TRUE(service.QueueConversation(id, {{"message", "Could you lend a hand?"}}, now));
             boost::json::object answer;
             for (unsigned tries = 0; tries < 100; ++tries)
             {
@@ -74,6 +75,8 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
         EXPECT_EQ(Number(service.Status(), "usedRequests"), 1u);
         EXPECT_TRUE(call("next_jobs", {{"n", 1}}).at("result").as_object().at("job").is_null());
         EXPECT_TRUE(submit(job, {{"reply", true}, {"text", "hello"}, {"action", "teleport"}}).contains("error"));
+        EXPECT_TRUE(submit(job, {{"reply", true}, {"text", " .server shutdown 1"},
+            {"action", "none"}}).contains("error"));
         EXPECT_TRUE(submit(job, {{"reply", true}, {"text", "|Hitem:1|h"}, {"action", "none"}}).contains("error"));
         EXPECT_EQ(String(submit(job, {{"reply", true}, {"text", "What do you need?"}, {"action", "none"}})
                              .at("result")
@@ -95,7 +98,28 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
         EXPECT_TRUE(call("next_jobs", {{"n", 1}}).at("result").as_object().at("budgetExhausted").as_bool());
         EXPECT_EQ(Number(service.Status(), "remainingRequests"), 0u);
         now += 60000;
-        job = claim("refilled");
+        // Sustained conversation traffic must yield a slot to an actual waiting memory job.
+        ActorKey const owner{ActorKind::Player, 1};
+        auto generation = store.Activate(owner, 1);
+        OwnerSnapshot snapshot;
+        snapshot.owner = owner;
+        ASSERT_TRUE(store.FinishLoad(owner, *generation, snapshot, now - 5000, now - 5000));
+        ASSERT_TRUE(coordinator.Track(owner));
+        Perception observation;
+        observation.text = "I heard about work outside the valley.";
+        observation.source.name = "Speaker";
+        observation.gameTimeMs = now - 5000;
+        observation.admittedRealTimeMs = now - 5000;
+        ASSERT_TRUE(store.Observe(owner, observation, now - 5000));
+        coordinator.Update(now, now);
+        ASSERT_TRUE(service.QueueConversation("refilled", {{"message", "Could you lend a hand?"}}, now));
+        auto memory = call("next_jobs", {{"n", 1}}).at("result").as_object().at("job");
+        ASSERT_TRUE(memory.is_object());
+        auto const& memoryJob = memory.as_object();
+        EXPECT_TRUE(call("release_job", {{"jobToken", memoryJob.at("jobToken")},
+            {"leaseGeneration", memoryJob.at("leaseGeneration")}, {"requestId", "fairness"}})
+                .at("result").as_object().at("ok").as_bool());
+        job = claim("refilled", false);
         ASSERT_TRUE(job.contains("permitId"));
         EXPECT_EQ(Number(service.Status(), "usedRequests"), 3u);
         EXPECT_EQ(Number(service.Status(), "remainingRequests"), 1u);

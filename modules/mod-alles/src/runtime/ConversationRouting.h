@@ -4,14 +4,24 @@
  */
 #ifndef MOD_ALLES_CONVERSATION_ROUTING_H
 #define MOD_ALLES_CONVERSATION_ROUTING_H
+#include "perception/SpeechRoute.h"
 #include <algorithm>
 #include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 namespace Alles
 {
+using ConversationHistoryKey = std::tuple<uint64_t, uint64_t, uint8_t, uint32_t, std::string, uint64_t, uint8_t>;
+
+inline ConversationHistoryKey SharedDialogueKey(uint64_t first, uint64_t second, SpeechRoute const& route)
+{
+    return {std::min(first, second), std::max(first, second), route.type,
+        route.channelId, route.channelName, route.groupId, route.subgroup};
+}
+
 inline std::optional<std::string> AddressedBot(std::string const& text, std::vector<std::string> const& audience)
 {
     auto lower = [](std::string value)

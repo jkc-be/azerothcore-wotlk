@@ -8,6 +8,7 @@
  */
 
 #include "SnapshotStatements.h"
+#include "PlanningCodec.h"
 
 namespace Alles::Storage
 {
@@ -38,6 +39,12 @@ void BindActor(CharacterDatabasePreparedStatement& statement, OwnerSnapshot cons
 {
     statement.SetArguments(snapshot.owner.kind, snapshot.owner.id, snapshot.revision, snapshot.nextPerceptionId,
         snapshot.nextMemoryId, snapshot.decayGameTimeMs, snapshot.nextConsolidationGameTimeMs);
+}
+
+void BindPlanning(CharacterDatabasePreparedStatement& statement, PlanningSnapshot const& snapshot)
+{
+    auto const payload = EncodePlanning(snapshot);
+    statement.SetArguments(snapshot.owner.kind, snapshot.owner.id, std::string_view(payload));
 }
 
 void BindPerception(CharacterDatabasePreparedStatement& statement, ActorKey owner, Perception const& perception)

@@ -294,7 +294,7 @@ struct PilotCoordinator::Impl
         job.snapshot.admittedRealTimeMs = current->perceptions.front().admittedRealTimeMs;
         for (auto const& value : current->perceptions)
         {
-            if (value.kind == PerceptionKind::Met || job.snapshot.perceptions.size() >= BatchLimit)
+            if (UsesReflexFormation(value) || job.snapshot.perceptions.size() >= BatchLimit)
                 break;
             JobSnapshot candidate = job.snapshot;
             PerceptionInput input;
@@ -418,7 +418,7 @@ struct PilotCoordinator::Impl
             }
             memory.claim = proposal.text;
             memory.confidence = std::min(memory.confidence, proposal.confidence);
-            memory.salience = proposal.salience;
+            memory.salience = std::min(proposal.salience, SalienceCeiling(memory));
             memory.formation = external ? FormationMode::Model : FormationMode::InProcessFake;
             MemoryMutation mutation;
             mutation.memory = std::move(memory);
@@ -698,7 +698,7 @@ void PilotCoordinator::Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::siz
         if (!itemBudget)
             break;
         auto const& first = _impl->store.FindReady(owner)->perceptions.front();
-        if (first.kind == PerceptionKind::Met)
+        if (UsesReflexFormation(first))
         {
             if (_impl->ApplyTemplate(owner, 1, FormationMode::Reflex, gameTimeMs, realTimeMs))
                 --itemBudget;
@@ -893,11 +893,11 @@ std::size_t PilotCoordinator::DrainFallback(uint64_t gameTimeMs, uint64_t realTi
             if (!current || current->perceptions.empty())
                 break;
             // Preserve planned Reflex accounting even in a village shutdown drain.
-            bool const reflex = current->perceptions.front().kind == PerceptionKind::Met;
+            bool const reflex = UsesReflexFormation(current->perceptions.front());
             std::size_t count = 0;
             for (auto const& perception : current->perceptions)
             {
-                if (count >= BatchLimit || (perception.kind == PerceptionKind::Met) != reflex)
+                if (count >= BatchLimit || UsesReflexFormation(perception) != reflex)
                     break;
                 ++count;
             }

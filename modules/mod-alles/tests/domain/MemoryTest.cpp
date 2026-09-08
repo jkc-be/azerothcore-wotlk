@@ -200,6 +200,47 @@ TEST(AllesMemoryTest, HiddenKillerDoesNotAppearInWitnessMemoryOrRetelling)
     EXPECT_EQ(visible.claim, "Humanb died after being attacked by Young Wolf");
     EXPECT_EQ(visible.source, death.source);
     EXPECT_NE(visible.source.actor, visible.subject.actor);
+    EXPECT_DOUBLE_EQ(visible.salience, 0.05);
+    EXPECT_TRUE(UsesReflexFormation(death));
+}
+
+TEST(AllesMemoryTest, OnlyEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
+{
+    Perception death;
+    death.kind = PerceptionKind::WitnessedDeath;
+    death.subject = {ActorKey{ActorKind::Player, 18}, "Victim"};
+    death.source = {ActorKey{ActorKind::Player, 19}, "Attacker"};
+    EXPECT_FALSE(UsesReflexFormation(death));
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 1);
+    death.kind = PerceptionKind::OwnDeath;
+    EXPECT_FALSE(UsesReflexFormation(death));
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 1);
+    EXPECT_EQ(FormFallback(death, {}, 100).claim, "I died after being attacked by Attacker.");
+    death.source = death.subject;
+    EXPECT_TRUE(UsesReflexFormation(death));
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 0.05);
+    death.source = {ActorKey{ActorKind::Player, 19}, "Attacker"};
+    death.subject = {ActorKey{ActorKind::CreatureSpawn, 20}, "Wolf"};
+    death.kind = PerceptionKind::WitnessedDeath;
+    EXPECT_TRUE(UsesReflexFormation(death));
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 0.05);
+}
+
+TEST(AllesMemoryTest, OldRoutineDeathMemoriesAndRepetitionCannotDominateRecall)
+{
+    Perception death;
+    death.kind = PerceptionKind::WitnessedDeath;
+    death.subject = {ActorKey{ActorKind::CreatureSpawn, 20}, "Wolf"};
+    death.source = {ActorKey{ActorKind::Player, 19}, "Hunter"};
+    auto memory = FormFallback(death, {}, 100);
+    memory.salience = 1; // Previously persisted policy gave every kill maximum salience.
+    EXPECT_TRUE(DecayMemory(memory, {}, 100));
+    EXPECT_DOUBLE_EQ(memory.salience, 0.05);
+    EXPECT_FALSE(DecayMemory(memory, {}, 100));
+    RehearseMemory(memory, {}, 100, 1);
+    EXPECT_DOUBLE_EQ(memory.salience, 0.05);
+    EXPECT_EQ(memory.source, death.source);
+    EXPECT_EQ(memory.subject, death.subject);
 }
 
 TEST(AllesMemoryTest, IncrementalAndOfflineDecayAgreeAndSameTimestampIsIdempotent)

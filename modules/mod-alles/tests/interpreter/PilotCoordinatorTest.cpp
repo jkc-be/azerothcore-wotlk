@@ -73,6 +73,34 @@ TEST(AllesPilotTest, ExternalRequiresPermitAndFencesReplay)
     EXPECT_EQ(village.coordinator.Stats().fakeMemories, 0u);
 }
 
+TEST(AllesPilotTest, RoutineDeathsUseReflexWithoutConsumingModelWorkButPvpRetainsInterpretation)
+{
+    Village village;
+    ASSERT_NE(village.Add(Player), 0u);
+    village.coordinator.EnableExternal();
+    Perception death;
+    death.kind = PerceptionKind::WitnessedDeath;
+    death.subject = {ActorKey{ActorKind::CreatureSpawn, 20}, "Wolf"};
+    death.source = {ActorKey{ActorKind::Player, 19}, "Hunter"};
+    ASSERT_TRUE(village.store.Observe(Player, death, 0));
+    village.coordinator.Update(0, 0);
+    auto const* snapshot = village.store.FindReady(Player);
+    ASSERT_EQ(snapshot->memories.size(), 1u);
+    EXPECT_EQ(snapshot->memories[0].formation, FormationMode::Reflex);
+    EXPECT_DOUBLE_EQ(snapshot->memories[0].salience, 0.05);
+    EXPECT_EQ(village.coordinator.Stats().reflexMemories, 1u);
+    EXPECT_FALSE(village.coordinator.Claim("worker", "profile", 5000, 5000));
+
+    death.subject = {ActorKey{ActorKind::Player, 20}, "Victim"};
+    death.gameTimeMs = 5000;
+    ASSERT_TRUE(village.store.Observe(Player, death, 5000));
+    village.coordinator.Update(10000, 10000);
+    auto const job = village.coordinator.Claim("worker", "profile", 10000, 10000);
+    ASSERT_TRUE(job);
+    ASSERT_EQ(job->perceptions.size(), 1u);
+    EXPECT_EQ(job->perceptions[0].value.subject, death.subject);
+}
+
 TEST(AllesPilotTest, ExternalLostWorkerExpiresAndCannotRenew)
 {
     Village village;

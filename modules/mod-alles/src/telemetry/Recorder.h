@@ -63,7 +63,7 @@ class Recorder
 {
 public:
     Recorder(std::filesystem::path directory, std::string run, std::set<ActorKey> const& owners,
-        uint64_t segmentBytes, uint64_t startedRealMs);
+        uint64_t segmentBytes, uint64_t startedRealMs, std::string manifest = "");
     ~Recorder();
     Recorder(Recorder const&) = delete;
     Recorder& operator=(Recorder const&) = delete;

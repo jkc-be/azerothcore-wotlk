@@ -689,6 +689,13 @@ void CharacterDatabaseConnection::DoPrepareStatements()
         "`source_name`, `claim`, `attribution`, `reported_depth`, `confidence`, `salience`, "
         "`formed_game_time_ms`, `recalled_game_time_ms`, `decay_game_time_ms`, `formation_mode`) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
+    PrepareStatement(CHAR_SEL_ALLES_PLANNING,
+        "SELECT p.owner_id, p.payload FROM (SELECT 1) AS seed LEFT JOIN alles_planning AS p "
+        "ON p.owner_kind = ? AND p.owner_id = ?", CONNECTION_BOTH);
+    PrepareStatement(CHAR_REP_ALLES_PLANNING,
+        "REPLACE INTO `alles_planning` (`owner_kind`, `owner_id`, `payload`) VALUES (?, ?, ?)", CONNECTION_BOTH);
+    PrepareStatement(CHAR_DEL_ALLES_PLANNING,
+        "DELETE FROM `alles_planning` WHERE `owner_kind` = ? AND `owner_id` = ?", CONNECTION_BOTH);
 #endif
 }
 

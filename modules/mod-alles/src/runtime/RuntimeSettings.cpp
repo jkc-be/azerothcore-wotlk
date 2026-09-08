@@ -76,6 +76,7 @@ RuntimeSettings ReadRuntimeSettings()
     if (mode != "inprocess-fake" && mode != "bridge")
         throw std::invalid_argument("Alles.Worker.Mode must be inprocess-fake or bridge");
     settings.external = mode == "bridge";
+    settings.objectives = sConfigMgr->GetOption<bool>("Alles.Objectives.Enable", false);
     if (settings.external)
     {
         auto port = sConfigMgr->GetOption<uint32_t>("Alles.Worker.Port", 8779);
@@ -104,14 +105,15 @@ RuntimeSettings ReadRuntimeSettings()
             (!settings.bridge.requestsPerMinute && !settings.bridge.maxRequests) || settings.bridge.maxRequests > 100)
             throw std::invalid_argument("Invalid Alles bridge port, profile, token file, model or trial ledger");
         settings.bridge.port = uint16_t(port);
-        settings.telemetryDirectory = sConfigMgr->GetOption<std::string>("Alles.Telemetry.Directory", "");
-        if (!settings.telemetryDirectory.empty() && !std::filesystem::is_directory(settings.telemetryDirectory))
-            throw std::invalid_argument("Alles telemetry directory must already exist and be private");
-        settings.telemetrySegmentBytes =
-            sConfigMgr->GetOption<uint32_t>("Alles.Telemetry.JournalSegmentBytes", 64u * 1024 * 1024);
-        if (settings.telemetrySegmentBytes && settings.telemetrySegmentBytes < 1024 * 1024)
-            throw std::invalid_argument("Alles.Telemetry.JournalSegmentBytes must be 0 or at least 1 MiB");
+
     }
+    settings.telemetryDirectory = sConfigMgr->GetOption<std::string>("Alles.Telemetry.Directory", "");
+    if (!settings.telemetryDirectory.empty() && !std::filesystem::is_directory(settings.telemetryDirectory))
+        throw std::invalid_argument("Alles telemetry directory must already exist and be private");
+    settings.telemetrySegmentBytes =
+        sConfigMgr->GetOption<uint32_t>("Alles.Telemetry.JournalSegmentBytes", 64u * 1024 * 1024);
+    if (settings.telemetrySegmentBytes && settings.telemetrySegmentBytes < 1024 * 1024)
+        throw std::invalid_argument("Alles.Telemetry.JournalSegmentBytes must be 0 or at least 1 MiB");
     if (sConfigMgr->GetOption<std::string>("Alles.SchedulingProfile", "pilot") != "pilot")
         throw std::invalid_argument("Only Alles.SchedulingProfile=pilot is implemented for first light");
     settings.limits.memories = sConfigMgr->GetOption<uint32_t>("Alles.Memory.MaxMemories", 256);

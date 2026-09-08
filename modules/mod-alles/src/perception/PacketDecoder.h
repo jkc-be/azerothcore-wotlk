@@ -45,6 +45,7 @@ struct DecodedLocalPacket
     ObjectGuid target;
     std::string sourceName;
     std::string targetName;
+    std::string channelName;
     std::string text;
     uint32 textEmote = 0;
     uint32 emoteVariation = 0;

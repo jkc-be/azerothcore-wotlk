@@ -118,6 +118,9 @@ bool IsValidMemory(Memory const& memory);
 
 // Called before a perception enters any retained buffer. Incomprehensible plaintext is destroyed here.
 bool GatePerception(Perception& perception);
+// Common combat deaths are cheap background observations; only evidenced player-on-player deaths are salient.
+bool UsesReflexFormation(Perception const& perception);
+double SalienceCeiling(Memory const& memory);
 Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, uint64_t gameTimeMs);
 std::string RenderMemory(Memory const& memory);
 bool DecayMemory(Memory& memory, MemoryPolicy const& policy, uint64_t gameTimeMs);

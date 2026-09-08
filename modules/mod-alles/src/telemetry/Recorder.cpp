@@ -162,10 +162,10 @@ void InstallLiveSink(Recorder* recorder)
 }
 
 Recorder::Recorder(std::filesystem::path directory, std::string run, std::set<ActorKey> const& owners,
-    uint64_t segmentBytes, uint64_t startedRealMs)
+    uint64_t segmentBytes, uint64_t startedRealMs, std::string manifest)
     : _run(std::move(run)), _started(startedRealMs), _owners(PlayerOwners(owners)),
       _events(directory, "events.ndjson", segmentBytes, 8192),
-      _snapshots(directory, "snapshots.ndjson", segmentBytes, 64)
+      _snapshots(directory, "snapshots.ndjson", segmentBytes, 64, std::move(manifest))
 {
     for (auto const low : _owners)
         _counters.emplace(low, BotCounters{});

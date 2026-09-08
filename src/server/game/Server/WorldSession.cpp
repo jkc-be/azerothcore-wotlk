@@ -315,10 +315,12 @@ void WorldSession::SendPacket(WorldPacket const* packet)
         return;
     }
 
-    sScriptMgr->OnPlayerbotPacketSent(GetPlayer(), packet);
-
     if (!m_Socket)
+    {
+        // A virtual bot session consumes packets without a network socket.
+        sScriptMgr->OnPlayerbotPacketSent(GetPlayer(), packet);
         return;
+    }
 
 #if defined(ACORE_DEBUG)
     // Code for network use statistic
@@ -361,6 +363,8 @@ void WorldSession::SendPacket(WorldPacket const* packet)
         return;
     }
 
+    // Observers must not count a packet rejected by the final outgoing script filter as delivered.
+    sScriptMgr->OnPlayerbotPacketSent(GetPlayer(), packet);
     m_Socket->SendPacket(*packet);
 }
 

@@ -8,7 +8,9 @@
  */
 
 #include "Runtime.h"
+#include "ChatSender.h"
 #include "ConversationRuntime.h"
+#include "ObjectiveRuntime.h"
 #include "DataMap.h"
 #include "Bag.h"
 #include "CryptoRandom.h"
@@ -114,19 +116,26 @@ struct Runtime::Impl
             coordinator.SetFakeBehavior({Interpreter::FakeMode::Withhold, 0, true});
         if (settings.external)
             bridge = std::make_unique<Bridge::Service>(coordinator, settings.bridge);
-        if (bridge && !settings.telemetryDirectory.empty())
+        if (!settings.telemetryDirectory.empty())
         {
             // The directory outlives runs: file the previous run's journals away so this run starts clean.
             auto const archived = ::Alles::Telemetry::ArchivePreviousRun(settings.telemetryDirectory,
                 ::Alles::Telemetry::PreviousRunLabel(settings.telemetryDirectory));
+            boost::json::object manifest{{"schema", 1}, {"run", telemetryRun}, {"source", "alles-live"},
+                {"label", "Ordinary realm — Alles pilot"}, {"timeBasis", "real elapsed milliseconds"},
+                {"model", settings.external ? settings.bridge.model : "inprocess-fake"},
+                {"profile", settings.bridge.profile}, {"journal", true}};
             recorder = std::make_unique<TelemetryRecorder>(settings.telemetryDirectory, telemetryRun,
-                settings.owners, settings.telemetrySegmentBytes, startedRealMs);
+                settings.owners, settings.telemetrySegmentBytes, startedRealMs, boost::json::serialize(manifest));
             ::Alles::Telemetry::InstallLiveSink(recorder.get());
             LOG_INFO("module.alles", "Alles telemetry journals in {} ({} previous-run files archived)",
                 settings.telemetryDirectory, archived);
         }
         if (bridge && settings.conversation)
             conversation = std::make_unique<ConversationRuntime>(store, *bridge, recorder.get());
+        if (settings.objectives || conversation)
+            objectives = std::make_unique<ObjectiveRuntime>(store, settings.owners, recorder.get(),
+                conversation.get(), bridge.get(), settings.objectives);
     }
 
     ~Impl()
@@ -400,7 +409,7 @@ struct Runtime::Impl
 
     void Telemetry(uint64_t gameMs, uint64_t realMs)
     {
-        if (!bridge || settings.telemetryDirectory.empty() || realMs < nextTelemetryMs)
+        if (!recorder || realMs < nextTelemetryMs)
             return;
         nextTelemetryMs = realMs + 1000;
         boost::json::array bots;
@@ -447,6 +456,8 @@ struct Runtime::Impl
                 {"memoryCount", memory ? memory->memories.size() : 0},
                 {"pendingPerceptions", memory ? memory->perceptions.size() : 0},
                 {"memoryState", status ? ::Alles::Telemetry::StateName(status->state) : "unloaded"}};
+            if (objectives)
+                bot["planning"] = objectives->Status(owner);
             if (status)
             {
                 bot["memoryRevision"] = status->revision;
@@ -476,7 +487,8 @@ struct Runtime::Impl
             bots.emplace_back(std::move(bot));
         }
         auto elapsed = realMs - startedRealMs;
-        auto interpreter = bridge->Status();
+        auto interpreter = bridge ? bridge->Status() : boost::json::object{{"connected", false},
+            {"mode", "inprocess-fake"}, {"model", "inprocess-fake"}, {"usedRequests", 0}, {"maxRequests", 0}};
         auto const& stats = coordinator.Stats();
         interpreter["stats"] = boost::json::object{{"dispatched", stats.dispatched},
             {"modelMemories", stats.modelMemories}, {"fakeMemories", stats.fakeMemories},
@@ -511,14 +523,7 @@ struct Runtime::Impl
                 used = value->to_number<uint64_t>();
             recorder->RecordInterpreter(connected, used, realMs);
         }
-        boost::json::object manifest{{"schema", 1}, {"run", telemetryRun}, {"source", "alles-live"},
-            {"label", "Ordinary realm — Alles pilot"}, {"timeBasis", "real elapsed milliseconds"},
-            {"model", settings.bridge.model}, {"profile", settings.bridge.profile},
-            {"journal", recorder != nullptr}};
-        auto serialized = boost::json::serialize(snapshot);
-        if (recorder)
-            recorder->RecordSnapshot(serialized);
-        bridge->IO().Publish(settings.telemetryDirectory, std::move(serialized), boost::json::serialize(manifest));
+        recorder->RecordSnapshot(boost::json::serialize(snapshot));
     }
 
     RuntimeSettings const settings;
@@ -529,6 +534,7 @@ struct Runtime::Impl
     std::unique_ptr<Bridge::Service> bridge;
     std::unique_ptr<TelemetryRecorder> recorder;
     std::unique_ptr<ConversationRuntime> conversation;
+    std::unique_ptr<ObjectiveRuntime> objectives;
     std::thread::id const thread;
     std::map<ActorKey, OwnerRuntime> owners;
     std::atomic<uint64_t> dropped{0};
@@ -570,6 +576,11 @@ void Runtime::Login(Player& player)
 
 void Runtime::Lifecycle(Player& player, IngressKind kind)
 {
+    if (kind == IngressKind::Logout && _impl->objectives && IsMainThread())
+    {
+        _impl->objectives->Detach(Owner(player), GameNow(), RealNow());
+        _impl->objectives->RequesterLeft(Owner(player), RealNow());
+    }
     if (kind == IngressKind::Logout && _impl->conversation && IsMainThread())
         _impl->conversation->Logout(player);
     if (!Contains(Owner(player)) || (kind != IngressKind::Save && kind != IngressKind::Logout))
@@ -581,6 +592,12 @@ void Runtime::Lifecycle(Player& player, IngressKind kind)
 
 void Runtime::Packet(Player& receiver, WorldPacket const& packet)
 {
+    if (packet.GetOpcode() == SMSG_EMOTE || packet.GetOpcode() == SMSG_LIST_INVENTORY)
+    {
+        if (IsMainThread() && !_impl->stopping && _impl->objectives)
+            _impl->objectives->RequestPacket(receiver, packet);
+        return;
+    }
     if (packet.GetOpcode() != SMSG_MESSAGECHAT && packet.GetOpcode() != SMSG_GM_MESSAGECHAT
         && packet.GetOpcode() != SMSG_TEXT_EMOTE)
         return;
@@ -591,7 +608,8 @@ void Runtime::Packet(Player& receiver, WorldPacket const& packet)
         return;
     }
     bool const managed = Contains(Owner(receiver));
-    if (_impl->stopping || (!managed && (!_impl->speakingOwner || _impl->speechDelivered)))
+    if (_impl->stopping || (!managed && !NormalChatDeliveryPending()
+        && (!_impl->speakingOwner || _impl->speechDelivered)))
         return;
     auto decoded = DecodeLocalPacket(packet);
     if (!decoded.value)
@@ -608,9 +626,10 @@ void Runtime::Packet(Player& receiver, WorldPacket const& packet)
         return;
     }
     auto captured = CaptureDeliveredPacket(receiver, *decoded.value, GameNow(), RealNow());
-    if (managed && _impl->conversation && captured.value)
+    ObserveNormalChatDelivery(receiver, captured);
+    if (managed && _impl->conversation && captured.value && captured.route)
         if (auto* source = ObjectAccessor::FindConnectedPlayer(decoded.value->source))
-            _impl->conversation->Heard(receiver, *source, *captured.value, decoded.value->chatType);
+            _impl->conversation->Heard(receiver, *source, *captured.value, *captured.route);
     bool const delivered = _impl->speakingOwner && *_impl->speakingOwner != Owner(receiver)
         && captured.value && captured.value->source.actor == _impl->speakingOwner
         && captured.value->text == _impl->speakingText;
@@ -626,10 +645,10 @@ void Runtime::Packet(Player& receiver, WorldPacket const& packet)
         _impl->speechDelivered = true;
 }
 
-void Runtime::OwnDeath(Player& player)
+void Runtime::OwnDeath(Player& player, Unit* killer)
 {
     if (Contains(Owner(player)))
-        _impl->QueueCapture(player, CaptureOwnDeath(player, GameNow(), RealNow()));
+        _impl->QueueCapture(player, CaptureOwnDeath(player, GameNow(), RealNow(), killer));
 }
 
 void Runtime::WitnessDeath(Unit& victim, Unit* killer)
@@ -683,6 +702,8 @@ void Runtime::Update()
             _impl->bridge->Update(gameMs, realMs);
         if (_impl->conversation)
             _impl->conversation->Update(gameMs, realMs);
+        if (_impl->objectives)
+            _impl->objectives->Update(gameMs, realMs);
         _impl->Speech(gameMs, realMs);
     }
     _impl->Telemetry(gameMs, realMs);
@@ -698,6 +719,8 @@ void Runtime::BeginShutdown()
     _impl->stopping = true;
     if (_impl->conversation)
         _impl->conversation->Stop();
+    if (_impl->objectives)
+        _impl->objectives->Stop(GameNow(), RealNow());
     _impl->coordinator.Stop();
 }
 

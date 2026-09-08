@@ -32,7 +32,6 @@ public:
     std::vector<Frame> Poll();
     void Reply(uint64_t connection, std::string text);
     void Reserve(std::string permit, std::string record);
-    void Publish(std::string directory, std::string snapshot, std::string manifest);
     uint32_t Charged() const;
     std::vector<uint64_t> RecentReservations() const;
     uint16_t Port() const;

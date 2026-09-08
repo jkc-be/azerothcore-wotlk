@@ -15,7 +15,7 @@
 
 namespace Alles::Bridge
 {
-boost::json::value Parse(std::string_view text);
+boost::json::value Parse(std::string_view text, std::size_t maxBytes = 65536);
 boost::json::object EncodeJob(Interpreter::JobSnapshot const& job, uint64_t realMs);
 Interpreter::ProposalEnvelope DecodeProposal(boost::json::object const& object);
 std::string String(boost::json::object const& object, char const* key, std::size_t max = 128);

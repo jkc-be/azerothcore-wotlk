@@ -8,6 +8,7 @@
  */
 
 #include "SnapshotDao.h"
+#include "PlanningCodec.h"
 #include "AllesDatabaseGuard.h"
 #include "DatabaseEnv.h"
 #include "Errors.h"
@@ -31,6 +32,7 @@ enum LoadQuery : std::size_t
     ActorBefore,
     Perceptions,
     Memories,
+    Planning,
     ActorAfter,
     LoadQueryCount
 };
@@ -142,6 +144,19 @@ bool ReadMemories(PreparedQueryResult const& result, OwnerSnapshot& snapshot, st
     return true;
 }
 
+bool ReadPlanning(PreparedQueryResult const& result, OwnerSnapshot& snapshot)
+{
+    if (result->GetRowCount() != 1 || result->GetFieldCount() != 2)
+        return false;
+    auto const* fields = result->Fetch();
+    if (fields[0].IsNull())
+        return AllNull(fields, 2);
+    if (fields[0].Get<uint64>() != snapshot.owner.id || fields[1].IsNull())
+        return false;
+    snapshot.planning = DecodePlanning(fields[1].Get<std::string>(), snapshot.owner);
+    return snapshot.planning.has_value();
+}
+
 LoadResult DecodeLoad(ActorKey owner, uint64_t generation, SQLQueryHolderBase const& holder,
     StoreLimits const& limits, MemoryPolicy const& policy)
 {
@@ -177,7 +192,8 @@ LoadResult DecodeLoad(ActorKey owner, uint64_t generation, SQLQueryHolderBase co
     }
     if (!ReadPerceptions(rows[Perceptions], before, limits.perceptions)
         || !ReadMemories(rows[Memories], before, limits.memories)
-        || (!existedBefore && (!before.perceptions.empty() || !before.memories.empty()))
+        || !ReadPlanning(rows[Planning], before)
+        || (!existedBefore && (!before.perceptions.empty() || !before.memories.empty() || before.planning))
         || !IsValidSnapshot(before, limits, policy))
         return result;
 
@@ -205,6 +221,18 @@ CharacterDatabaseTransaction BuildTransaction(OwnerSnapshot const& snapshot)
     {
         auto* statement = CharacterDatabase.GetPreparedStatement(CHAR_INS_ALLES_MEMORY);
         BindMemory(*statement, snapshot.owner, memory);
+        transaction->Append(statement);
+    }
+    if (snapshot.planning)
+    {
+        auto* statement = CharacterDatabase.GetPreparedStatement(CHAR_REP_ALLES_PLANNING);
+        BindPlanning(*statement, *snapshot.planning);
+        transaction->Append(statement);
+    }
+    else
+    {
+        auto* statement = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ALLES_PLANNING);
+        BindOwner(*statement, snapshot.owner);
         transaction->Append(statement);
     }
     auto* statement = CharacterDatabase.GetPreparedStatement(CHAR_REP_ALLES_ACTOR);
@@ -286,7 +314,8 @@ bool SnapshotDao::StartLoad(ActorKey owner, uint64_t generation)
     auto holder = std::make_shared<SQLQueryHolder<CharacterDatabaseConnection>>();
     holder->SetSize(LoadQueryCount);
     constexpr std::array<CharacterDatabaseStatements, LoadQueryCount> queries =
-        {CHAR_SEL_ALLES_ACTOR, CHAR_SEL_ALLES_PERCEPTIONS, CHAR_SEL_ALLES_MEMORIES, CHAR_SEL_ALLES_ACTOR};
+        {CHAR_SEL_ALLES_ACTOR, CHAR_SEL_ALLES_PERCEPTIONS, CHAR_SEL_ALLES_MEMORIES,
+            CHAR_SEL_ALLES_PLANNING, CHAR_SEL_ALLES_ACTOR};
     for (std::size_t index = 0; index < queries.size(); ++index)
     {
         auto* statement = CharacterDatabase.GetPreparedStatement(queries[index]);

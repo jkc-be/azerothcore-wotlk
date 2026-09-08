@@ -147,14 +147,23 @@ func number(t *testing.T, line, name string) uint64 {
 // The explicit module watermark is required before every memory/perception DB oracle.
 func flushOwner(t *testing.T, bot *e2eharness.ScenarioBot) uint64 {
 	t.Helper()
+	return flushActor(t, bot, bot.GUID)
+}
+
+func flushActor(t *testing.T, bot *e2eharness.ScenarioBot, owner uint64) uint64 {
+	t.Helper()
 	// The same-session module response fences .save without relying on the harness's fixed save delay.
-	lines := commands(t, bot, ownerPrefix(bot.GUID), ".save", fmt.Sprintf(".alles flush player %d", bot.GUID))
+	save := ".save"
+	if owner != bot.GUID {
+		save = ".saveall"
+	}
+	lines := commands(t, bot, ownerPrefix(owner), save, fmt.Sprintf(".alles flush player %d", owner))
 	requested := number(t, lines[len(lines)-1], "requested_revision")
 	if requested == 0 {
 		e2eharness.Assertf(t, "fixture's admitted observation has no persistent revision")
 	}
 	if !eventually(15*time.Second, func() bool {
-		line := status(t, bot, bot.GUID)
+		line := status(t, bot, owner)
 		if failed := field(line, "save_failed"); failed == "true" || failed == "1" {
 			e2eharness.Assertf(t, "alles snapshot save failed: %s", line)
 		}
@@ -163,13 +172,13 @@ func flushOwner(t *testing.T, bot *e2eharness.ScenarioBot) uint64 {
 		}
 		return number(t, line, "committed_revision") >= requested
 	}) {
-		e2eharness.Assertf(t, "alles owner %d never acknowledged revision %d", bot.GUID, requested)
+		e2eharness.Assertf(t, "alles owner %d never acknowledged revision %d", owner, requested)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var committed uint64
 	if err := bot.CharDB.QueryRowContext(ctx,
-		"SELECT committed_revision FROM alles_actor WHERE owner_kind=0 AND owner_id=?", bot.GUID).
+		"SELECT committed_revision FROM alles_actor WHERE owner_kind=0 AND owner_id=?", owner).
 		Scan(&committed); err != nil {
 		e2eharness.HarnessFailf(t, "read acknowledged actor revision: %v", err)
 	}

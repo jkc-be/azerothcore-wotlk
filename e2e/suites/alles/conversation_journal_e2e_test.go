@@ -4,6 +4,7 @@ package alles_test
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -106,7 +107,15 @@ func TestAlles_ConversationJournal(t *testing.T) {
 		}
 		defer file.Close()
 		replies := make(chan string, 8)
+		waves := make(chan struct{}, 1)
 		cancel := guest.World.AddPacketHook(func(op uint16, data []byte) {
+			if op == client.SmsgEmote && len(data) == 12 && binary.LittleEndian.Uint32(data[:4]) == 3 &&
+				binary.LittleEndian.Uint64(data[4:]) == f.Target.GUID {
+				select {
+				case waves <- struct{}{}:
+				default:
+				}
+			}
 			if line, ok := parseChat(op, data); ok && line.source == f.Target.GUID && uint32(line.kind) == channel {
 				select {
 				case replies <- line.text:
@@ -123,6 +132,11 @@ func TestAlles_ConversationJournal(t *testing.T) {
 		case reply = <-replies:
 		case <-time.After(45 * time.Second):
 			e2eharness.Assertf(t, "no bot conversation reply")
+		}
+		select {
+		case <-waves:
+		case <-time.After(3 * time.Second):
+			e2eharness.Assertf(t, "wave promise was not accompanied by actual emote delivery")
 		}
 		cancel()
 		// Preserve incomplete lines between reads of the writer's live journal.

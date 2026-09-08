@@ -35,6 +35,8 @@ struct ConversationResult
     boost::json::object response;
 };
 
+using PlanningResult = ConversationResult;
+
 class Service
 {
 public:
@@ -48,6 +50,9 @@ public:
     bool QueueConversation(std::string id, boost::json::object context, uint64_t realMs);
     void CancelConversation(std::string const& id);
     std::vector<ConversationResult> TakeConversations();
+    bool QueuePlanning(std::string id, boost::json::object context, uint64_t realMs);
+    void CancelPlanning(std::string const& id);
+    std::vector<PlanningResult> TakePlanning();
 
 private:
     struct Attempt
@@ -60,7 +65,8 @@ private:
         uint64_t expires = 0;
         bool complete = false;
     };
-    struct Conversation
+    enum class Purpose : uint8_t { Conversation, Planning };
+    struct WorkerJob
     {
         std::string id;
         boost::json::object context;
@@ -70,7 +76,9 @@ private:
         std::string permit;
         std::string state = "queued";
         bool cancelled = false;
+        Purpose purpose = Purpose::Conversation;
     };
+    bool QueueWorkerJob(std::string id, boost::json::object context, uint64_t realMs, Purpose purpose);
     bool Available(uint64_t gameMs) const;
     void Charge(uint64_t gameMs);
     bool Busy(uint64_t realMs) const;
@@ -82,17 +90,22 @@ private:
     std::map<std::string, Interpreter::JobSnapshot> claims;
     std::map<std::string, Attempt> attempts;
     std::set<uint64_t> workers;
-    std::deque<Conversation> conversations;
+    std::set<uint64_t> planningWorkers;
+    std::deque<WorkerJob> workerJobs;
     std::vector<ConversationResult> conversationResults;
+    std::vector<PlanningResult> planningResults;
     std::deque<uint64_t> reservations;
     uint64_t conversationCompleted = 0;
     uint64_t conversationFailed = 0;
+    uint64_t planningCompleted = 0;
+    uint64_t planningFailed = 0;
     uint64_t epochMs = 0;
     uint32_t charged = 0;
     uint64_t cooldown = 0;
     uint64_t lastWorkerMs = 0;
     uint64_t nowMs = 0;
     bool fault = false;
+    uint8_t nextPurpose = 0; // Round robin: memory, objective planning, conversation.
 };
 } // namespace Alles::Bridge
 #endif
