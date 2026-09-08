@@ -312,7 +312,7 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
   if (state.controlError) list.push({ level: "warn", text: `Control rejected: ${state.controlError}` });
   if (state.source === "alles-live") {
     const worker = state.interpreter || {};
-    const trial = worker.budgetMode !== "rolling";
+    const trial = !worker.budgetMode || worker.budgetMode === "trial";
     if (worker.connected === false)
       list.push({ level: "warn", text: "Interpreter worker not connected: perceptions form by template fallback." });
     if (worker.ledgerFault)

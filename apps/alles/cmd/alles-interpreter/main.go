@@ -14,22 +14,28 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 type Config struct {
-	BaseURL   string `json:"base_url"`
-	Model     string `json:"model"`
-	Bridge    string `json:"bridge"`
-	TokenFile string `json:"token_file"`
+	BackendProfile string `json:"backend_profile,omitempty"`
+	BaseURL        string `json:"base_url"`
+	Model          string `json:"model"`
+	Bridge         string `json:"bridge"`
+	TokenFile      string `json:"token_file"`
+	APIKeyEnv      string `json:"api_key_env,omitempty"`
+	Driver         string `json:"driver,omitempty"`
+	MaxInFlight    int    `json:"max_in_flight,omitempty"`
 }
 
 func fingerprint(c Config) string {
 	sum := sha256.Sum256([]byte(c.BaseURL +
 		"\n" +
 		c.Model + "\n" + provider.Contract + "\n" + provider.ConversationContract + "\n" + provider.PlanningContract +
-		"\nslots=1;timeout=20;output=1024;chatOutput=512;inputBytes=12288;planningVersion=1;planningOutput=512;pilot=v3"))
+		"\n" + provider.InterviewContract + "\ndriver=" + c.Driver + ";backendProfile=" + c.BackendProfile +
+		";contract=2;maxCallsPerJob=1;timeout=20;output=1024;chatOutput=512;inputBytes=12288;planningVersion=1;planningOutput=512"))
 	return hex.EncodeToString(sum[:])
 }
 func call(ctx context.Context, c *protocol.Client, op string, args, dst any) error {
@@ -115,8 +121,9 @@ func execute(ctx context.Context, c *protocol.Client, p *provider.Client, j prot
 		c,
 		"complete_attempt",
 		map[string]any{"jobToken": j.Token,
-			"permitId":         permit.ID,
-			"outcome":          outcome,
+			"permitId":  permit.ID,
+			"outcome":   outcome,
+			"callCount": result.CallCount, "usageKnown": result.UsageKnown,
 			"promptTokens":     result.Usage.Prompt,
 			"completionTokens": result.Usage.Completion,
 			"latencyMs":        result.Latency.Milliseconds()},
@@ -161,6 +168,7 @@ func converse(ctx context.Context, c *protocol.Client, p *provider.Client, job p
 	}
 	reportErr := call(ctx, c, "submit_conversation", map[string]any{
 		"jobToken": job.Token, "permitId": job.Permit, "response": response, "outcome": outcome,
+		"callCount": result.CallCount, "usageKnown": result.UsageKnown,
 		"promptTokens": result.Usage.Prompt, "completionTokens": result.Usage.Completion,
 		"latencyMs": result.Latency.Milliseconds(),
 	}, &receipt)
@@ -187,12 +195,36 @@ func plan(ctx context.Context, c *protocol.Client, p *provider.Client, job proto
 	}
 	reportErr := call(ctx, c, "submit_planning", map[string]any{
 		"jobToken": job.Token, "permitId": job.Permit, "response": response, "outcome": outcome,
+		"callCount": result.CallCount, "usageKnown": result.UsageKnown,
 		"promptTokens": result.Usage.Prompt, "completionTokens": result.Usage.Completion,
 		"latencyMs": result.Latency.Milliseconds(),
 	}, &receipt)
 	log.Printf("planning=%s status=%s capability=%s prompt_tokens=%d completion_tokens=%d latency_ms=%d",
 		job.Token, receipt.Status, response.Capability, result.Usage.Prompt,
 		result.Usage.Completion, result.Latency.Milliseconds())
+	if err != nil {
+		return err
+	}
+	return reportErr
+}
+
+func interview(ctx context.Context, c *protocol.Client, p *provider.Client, job protocol.Interview) error {
+	attemptCtx, stop := context.WithTimeout(ctx, min(20*time.Second, time.Duration(job.Remaining)*time.Millisecond))
+	response, result, err := p.Interview(attemptCtx, job)
+	stop()
+	outcome := "success"
+	if err != nil {
+		outcome = "failed"
+	}
+	var receipt struct {
+		Status string `json:"status"`
+	}
+	reportErr := call(ctx, c, "submit_interview", map[string]any{
+		"jobToken": job.Token, "permitId": job.Permit, "response": response, "outcome": outcome,
+		"callCount": result.CallCount, "usageKnown": result.UsageKnown,
+		"promptTokens": result.Usage.Prompt, "completionTokens": result.Usage.Completion,
+		"latencyMs": result.Latency.Milliseconds(),
+	}, &receipt)
 	if err != nil {
 		return err
 	}
@@ -206,28 +238,67 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 	}
 	defer c.Close()
 	var hello struct {
-		Worker  string `json:"workerId"`
-		Profile string `json:"profile"`
-		Used    uint64 `json:"usedRequests"`
+		Worker             string          `json:"workerId"`
+		Profile            string          `json:"profile"`
+		Used               uint64          `json:"usedRequests"`
+		Version            int             `json:"contractVersion"`
+		Policy             json.RawMessage `json:"policy"`
+		ReservationBuckets [][]uint64      `json:"reservationBuckets"`
 	}
 	if e = call(ctx,
 		c,
 		"worker_hello",
 		map[string]any{"profile": fingerprint(config),
 			"model":           config.Model,
-			"maxInFlight":     1,
+			"maxInFlight":     config.MaxInFlight,
+			"contractVersion": 2,
+			"maxCallsPerJob":  1,
 			"timeoutSeconds":  20,
 			"planningVersion": 1},
 		&hello); e != nil {
 		return e
 	}
+	if err := p.Limits.Seed(hello.ReservationBuckets, time.Now()); err != nil {
+		return err
+	}
+	p.Policy = func(ctx context.Context) (provider.CallPolicy, error) {
+		var policy provider.CallPolicy
+		err := call(ctx, c, "agent_policy", map[string]any{}, &policy)
+		return policy, err
+	}
 	log.Printf("connected model=%s charged_requests=%d", config.Model, hello.Used)
+	if hello.Version != 2 {
+		return errors.New("agent contract version mismatch")
+	}
+	// One shared authenticated connection multiplexes a bounded set of executions. There is no local job queue.
+	ctx, cancel := context.WithCancel(ctx)
+	var running sync.WaitGroup
+	defer func() { cancel(); running.Wait() }()
+	slots := make(chan struct{}, config.MaxInFlight)
+	launch := func(fn func() error) {
+		slots <- struct{}{}
+		running.Add(1)
+		go func() {
+			defer running.Done()
+			defer func() { <-slots }()
+			if err := fn(); err != nil {
+				log.Printf("agent job failed: %v", err)
+			}
+		}()
+	}
 	budgetLogged := false
 	for ctx.Err() == nil {
+		if len(slots) == cap(slots) {
+			if e = wait(ctx, 50*time.Millisecond); e != nil {
+				return e
+			}
+			continue
+		}
 		var r struct {
 			Job          *protocol.Job          `json:"job"`
 			Conversation *protocol.Conversation `json:"conversation"`
 			Planning     *protocol.Planning     `json:"planning"`
+			Interview    *protocol.Interview    `json:"interview"`
 			Retry        uint64                 `json:"retryMs"`
 			Exhausted    bool                   `json:"budgetExhausted"`
 			Fault        bool                   `json:"ledgerFault"`
@@ -238,16 +309,16 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 		if r.Fault {
 			return errors.New("provider ledger fault")
 		}
+		if r.Interview != nil {
+			launch(func() error { return interview(ctx, c, p, *r.Interview) })
+			continue
+		}
 		if r.Planning != nil {
-			if e = plan(ctx, c, p, *r.Planning); e != nil {
-				log.Printf("planning=%s failed: %v", r.Planning.Token, e)
-			}
+			launch(func() error { return plan(ctx, c, p, *r.Planning) })
 			continue
 		}
 		if r.Conversation != nil {
-			if e = converse(ctx, c, p, *r.Conversation); e != nil {
-				log.Printf("conversation=%s failed: %v", r.Conversation.Token, e)
-			}
+			launch(func() error { return converse(ctx, c, p, *r.Conversation) })
 			continue
 		}
 		if r.Exhausted {
@@ -267,9 +338,7 @@ func run(ctx context.Context, config Config, p *provider.Client, token string) e
 			}
 			continue
 		}
-		if e = execute(ctx, c, p, *r.Job); e != nil {
-			log.Printf("job=%s failed: %v", r.Job.Token, e)
-		}
+		launch(func() error { return execute(ctx, c, p, *r.Job) })
 	}
 	return ctx.Err()
 }
@@ -360,6 +429,18 @@ func main() {
 	if config.BaseURL == "" || config.Model == "" {
 		log.Fatal("explicit base_url and model required")
 	}
+	if config.MaxInFlight == 0 {
+		config.MaxInFlight = 32
+	}
+	if config.MaxInFlight < 1 || config.MaxInFlight > 32 {
+		log.Fatal("max_in_flight must be 1-32")
+	}
+	if config.Driver != "" && config.Driver != "compatible" && config.Driver != "ai-sdk" {
+		log.Fatal("driver must be compatible or ai-sdk")
+	}
+	if config.Driver == "ai-sdk" && len(config.BackendProfile) != 64 {
+		log.Fatal("ai-sdk driver requires the adapter's pinned backend_profile")
+	}
 	if *printFingerprint {
 		fmt.Println(fingerprint(config))
 		return
@@ -367,6 +448,14 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	p := provider.New(config.BaseURL, config.Model)
+	p.Limits = &provider.CallLimits{}
+	p.ExpectedBackendProfile = config.BackendProfile
+	if config.APIKeyEnv != "" {
+		p.APIKey = os.Getenv(config.APIKeyEnv)
+		if p.APIKey == "" {
+			log.Fatal("configured provider credential environment variable is empty")
+		}
+	}
 	if e = p.Ready(ctx); e != nil {
 		log.Fatal(e)
 	}

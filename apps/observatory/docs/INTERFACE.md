@@ -115,13 +115,23 @@ them with the `mysql` client and the `CharacterDatabaseInfo` of `--world-conf` (
 `env/dist/etc/worldserver.conf`); it never exposes the password. `POST /api/memory/talk` with
 `{"owner","message","history":[{"role":"observer|character","text"}]}` asks the interpreter worker's own
 model (from `--worker-config`, default `worker.json` beside `Alles.Worker.TokenFile` of `--alles-conf`) to
-answer in the character's voice from up to 24 of those committed memories (word overlap with the question
-first, then salience, duplicates suppressed) and returns `text`, latency, token usage and the memory ids
-offered. It is an out-of-game interview: the world hears nothing, no perception or memory is formed and the
-interpreter request budget is untouched; it does share the GPU with gameplay jobs, so the bridge answers
-one question at a time (`429` while busy). `--no-memory` disables both endpoints; a missing input
+answer in the character's voice through the shared actor scheduler. Admission needs the distinct
+`Alles.Interpreter.ControlTokenFile` and a configured live owner. The worker receives fresh personal state and
+intentions plus committed memories selected by owned entity/name-prefix matches, topic overlap and salience.
+`Alles.Interview.EvidenceBytes` bounds evidence (1024–6144, default 6144); retrieval counts expose selection, duplicates,
+trimming and full-store coverage. Responses include `text`, latency, token usage (null when unknown) and offered
+memory ids. Interviews consume shared model allowance at lower priority than gameplay conversation and never create
+perceptions, memories, speech or actions. Up to eight observer requests may wait concurrently (`429` while full).
+`--no-memory` disables both memory endpoints; a missing input
 disables its feature with a `reasons` entry the page shows. Owners other than `player:` or `creature:` ids
 and messages over 500 characters are rejected (`400`); an owner without a committed store is `404`.
+
+`GET /api/interpreter` reads active/pending policy and queues; `POST /api/interpreter/policy` accepts
+`{run,command,expectedRevision,policy}`. Both use the browser's existing bearer authentication and the separate
+server-side interpreter capability. The POST reports persistence pending before the world acknowledges a durable
+revision; invalid/stale commands report errors. These endpoints do not enable ordinary-world gameplay controls.
+See [the runtime contract](../../alles/RUNTIME.md) for policy fields, bounds, recovery and migration.
+Simulation memory inspection requires `--world-conf` pointing at the isolated `obs_` characters database.
 
 ## Adaptive Max speed
 
@@ -145,6 +155,10 @@ If debt keeps accumulating at 1×, Max reports that condition; it never discards
 On a server supporting decimals, sustained overload can reduce speed by more than 0.1×: backlog growth estimates
 available capacity, rounded down with 0.1× headroom to clear debt. This avoids a long series of tiny reductions after
 a large capacity loss. Legacy servers still reduce by one preset.
+
+When agent policy telemetry is present, Max also smooths queue occupancy, oldest waiting age, active-job utilization
+and expiry/drop changes. Pressure above 0.35 prevents increases; pressure above 0.7 can reduce speed with a ten-second
+cooldown. These signals supplement the tick-debt controller and never change model quotas or gameplay multipliers.
 
 The mailbox speed field accepts decimal text on updated servers. Pacing accumulates integer tenths of a microsecond,
 preserving the remainder across speed changes and pause; gameplay continues to consume ordinary 10 ms steps.

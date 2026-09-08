@@ -57,7 +57,8 @@ std::string BoundedLabel(char const* value)
 void CaptureSelfContext(Player const& player, Perception& perception, std::string const& deliveryContext = "")
 {
     auto const locale = ObserverLocale(player);
-    if (auto const* area = GetAreaEntryByAreaID(player.GetAreaId()))
+    // AreaTable is indexed by area ID, not by the exploration flag used by the legacy helper.
+    if (auto const* area = sAreaTableStore.LookupEntry(player.GetAreaId()))
         perception.place = BoundedLabel(area->area_name[locale]);
 
     auto const* race = sChrRacesStore.LookupEntry(player.getRace(true));

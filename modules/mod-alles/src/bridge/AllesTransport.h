@@ -11,6 +11,7 @@
 #define MOD_ALLES_TRANSPORT_H
 
 #include <cstdint>
+#include "RateWindow.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,8 +33,9 @@ public:
     std::vector<Frame> Poll();
     void Reply(uint64_t connection, std::string text);
     void Reserve(std::string permit, std::string record);
-    uint32_t Charged() const;
-    std::vector<uint64_t> RecentReservations() const;
+    bool PersistPolicy(std::string path, std::string command, std::string record);
+    uint64_t Charged() const;
+    ReservationHistory RecentReservations() const;
     uint16_t Port() const;
 
 private:

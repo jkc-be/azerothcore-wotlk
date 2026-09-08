@@ -72,6 +72,8 @@ Cache eviction preserves the configured owner's dispatch rate limit.
 twelve own memories and four proposed mutations. Compatible adjacent inputs may share one output. Tokens, leases,
 fake permits, supplied revisions, ordered support and admission deadlines are rechecked before atomic application.
 See [the coordinator contract and limits](tests/interpreter/README.md) for reinforcement/replacement policy.
+External workers use the shared [agent runtime scheduler and policy](../../apps/alles/RUNTIME.md) across memory,
+planning, conversation and read-only interviews. The fake worker retains its deterministic pilot limits.
 
 Eligible autonomous playerbots retell an own witnessed death or heard claim through ordinary `Player::Say`.
 Human/selfbot/external-control bodies do not speak autonomously. Selection can favor a recent admitted audible

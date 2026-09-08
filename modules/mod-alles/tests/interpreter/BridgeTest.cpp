@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 #include <boost/asio.hpp>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <unistd.h>
 
@@ -171,3 +172,66 @@ TEST(AllesBridgeTest, AuthenticatedPermitIsDurableIdempotentAndBudgeted)
 }
 
 } // namespace Alles::Bridge
+
+namespace Alles::Bridge
+{
+TEST(AllesTransportTest, ContinuousReservationCountDoesNotWrapAtTheOldTrialCounterBoundary)
+{
+    auto const path = std::filesystem::temp_directory_path() / ("alles-counter-test-" + std::to_string(getpid()));
+    {
+        std::ofstream file(path);
+        file << "{\"profile\":\"profile\",\"charged\":4294967296,\"recentBuckets\":[]}\n";
+        file << "{\"profile\":\"profile\",\"permit\":\"next\"}\n";
+    }
+    {
+        Transport transport(0, path.string(), "profile", 0);
+        EXPECT_EQ(transport.Charged(), uint64_t(UINT32_MAX) + 2);
+    }
+    std::filesystem::remove(path);
+    std::filesystem::remove(path.string() + ".lock");
+}
+
+TEST(AllesRateWindow, HighThroughputUsesBoundedCountsAndRealWindowSurvivesRestart)
+{
+    ReservationHistory history;
+    for (uint64_t i = 0; i < 100000; ++i)
+        AddReservation(history, 100001 + i / 100);
+    EXPECT_LE(history.size(), 2u);
+    EXPECT_EQ(RecentCount(history, 160000), 100000u);
+    EXPECT_EQ(RecentCount(history, 162000), 0u);
+    EXPECT_EQ(RecentCount(history, 1), 100000u); // A wall-clock correction cannot refund newer reservations.
+}
+
+TEST(AllesTransportTest, ManagedPolicyIsAtomicAndReportsPersistenceFailure)
+{
+    auto base = std::filesystem::temp_directory_path() / ("alles-policy-test-" + std::to_string(getpid()));
+    std::filesystem::create_directories(base);
+    auto ledger = base / "ledger";
+    auto policy = base / "policy.json";
+    {
+        Transport transport(0, ledger.string(), "profile", 0);
+        ASSERT_TRUE(transport.PersistPolicy(policy.string(), "first", "{\"schema\":1,\"revision\":2}"));
+        auto wait = [&]
+        {
+            std::vector<Frame> frames;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (frames.empty() && std::chrono::steady_clock::now() < deadline)
+            {
+                frames = transport.Poll();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            return frames;
+        };
+        auto frames = wait();
+        ASSERT_EQ(frames.size(), 1u);
+        EXPECT_TRUE(Parse(frames[0].text).as_object().at("ok").as_bool());
+        EXPECT_TRUE(std::filesystem::exists(policy));
+        ASSERT_TRUE(transport.PersistPolicy((base / "missing" / "policy.json").string(), "second", "{}"));
+        frames = wait();
+        ASSERT_EQ(frames.size(), 1u);
+        EXPECT_FALSE(Parse(frames[0].text).as_object().at("ok").as_bool());
+        EXPECT_TRUE(std::filesystem::exists(policy));
+    }
+    std::filesystem::remove_all(base);
+}
+}

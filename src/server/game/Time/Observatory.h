@@ -20,6 +20,7 @@
 
 #include "Define.h"
 #include <string>
+#include <functional>
 #include <string_view>
 
 class Player;
@@ -53,6 +54,9 @@ namespace Observatory
     AC_GAME_API void PopulationSettled(bool settled);
     // World-thread pump; controls and observation keep running while gameplay is paused.
     AC_GAME_API void Run();
+    // Optional module callbacks, installed/cleared on the world thread. Maintenance runs only while held;
+    // it may service I/O and controls but must not apply gameplay or start new interpretation work.
+    AC_GAME_API void SetAgentRuntimeHooks(std::function<void()> maintenance, std::function<std::string()> status);
     AC_GAME_API void Event(Player const* player, std::string_view kind, uint64 value = 0, std::string_view detail = {});
     AC_GAME_API void Probe(Unit const* actor, std::string_view kind, uint64 value = 0, uint32 spell = 0,
                            Unit const* other = nullptr);

@@ -124,7 +124,12 @@ func TestAlles_ConversationJournal(t *testing.T) {
 			}
 		})
 		defer cancel()
-		if err := guest.World.SendChatMessage(channel, client.LangCommon, f.Target.Name+", please wave to me."); err != nil {
+		request := f.Target.Name + ", please wave to me."
+		if channel == client.ChatMsgYell {
+			// Local routes share duplicate-topic suppression; a repeated SAY is intentionally omitted on YELL.
+			request = f.Target.Name + ", I am saying hello from over here; please give me a wave."
+		}
+		if err := guest.World.SendChatMessage(channel, client.LangCommon, request); err != nil {
 			e2eharness.HarnessFailf(t, "send conversation: %v", err)
 		}
 		var reply string

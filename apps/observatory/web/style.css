@@ -1143,3 +1143,24 @@ table.memory td.text {
   text-transform: uppercase;
   opacity: 0.75;
 }
+
+#interpreter-policy {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+#interpreter-policy[hidden] {
+    display: none;
+}
+
+#interpreter-policy label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#interpreter-policy output {
+    grid-column: 1 / -1;
+}

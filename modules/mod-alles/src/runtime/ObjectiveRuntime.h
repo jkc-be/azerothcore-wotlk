@@ -34,6 +34,7 @@ public:
     void Detach(ActorKey owner, uint64_t gameMs, uint64_t realMs);
     void Stop(uint64_t gameMs, uint64_t realMs);
     boost::json::object Status(ActorKey owner) const;
+    boost::json::object InterviewIntentions(ActorKey owner) const;
     boost::json::object HelpOfferContext(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,
         uint64_t gameMs, uint64_t realMs) const;
     bool OfferHelp(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,

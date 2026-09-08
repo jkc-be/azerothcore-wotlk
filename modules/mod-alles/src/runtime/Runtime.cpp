@@ -18,8 +18,12 @@
 #include "GameTime.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Observatory.h"
+#include "SimulationClock.h"
 #include "ObjectVisibilityContainer.h"
 #include "Player.h"
+#include "QuestDef.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "World.h"
@@ -115,7 +119,11 @@ struct Runtime::Impl
         if (settings.withholdFake)
             coordinator.SetFakeBehavior({Interpreter::FakeMode::Withhold, 0, true});
         if (settings.external)
-            bridge = std::make_unique<Bridge::Service>(coordinator, settings.bridge);
+        {
+            auto config = settings.bridge;
+            config.run = telemetryRun;
+            bridge = std::make_unique<Bridge::Service>(coordinator, std::move(config));
+        }
         if (!settings.telemetryDirectory.empty())
         {
             // The directory outlives runs: file the previous run's journals away so this run starts clean.
@@ -136,10 +144,39 @@ struct Runtime::Impl
         if (settings.objectives || conversation)
             objectives = std::make_unique<ObjectiveRuntime>(store, settings.owners, recorder.get(),
                 conversation.get(), bridge.get(), settings.objectives);
+        if (bridge)
+            bridge->SetInterviewContext([this](ActorKey actor) -> std::optional<boost::json::object>
+            {
+                if (!settings.owners.contains(actor) || actor.kind != ActorKind::Player)
+                    return std::nullopt;
+                auto* player = ObjectAccessor::FindConnectedPlayer(ObjectGuid(HighGuid::Player, uint32(actor.id)));
+                if (!player || !player->IsInWorld())
+                    return std::nullopt;
+                boost::json::array quests;
+                for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+                    if (auto const id = player->GetQuestSlotQuestId(slot))
+                        if (auto const* quest = sObjectMgr->GetQuestTemplate(id))
+                            quests.emplace_back(boost::json::object{{"id", id}, {"title", quest->GetTitle()},
+                                {"status", uint32(player->GetQuestStatus(id))}});
+                auto intentions = objectives ? objectives->InterviewIntentions(actor) : boost::json::object{};
+                return boost::json::object{{"name", player->GetName()}, {"sampleGameMs", GameNow()},
+                    {"sampleRealMs", RealNow()}, {"sampleAgeMs", 0}, {"area", player->GetAreaId()},
+                    {"health", player->GetHealth()}, {"inCombat", player->IsInCombat()},
+                    {"alive", player->IsAlive()}, {"moving", player->isMoving()},
+                    {"quests", std::move(quests)}, {"intentions", std::move(intentions)}};
+            });
+        if (SimulationClock::Enabled())
+            Observatory::SetAgentRuntimeHooks([this]
+            {
+                if (bridge)
+                    bridge->Update(GameNow(), RealNow(), true);
+            }, [this] { return boost::json::serialize(bridge ? bridge->Status() : boost::json::object{}); });
     }
 
     ~Impl()
     {
+        if (SimulationClock::Enabled())
+            Observatory::SetAgentRuntimeHooks({}, {});
         ::Alles::Telemetry::InstallLiveSink(nullptr);
     }
 
@@ -581,6 +618,8 @@ void Runtime::Lifecycle(Player& player, IngressKind kind)
         _impl->objectives->Detach(Owner(player), GameNow(), RealNow());
         _impl->objectives->RequesterLeft(Owner(player), RealNow());
     }
+    if (kind == IngressKind::Logout && _impl->bridge && IsMainThread())
+        _impl->bridge->CancelActor(Owner(player));
     if (kind == IngressKind::Logout && _impl->conversation && IsMainThread())
         _impl->conversation->Logout(player);
     if (!Contains(Owner(player)) || (kind != IngressKind::Save && kind != IngressKind::Logout))

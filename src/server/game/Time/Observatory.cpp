@@ -87,6 +87,8 @@ namespace
     thread_local std::string context;
     // Ordinary-realm tap (see Observatory.h). Read on every Event() call, so it stays lock-free.
     std::atomic<Observatory::LiveSink> liveSink{nullptr};
+    std::function<void()> agentMaintenance;
+    std::function<std::string()> agentStatus;
     struct Totals
     {
         uint64 lastAiMs = 0;
@@ -620,6 +622,12 @@ void Observatory::Stop()
         writer.join();
 }
 
+void Observatory::SetAgentRuntimeHooks(std::function<void()> maintenance, std::function<std::string()> status)
+{
+    agentMaintenance = std::move(maintenance);
+    agentStatus = std::move(status);
+}
+
 void Observatory::SetLiveSink(LiveSink sink)
 {
     liveSink.store(sink, std::memory_order_release);
@@ -760,6 +768,8 @@ void Observatory::Run()
             populationSince = SimulationClock::Elapsed().count();
             Event(nullptr, "population_target", expectedBots, std::to_string(applied.sequence));
         }
+        if (agentMaintenance && (applied.paused || fault.load() || !problem.empty() || completed))
+            agentMaintenance();
         // One normal-sized tick at a time. Debt is retained across speed changes, overload and pauses.
         if ((!observing || now >= nextObserverTick) &&
             budget.Consume(applied.paused || fault.load() || !problem.empty() || completed))
@@ -851,6 +861,7 @@ void Observatory::Run()
             << ",\"runTotals\":{\"xp\":" << runTotals.xp << ",\"quests\":" << runTotals.quests
             << ",\"deaths\":" << runTotals.deaths << '}'
             << ",\"onlineBots\":" << online.size() << ",\"fault\":" << Quote(fault.load() ? faultReason : problem)
+            << ",\"interpreter\":" << (agentStatus ? agentStatus() : "null")
             << ",\"bots\":" << Players() << '}';
         latest = out.str();
         maxTickUs = 0;

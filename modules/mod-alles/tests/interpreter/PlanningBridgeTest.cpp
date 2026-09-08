@@ -52,7 +52,7 @@ protected:
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (response.find('\n') == std::string::npos && std::chrono::steady_clock::now() < deadline)
         {
-            service->Update(now, now);
+            service->Update(now, now, false, now);
             char data[16384];
             boost::system::error_code error;
             auto count = socket.read_some(boost::asio::buffer(data), error);
@@ -141,8 +141,8 @@ TEST(AllesPlanningWireTest, ClosedResponseCannotReplaceIssuedActorOrObjectiveFen
 TEST_F(AllesPlanningBridgeTest, NegotiatesVersionAndFencesPurposeConnectionPermitAndCancellation)
 {
     ASSERT_TRUE(Hello(false).contains("result"));
-    ASSERT_TRUE(service->QueuePlanning("plan", {{"purpose", "advice"}}, now));
-    EXPECT_FALSE(service->QueueConversation("plan", {}, now));
+    ASSERT_TRUE(service->QueuePlanning("plan", {{"purpose", "advice"}}, now, {ActorKind::Player, 2}));
+    EXPECT_FALSE(service->QueueConversation("plan", {}, now, {ActorKind::Player, 3}));
     EXPECT_TRUE(Call("next_jobs", {{"n", 1}}).at("result").as_object().at("job").is_null());
     EXPECT_EQ(Number(service->Status(), "usedRequests"), 0u);
     EXPECT_TRUE(Hello(true, false, 2).contains("error"));
@@ -160,14 +160,14 @@ TEST_F(AllesPlanningBridgeTest, NegotiatesVersionAndFencesPurposeConnectionPermi
     EXPECT_EQ(service->TakePlanning().size(), 1u);
     EXPECT_TRUE(service->TakeConversations().empty());
     EXPECT_EQ(String(Submit(job).at("result").as_object(), "status"), "stale");
-    ASSERT_TRUE(service->QueuePlanning("cancelled", {}, now));
+    ASSERT_TRUE(service->QueuePlanning("cancelled", {}, now, {ActorKind::Player, 2}));
     job = Claim("planning");
     ASSERT_TRUE(job.contains("permitId"));
     service->CancelPlanning("cancelled");
     EXPECT_EQ(String(Submit(job).at("result").as_object(), "status"), "stale");
     EXPECT_TRUE(service->TakePlanning().empty());
     now += 25001;
-    service->Update(now, now);
+    service->Update(now, now, false, now);
     EXPECT_EQ(Number(service->Status(), "usedRequests"), 2u);
     EXPECT_EQ(Number(service->Status(), "planningQueued"), 0u);
 }
@@ -188,8 +188,9 @@ TEST_F(AllesPlanningBridgeTest, MemoryPlanningAndChatEachGetATurnAndFailuresReta
     perception.admittedRealTimeMs = now - 5000;
     ASSERT_TRUE(store.Observe(owner, perception, now - 5000));
     coordinator.Update(now, now);
-    ASSERT_TRUE(service->QueuePlanning("plan", {}, now));
-    ASSERT_TRUE(service->QueueConversation("chat", {}, now));
+    service->Update(now, now, false, now);
+    ASSERT_TRUE(service->QueuePlanning("plan", {}, now, {ActorKind::Player, 2}));
+    ASSERT_TRUE(service->QueueConversation("chat", {}, now, {ActorKind::Player, 3}));
     auto memory = Claim("job");
     ASSERT_TRUE(memory.contains("leaseGeneration"));
     ASSERT_TRUE(Call("release_job", {{"jobToken", memory.at("jobToken")},
@@ -198,16 +199,18 @@ TEST_F(AllesPlanningBridgeTest, MemoryPlanningAndChatEachGetATurnAndFailuresReta
     auto planning = Claim("planning");
     ASSERT_TRUE(planning.contains("permitId"));
     EXPECT_EQ(String(Submit(planning).at("result").as_object(), "status"), "accepted");
+    EXPECT_EQ(service->TakePlanning().size(), 1u);
     auto chat = Claim("conversation");
     ASSERT_TRUE(chat.contains("permitId"));
     EXPECT_EQ(String(Submit(chat, "conversation").at("result").as_object(), "status"), "accepted");
-    ASSERT_TRUE(service->QueuePlanning("failure", {}, now));
+    EXPECT_EQ(service->TakeConversations().size(), 1u);
+    ASSERT_TRUE(service->QueuePlanning("failure", {}, now, {ActorKind::Player, 2}));
     // Remove the released memory candidate so the next assertion isolates the occupied HTTP slot.
     coordinator.Forget(owner);
     planning = Claim("planning");
     ASSERT_TRUE(planning.contains("permitId"));
     EXPECT_EQ(String(Submit(planning, "planning", false, "failed").at("result").as_object(), "status"), "accepted");
-    ASSERT_TRUE(service->QueueConversation("waiting", {}, now));
+    ASSERT_TRUE(service->QueueConversation("waiting", {}, now, {ActorKind::Player, 3}));
     now += 5001;
     EXPECT_TRUE(Call("next_jobs", {{"n", 1}}).at("result").as_object().at("job").is_null());
     now += 20000;

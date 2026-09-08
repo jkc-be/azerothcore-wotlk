@@ -108,6 +108,28 @@
       <div class="region-head">
         <h2>Interpreter <span class="region-note" id="interpreter-note"></span></h2>
       </div>
+      <form id="interpreter-policy" hidden>
+        <label>Model call rate
+          <select name="mode"><option value="limited">Limited</option><option value="unlimited">Unlimited</option>
+            <option value="trial">Finite test budget</option></select>
+        </label>
+        <label>Calls per real minute <input name="modelRpm" type="number" min="1" max="100000" required></label>
+        <label>Concurrent jobs <input name="concurrentJobs" type="number" min="1" max="32" required></label>
+        <label>Concurrent calls <input name="concurrentCalls" type="number" min="1" max="32" required></label>
+        <label>Waiting per character <input name="waitingPerActor" type="number" min="1" max="64" required></label>
+        <label>Waiting globally <input name="waitingGlobal" type="number" min="1" max="256" required></label>
+        <label>Bytes per character <input name="bytesPerActor" type="number" min="1024" max="1048576" required></label>
+        <label>Bytes globally <input name="bytesGlobal" type="number" min="1024" max="16777216" required></label>
+        <label>Maximum wait (ms) <input name="maxWaitMs" type="number" min="1000" max="20000" required></label>
+        <label>Finite test calls <input name="trialMaxCalls" type="number" min="1" max="4294967295" required></label>
+        <button type="submit">Apply interpreter settings</button>
+        <output id="interpreter-policy-status" aria-live="polite"></output>
+      </form>
+      <table id="interpreter-queues" class="data" hidden>
+        <thead><tr><th>Character</th><th>Waiting jobs</th><th>Bytes</th>
+          <th>Active jobs</th><th>Oldest wait</th></tr></thead>
+        <tbody></tbody>
+      </table>
       <div class="analytics interpreter">
         <div>
           <h3>Worker</h3>
