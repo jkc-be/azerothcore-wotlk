@@ -207,7 +207,10 @@ export function lineChart(ctx, width, height, series, options = {}) {
   const start = Math.min(...xs),
     end = Math.max(...xs),
     span = Math.max(1, end - start);
-  const xToPx = (x) => left + ((x - start) / span) * (right - left);
+  // One bucket, or a window narrower than a millisecond, has no x range to map: everything is drawn at the
+  // centre rather than pinned to the left edge, and the axis carries one label instead of six identical ones.
+  const single = end - start < 1;
+  const xToPx = (x) => (single ? (left + right) / 2 : left + ((x - start) / span) * (right - left));
   const yToPx = (y) => bottom - ((y - floor) / (max - floor)) * (bottom - top);
   const clamp = (y) => yToPx(Math.max(floor, Math.min(y, max)));
   ctx.lineWidth = 1;
@@ -222,14 +225,21 @@ export function lineChart(ctx, width, height, series, options = {}) {
     ctx.fillText(formatY(tickValue), left - 8, y + 4);
   }
   ctx.strokeStyle = palette.rule;
+  const centreTick = Math.round(xTicks / 2);
+  let previousLabel = null;
   for (let tick = 0; tick <= xTicks; tick += 1) {
     const x = left + ((right - left) * tick) / xTicks;
     ctx.beginPath();
     ctx.moveTo(Math.round(x) + 0.5, bottom);
     ctx.lineTo(Math.round(x) + 0.5, bottom + 4);
     ctx.stroke();
-    ctx.textAlign = tick === 0 ? "left" : tick === xTicks ? "right" : "center";
-    if (formatX) ctx.fillText(formatX(start + (span * tick) / xTicks), x, height - 7);
+    if (!formatX || (single && tick !== centreTick)) continue;
+    // A short window rounds neighbouring ticks to the same text; repeating it says nothing, so it is dropped.
+    const label = formatX(start + (span * tick) / xTicks);
+    if (label === previousLabel) continue;
+    previousLabel = label;
+    ctx.textAlign = single ? "center" : tick === 0 ? "left" : tick === xTicks ? "right" : "center";
+    ctx.fillText(label, x, height - 7);
   }
   ctx.textAlign = "left";
   if (band && band.low.length > 1) {
@@ -267,6 +277,16 @@ export function lineChart(ctx, width, height, series, options = {}) {
       connected = true;
     }
     ctx.stroke();
+    // A sample with no drawable neighbour leaves no stroke behind: a dot keeps a lone point visible, which is
+    // what the first long-term bucket of a run looks like.
+    const drawable = (point) => point != null && point.y != null && Number.isFinite(point.y);
+    line.points.forEach((point, index) => {
+      if (!drawable(point) || drawable(line.points[index - 1]) || drawable(line.points[index + 1])) return;
+      ctx.beginPath();
+      ctx.arc(xToPx(point.x), clamp(point.y), 2.5, 0, 2 * Math.PI);
+      ctx.fillStyle = line.color;
+      ctx.fill();
+    });
   }
   ctx.setLineDash([]);
   let readings = null;

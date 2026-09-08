@@ -378,6 +378,176 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
   return list;
 }
 
+// ------------------------------------------------------------------------------------------- world state
+
+// A planning world publishes every objective a bot has held, newest last. The one it is working on is the
+// active objective; with none active the newest proposal or deferral says what it is about to do instead, and
+// a cohort that has finished everything falls back to its last completed objective rather than showing nothing.
+const OBJECTIVE_ORDER = ["active", "proposed", "deferred", "cancelled", "completed"];
+
+export function currentObjective(bot) {
+  const objectives = bot?.planning?.objectives;
+  if (!objectives || !objectives.length) return null;
+  const rank = (objective) => {
+    const place = OBJECTIVE_ORDER.indexOf(objective.state);
+    return place < 0 ? OBJECTIVE_ORDER.length : place;
+  };
+  return [...objectives].sort((a, b) => rank(a) - rank(b) || (b.id ?? 0) - (a.id ?? 0))[0];
+}
+
+// One row per bot: what it is working towards and how that is going. Bots without planning are left out, so a
+// world build that publishes none produces an empty table rather than a column of blanks.
+export function objectiveTable(bots) {
+  return bots
+    .map((bot) => ({ bot, objective: currentObjective(bot) }))
+    .filter((row) => row.objective)
+    .sort((a, b) => {
+      const stuck = (row) => row.objective.activeWithoutProgressMs || 0;
+      const blocked = (row) => (row.objective.obstruction && row.objective.obstruction !== "none" ? 1 : 0);
+      return blocked(b) - blocked(a) || stuck(b) - stuck(a) || a.bot.name.localeCompare(b.bot.name);
+    });
+}
+
+export function objectiveTally(bots) {
+  const states = new Map();
+  const approaches = new Map();
+  let total = 0;
+  for (const bot of bots)
+    for (const objective of bot.planning?.objectives || []) {
+      total += 1;
+      states.set(objective.state, (states.get(objective.state) || 0) + 1);
+      approaches.set(objective.approach, (approaches.get(objective.approach) || 0) + 1);
+    }
+  const rank = (map) => [...map.entries()].sort((a, b) => b[1] - a[1]);
+  return { total, states: rank(states), approaches: rank(approaches) };
+}
+
+// Leads bots pass to each other, and the questions still waiting for one. Identical advice from the same
+// source is one lead held by several bots, which is what makes a rumour visible as a rumour.
+export function worldTalk(bots) {
+  const leads = new Map();
+  const asks = [];
+  for (const bot of bots) {
+    for (const report of bot.planning?.reports || []) {
+      const key = `${report.source}\u0000${report.text}`;
+      const lead = leads.get(key) || {
+        source: report.source,
+        text: report.text,
+        holders: [],
+        confidence: report.confidence,
+        useful: 0,
+        unsuccessful: 0,
+        receivedMs: 0,
+      };
+      lead.holders.push(bot.name);
+      lead.useful += report.usefulVisits || 0;
+      lead.unsuccessful += report.unsuccessfulVisits || 0;
+      lead.receivedMs = Math.max(lead.receivedMs, report.receivedMs || 0);
+      leads.set(key, lead);
+    }
+    const information = currentObjective(bot)?.information;
+    if (information && information.status && information.status !== "none" && information.question)
+      asks.push({
+        id: bot.id,
+        name: bot.name,
+        status: information.status,
+        question: information.question,
+        attempts: information.attempts || 0,
+      });
+  }
+  return { leads: [...leads.values()].sort((a, b) => b.receivedMs - a.receivedMs), asks };
+}
+
+// Totals for the whole run beside the rate they accumulated at. A stock (memories held, money carried) has no
+// rate: dividing a standing figure by elapsed time would read as a flow it is not.
+export function runStatistics(snapshot) {
+  const bots = snapshot.bots || [];
+  const hours = Math.max(snapshot.simMs || 0, 1) / 3600000;
+  const sum = (key) => bots.reduce((total, bot) => total + (Number(bot[key]) || 0), 0);
+  const has = (key) => bots.some((bot) => bot[key] != null);
+  const totals = snapshot.runTotals || {};
+  const worker = snapshot.interpreter || {};
+  const flow = (label, value, hint) => ({ label, value, perHour: value == null ? null : value / hours, hint });
+  const stock = (label, value, hint, format) => ({ label, value, perHour: null, hint, format });
+  const rows = [
+    flow("XP earned", totals.xp ?? (has("earnedXp") ? sum("earnedXp") : null)),
+    flow("Quests completed", totals.quests ?? (has("questCompletions") ? sum("questCompletions") : null)),
+    flow("Deaths", totals.deaths ?? (has("deaths") ? sum("deaths") : null)),
+    flow("AI actions", has("actions") ? sum("actions") : null, "decisions carried out"),
+    flow("AI updates", has("aiUpdates") ? sum("aiUpdates") : null, "AI ticks across the cohort"),
+    flow("Journal records", snapshot.journal?.events?.records ?? null, "events written to disk"),
+    flow("Interpreter requests", worker.usedRequests ?? null, "model calls charged"),
+    stock("Memories held", has("memoryCount") ? sum("memoryCount") : null, "across the cohort"),
+    stock("Money carried", has("money") ? sum("money") : null, "across the cohort", "money"),
+  ];
+  return rows.filter((row) => row.value != null);
+}
+
+// Everything worth looking at before concluding a run is healthy, most serious first. Each note names the bots
+// it is about so the dashboard can offer them, and a run with nothing wrong produces an empty list.
+export function attention(snapshot, { stalledMs = 10000, noProgressMs = 60000, stationary = [] } = {}) {
+  const notes = [];
+  const bots = snapshot.bots || [];
+  const name = (bot) => ({ id: bot.id, name: bot.name });
+  // A note about particular bots carries a phrase the dashboard prefixes with their count ("2 bots dead");
+  // a note about the run as a whole carries a whole sentence and an empty list.
+  const add = (level, text, involved) => {
+    if (involved.length) notes.push({ level, text, bots: involved });
+  };
+  const where = (predicate) => bots.filter(predicate).map(name);
+  const expected = snapshot.expectedBots,
+    online = snapshot.onlineBots;
+  add("danger", "dead", where((bot) => bot.health === 0 || bot.alive === false));
+  add("warn", "below 35% health", where((bot) => healthPercent(bot) > 0 && healthPercent(bot) < 35));
+  add(
+    "warn",
+    `AI silent for over ${Math.round(stalledMs / 1000)} s`,
+    stalledBots(snapshot, stalledMs).map(({ bot }) => name(bot)),
+  );
+  add("warn", "have not moved over the retained trail", stationary);
+  const blocked = new Map();
+  for (const bot of bots) {
+    const objective = currentObjective(bot);
+    if (!objective) continue;
+    if (objective.obstruction && objective.obstruction !== "none") {
+      const list = blocked.get(objective.obstruction) || [];
+      list.push(name(bot));
+      blocked.set(objective.obstruction, list);
+    }
+  }
+  for (const [obstruction, involved] of blocked) add("warn", `objective obstructed: ${obstruction}`, involved);
+  add(
+    "warn",
+    `objective making no progress for over ${Math.round(noProgressMs / 1000)} s`,
+    where((bot) => (currentObjective(bot)?.activeWithoutProgressMs || 0) > noProgressMs),
+  );
+  add("danger", "memory store failed its last save", where((bot) => bot.saveFailed));
+  add("warn", "memory store not ready", where((bot) => bot.memoryState != null && bot.memoryState !== "ready"));
+  add("warn", "dropping perceptions", where((bot) => bot.droppedPerceptions > 0));
+  const worker = snapshot.interpreter || {};
+  const flag = (level, text) => notes.push({ level, text, bots: [] });
+  if (expected != null && online != null && online < expected) flag("warn", `${online} of ${expected} bots online`);
+  if (worker.ledgerFault) flag("danger", "Interpreter ledger fault: no further model requests");
+  if (worker.connected === false) flag("warn", "Interpreter worker disconnected");
+  if (worker.maxRequests && worker.usedRequests >= worker.maxRequests)
+    flag("warn", "Interpreter request budget spent; memories form by template fallback");
+  if (worker.oldestWaitingMs > 10000)
+    flag("warn", `Interpreter jobs waiting up to ${(worker.oldestWaitingMs / 1000).toFixed(0)} s`);
+  const alles = snapshot.alles || {};
+  if (alles.lifecycleFault) flag("danger", "Bot lifecycle fault reported by the module");
+  if (alles.dropped) flag("warn", `${alles.dropped} telemetry records dropped by the module`);
+  if (alles.unsafePackets) flag("warn", `${alles.unsafePackets} unsafe packets refused by the module`);
+  for (const [journal, figures] of Object.entries(snapshot.journal || {})) {
+    if (!figures || typeof figures !== "object") continue;
+    if (figures.failed) flag("danger", `Journal ${journal} failed to write`);
+    if (figures.dropped) flag("warn", `Journal ${journal} dropped ${figures.dropped} records`);
+  }
+  if (snapshot.journal?.liveDropped)
+    flag("warn", `${snapshot.journal.liveDropped} live records dropped before the journal`);
+  const severity = { danger: 0, warn: 1 };
+  return notes.sort((a, b) => severity[a.level] - severity[b.level]);
+}
+
 export function visibleBots(snapshot, map, zone, instance = "all") {
   return snapshot.bots.filter(
     (bot) =>

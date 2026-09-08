@@ -1,6 +1,12 @@
 import {
   ACTIVITIES,
   TRACE_KINDS,
+  attention,
+  currentObjective,
+  objectiveTable,
+  objectiveTally,
+  runStatistics,
+  worldTalk,
   duration,
   clock,
   formatClock,
@@ -57,6 +63,9 @@ const SERIES_COLORS = [
 ];
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const SCALE_STEPS = [50, 100, 250, 500, 1000, 2500, 5000];
+// Above this many bots only the hovered and selected names are drawn; below it every name that finds room is.
+const MAP_LABEL_LIMIT = 12;
+const MAP_LABEL_HEIGHT = 19;
 const continentNames = {
   0: "Eastern Kingdoms",
   1: "Kalimdor (western continent)",
@@ -348,6 +357,7 @@ function ingest(snapshot, restoring = false) {
   renderLegend();
   renderRoster();
   renderDetails();
+  renderWorldState();
   renderAnalytics();
   drawChart();
   renderControlLog();
@@ -821,11 +831,20 @@ function renderControlLog() {
 $("connect").addEventListener("submit", (event) => {
   event.preventDefault();
   token = $("token").value;
+  // The token is entered once; after that the header belongs to the run identity and the link lamp.
+  $("connect").classList.add("collapsed");
+  $("change-token").hidden = false;
   loadMaps().catch(() => {
     $("map-art-status").textContent = "Map artwork unavailable";
   });
   connect();
 });
+$("change-token").onclick = () => {
+  $("connect").classList.remove("collapsed");
+  $("change-token").hidden = true;
+  $("token").focus();
+  $("token").select();
+};
 $("population").onsubmit = (event) => {
   event.preventDefault();
   if ($("population").reportValidity()) control(state.paused, selectedSpeed(), Number($("bot-count").value));
@@ -1170,6 +1189,7 @@ function drawMap() {
     const mode = $("map-colour").value;
     const ringFade = Math.min(1, (performance.now() - selectedAt) / 150);
     labelFont(ctx);
+    const labels = [];
     for (const bot of bots) {
       const point = worldToScreen(bot, view, width, height);
       const isSelected = bot.id === selected;
@@ -1211,15 +1231,10 @@ function drawMap() {
         ctx.stroke();
         ctx.globalAlpha = observationAge(bot) > 3000 ? 0.4 : 1;
       }
-      if (active || bots.length <= 5) {
-        const labelWidth = ctx.measureText(bot.name).width;
-        ctx.fillStyle = "rgba(15, 23, 27, 0.85)";
-        ctx.fillRect(point.x + radius + 4, point.y - 10, labelWidth + 12, 19);
-        ctx.fillStyle = palette.parchment;
-        ctx.fillText(bot.name, point.x + radius + 10, point.y + 4);
-      }
+      if (active || bots.length <= MAP_LABEL_LIMIT) labels.push({ bot, point, radius, active, alpha: ctx.globalAlpha });
       ctx.restore();
     }
+    drawMapLabels(ctx, labels, palette);
     ctx.font = '11px "Noto Sans", "Segoe UI", system-ui, sans-serif';
     drawScaleBar(ctx, height);
     if (shownCount !== bots.length) {
@@ -1228,6 +1243,40 @@ function drawMap() {
     }
   }
   requestAnimationFrame(drawMap);
+}
+
+// Names are drawn after every marker, so a label never hides a bot. A name that would collide with one already
+// placed tries the other side of its marker, then above and below, and is dropped when every position is taken;
+// the selected and hovered bots are placed first so the one being read always keeps its name.
+function drawMapLabels(ctx, labels, palette) {
+  labelFont(ctx);
+  const placed = [];
+  const collides = (box) =>
+    placed.some(
+      (other) =>
+        box.x < other.x + other.w && other.x < box.x + box.w && box.y < other.y + other.h && other.y < box.y + box.h,
+    );
+  for (const label of labels.sort((a, b) => Number(b.active) - Number(a.active))) {
+    const w = ctx.measureText(label.bot.name).width + 12;
+    const gap = label.radius + 4;
+    const boxes = [
+      { x: label.point.x + gap, y: label.point.y - 10 },
+      { x: label.point.x - gap - w, y: label.point.y - 10 },
+      { x: label.point.x - w / 2, y: label.point.y - gap - MAP_LABEL_HEIGHT },
+      { x: label.point.x - w / 2, y: label.point.y + gap },
+    ].map((corner) => ({ ...corner, w, h: MAP_LABEL_HEIGHT }));
+    // A hovered or selected bot keeps its name even where nothing is free; every other one gives way.
+    const box = boxes.find((candidate) => !collides(candidate)) || (label.active ? boxes[0] : null);
+    if (!box) continue;
+    placed.push(box);
+    ctx.save();
+    ctx.globalAlpha = label.alpha;
+    ctx.fillStyle = "rgba(15, 23, 27, 0.85)";
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = label.active ? palette.brass : palette.parchment;
+    ctx.fillText(label.bot.name, box.x + 6, box.y + 14);
+    ctx.restore();
+  }
 }
 
 // ------------------------------------------------------------------------------------------------ roster
@@ -1355,9 +1404,38 @@ function shortGuid(id) {
   return match ? `${match[1]}${match[2] ? ` ${match[2]}` : ""} #${match[3]}` : id;
 }
 
+// Why this bot is doing what it is doing: the objective it holds, how far through it is, and the planner's own
+// sentence about the decision. A world build without planning simply leaves the block hidden.
+function renderBotObjective(bot) {
+  const objective = currentObjective(bot);
+  const block = $("bot-objective");
+  block.hidden = !objective;
+  if (!objective) return;
+  const head = document.createElement("b");
+  head.textContent = objective.outcome || `Objective ${objective.id}`;
+  const line = document.createElement("span");
+  line.className = "objective-state";
+  line.dataset.blocked = String(Boolean(objective.obstruction && objective.obstruction !== "none"));
+  const stuck = objective.activeWithoutProgressMs || 0;
+  line.textContent =
+    `${objective.state} · ${objective.step} · ${(objective.approach || "").replaceAll("_", " ")}` +
+    (objective.obstruction && objective.obstruction !== "none" ? ` · blocked on ${objective.obstruction}` : "") +
+    (objective.attempts > 1 ? ` · try ${objective.attempts}` : "") +
+    (stuck ? ` · no progress for ${duration(stuck)}` : "");
+  const reason = document.createElement("span");
+  reason.className = "objective-reason";
+  reason.textContent = objective.reason || "";
+  const held = (bot.planning?.objectives || []).length;
+  const rest = document.createElement("span");
+  rest.className = "objective-reason";
+  rest.textContent = `${held} objective${held === 1 ? "" : "s"} held; engine ${bot.planning?.engine || "unknown"}.`;
+  block.replaceChildren(head, line, reason, rest);
+}
+
 function renderDetails() {
   const bot = state?.bots.find((bot) => bot.id === selected);
   for (const id of ["bot-bars", "bot-spark", "bot-details", "events-title", "events"]) $(id).hidden = !bot;
+  $("bot-objective").hidden = true;
   $("bot-empty").hidden = Boolean(bot);
   if (!bot) {
     $("bot-name").textContent = selected ? "Bot is no longer in this feed" : "No bot selected";
@@ -1370,6 +1448,7 @@ function renderDetails() {
   const alles = isAlles();
   const unmeasured = "not measured by this world build";
   $("bot-name").textContent = `${bot.name}, level ${bot.level}`;
+  renderBotObjective(bot);
   const health = healthPercent(bot);
   $("bot-bars").replaceChildren(
     bar("Health", health / 100, `${formatNumber(bot.health)} / ${formatNumber(bot.maxHealth)}`, healthColor(health)),
@@ -1502,6 +1581,158 @@ function renderDetails() {
         ? "No events: this world build publishes no journal."
         : "No progression events for this bot yet.";
     $("events").replaceChildren(li);
+  }
+}
+
+
+// ------------------------------------------------------------------------------------------ world state
+
+// What the cohort is actually doing, what looks wrong, and how far the run has got. Everything here is read
+// from the authoritative snapshot: no figure is estimated and nothing is measured by the browser.
+
+function botChip(entry) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "chip";
+  chip.textContent = entry.name;
+  chip.onclick = () => selectBot(entry.id);
+  return chip;
+}
+
+function stationaryBots() {
+  // A trail is the retained position history; a bot whose whole trail sits within a yard has not moved.
+  const still = [];
+  for (const bot of state.bots) {
+    const trail = trails.get(bot.id);
+    if (!trail || trail.length < 8) continue;
+    const spread = (key) => {
+      const values = trail.map((point) => point[key]);
+      return Math.max(...values) - Math.min(...values);
+    };
+    if (spread("x") < 1 && spread("y") < 1) still.push({ id: bot.id, name: bot.name });
+  }
+  return still;
+}
+
+function renderWorldState() {
+  const rows = objectiveTable(state.bots);
+  const body = $("objective-table").tBodies[0];
+  body.replaceChildren(
+    ...rows.map(({ bot, objective }) => {
+      const tr = document.createElement("tr");
+      const name = document.createElement("td");
+      name.className = "text";
+      name.append(botChip({ id: bot.id, name: bot.name }));
+      const obstruction = cell(objective.obstruction === "none" ? "—" : objective.obstruction, "text");
+      if (objective.obstruction && objective.obstruction !== "none") obstruction.classList.add("blocked");
+      const stuck = objective.activeWithoutProgressMs || 0;
+      tr.append(
+        name,
+        cell(objective.outcome || `objective ${objective.id}`, "text"),
+        cell((objective.approach || "").replaceAll("_", " "), "text"),
+        cell(`${objective.step || "?"} · ${objective.state || "?"}`, "text"),
+        obstruction,
+        cell(formatNumber(objective.attempts ?? 0)),
+        cell(stuck ? duration(stuck) : "—"),
+      );
+      // The reason is a sentence the planner wrote about this decision; it is too long for a column of its own.
+      tr.title = objective.reason || "";
+      if (bot.id === selected) tr.className = "selected";
+      tr.onclick = () => selectBot(bot.id);
+      return tr;
+    }),
+  );
+  const tally = objectiveTally(state.bots);
+  $("objective-tally").textContent = tally.total
+    ? `${tally.total} objectives: ${tally.states.map(([name, count]) => `${count} ${name}`).join(", ")}`
+    : "";
+  const approaches = tally.approaches.map(([name, count]) => `${name.replaceAll("_", " ")} ${count}`).join(", ");
+  $("objective-status").textContent = rows.length
+    ? `${rows.length} of ${state.bots.length} bots are planning. ` +
+      `Approaches so far: ${approaches}. ` +
+      "Hover a row for the planner's own reason."
+    : "This world build publishes no bot planning, so there is no objective to show.";
+
+  const notes = attention(state, { stationary: stationaryBots() });
+  $("attention").replaceChildren(
+    ...notes.map((note) => {
+      const li = document.createElement("li");
+      li.dataset.level = note.level;
+      const text = document.createElement("span");
+      text.textContent = note.bots.length
+        ? `${note.bots.length} bot${note.bots.length === 1 ? "" : "s"} ${note.text}`
+        : note.text;
+      li.append(text);
+      if (note.bots.length) {
+        const who = document.createElement("span");
+        who.className = "chips";
+        who.append(...note.bots.slice(0, 8).map(botChip));
+        if (note.bots.length > 8) who.append(` +${note.bots.length - 8}`);
+        li.append(who);
+      }
+      return li;
+    }),
+  );
+  if (!notes.length) {
+    const li = document.createElement("li");
+    li.dataset.level = "ok";
+    li.textContent = "Nothing needs attention: every bot is online, moving, saving and within budget.";
+    $("attention").replaceChildren(li);
+  }
+
+  const statistics = runStatistics(state);
+  $("run-stats").tBodies[0].replaceChildren(
+    ...statistics.map((row) => {
+      const tr = document.createElement("tr");
+      const label = cell(row.label, "text");
+      if (row.hint) label.title = row.hint;
+      tr.append(
+        label,
+        cell(row.format === "money" ? formatMoney(row.value) : formatNumber(row.value)),
+        cell(row.perHour == null ? "—" : compactNumber(row.perHour)),
+      );
+      return tr;
+    }),
+  );
+  const elapsed = isPython() ? duration(state.simMs) : formatClock(state.simMs);
+  $("run-stats-note").textContent =
+    `Totals for the whole run, ${elapsed} of ${isAlles() ? "realm" : "simulated"} time. ` +
+    "A standing figure has no rate.";
+  $("world-note").textContent = `${state.bots.length} bots, ${notes.length} note${notes.length === 1 ? "" : "s"}`;
+
+  const talk = worldTalk(state.bots);
+  $("world-talk").hidden = !talk.leads.length && !talk.asks.length;
+  $("lead-count").textContent = talk.leads.length ? `${talk.leads.length} distinct` : "";
+  $("lead-table").tBodies[0].replaceChildren(
+    ...talk.leads.slice(0, 20).map((lead) => {
+      const tr = document.createElement("tr");
+      tr.append(
+        cell(lead.text, "text"),
+        cell(lead.source, "text"),
+        cell(lead.holders.join(", "), "text"),
+        cell(lead.confidence == null ? "—" : lead.confidence.toFixed(2)),
+        cell(`${lead.useful} / ${lead.useful + lead.unsuccessful}`),
+      );
+      tr.title = `${lead.useful} useful of ${lead.useful + lead.unsuccessful} visits acted on this lead`;
+      return tr;
+    }),
+  );
+  $("ask-list").replaceChildren(
+    ...talk.asks.map((ask) => {
+      const li = document.createElement("li");
+      const who = document.createElement("b");
+      who.textContent = ask.name;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `${ask.status.replaceAll("_", " ")}, ${ask.attempts} attempt${ask.attempts === 1 ? "" : "s"}`;
+      li.append(who, ` ${ask.question}`, meta);
+      return li;
+    }),
+  );
+  if (!talk.asks.length) {
+    const li = document.createElement("li");
+    li.textContent = "No bot is waiting on an answer.";
+    $("ask-list").replaceChildren(li);
   }
 }
 
@@ -1892,6 +2123,7 @@ function renderFeed() {
       who.textContent = event.bot ? names.get(event.bot) || shortGuid(event.bot) : "run";
       const text = document.createElement("span");
       text.textContent = describeEvent(event);
+      text.title = text.textContent;
       li.append(time, who, text);
       return li;
     }),
@@ -2086,8 +2318,13 @@ function renderInterpreter() {
     "invalidResults", "fallbackMemories", "stats", "budgetMode", "requestsPerMinute", "remainingRequests",
     "conversationQueued", "conversationCompleted", "conversationFailed",
   ]);
-  for (const [key, value] of Object.entries(worker))
-    if (!known.has(key) && (typeof value !== "object" || value === null)) facts.push([words(key), String(value)]);
+  const idleFacts = [];
+  for (const [key, value] of Object.entries(worker)) {
+    if (known.has(key) || (typeof value === "object" && value !== null)) continue;
+    // A build reports twenty-odd queue and token counters, most of them zero on a healthy worker. The ones
+    // that moved stay in the list; the rest are folded away so the panel shows work, not a column of noughts.
+    (value === 0 ? idleFacts : facts).push([words(key), String(value)]);
+  }
   const definitions = (rows) =>
     rows.flatMap(([key, value]) => {
       const dt = document.createElement("dt"),
@@ -2097,6 +2334,12 @@ function renderInterpreter() {
       return [dt, dd];
     });
   $("worker-status").replaceChildren(...definitions(facts));
+  $("worker-idle").hidden = !idleFacts.length;
+  if (idleFacts.length) {
+    $("worker-idle").querySelector("summary").textContent =
+      `${idleFacts.length} further counter${idleFacts.length === 1 ? "" : "s"} at zero`;
+    $("worker-idle-facts").replaceChildren(...definitions(idleFacts));
+  }
   // Human-to-bot conversations: the world's live counters plus the worker log's per-turn outcomes.
   const talk = state.conversation;
   const turns = workerLog?.available ? workerLog.summary.conversations : null;
@@ -2140,14 +2383,19 @@ function renderInterpreter() {
     ),
   );
   const counters = Object.entries(stats);
+  const moved = counters.filter(([, value]) => Number(value) !== 0);
+  const atZero = counters.filter(([, value]) => Number(value) === 0);
   const statsBody = $("coordinator-stats").tBodies[0];
   statsBody.replaceChildren(
-    ...counters.map(([key, value]) => {
+    ...(moved.length ? moved : counters).map(([key, value]) => {
       const tr = document.createElement("tr");
       tr.append(cell(words(key)), cell(formatNumber(value)));
       return tr;
     }),
   );
+  // Naming the untouched counters keeps them accounted for without spending a table row on each nought.
+  $("coordinator-idle").hidden = !moved.length || !atZero.length;
+  $("coordinator-idle").textContent = `At zero: ${atZero.map(([key]) => words(key)).join(", ")}.`;
   if (!counters.length) {
     const tr = document.createElement("tr");
     const td = cell("Coordinator counters are not reported by this world build.");
@@ -2183,6 +2431,7 @@ function renderInterpreter() {
   );
   renderWorkerLog();
   renderAllesFeed();
+  refreshRegionNav();
 }
 
 function renderWorkerLog() {
@@ -2256,6 +2505,7 @@ function renderAllesFeed() {
       who.textContent = event.bot ? names.get(event.bot) || shortGuid(event.bot) : "world";
       const text = document.createElement("span");
       text.textContent = describeEvent(event);
+      text.title = text.textContent;
       li.append(time, who, text);
       return li;
     }),
@@ -2589,6 +2839,55 @@ window.addEventListener("resize", () => {
     renderAnalytics();
   }
 });
+// The page is one long scroll through nine regions. The strip in the bench jumps between them and marks the one
+// being read; every region carries the bench's measured height as a scroll margin so a jump clears it.
+const regionsInView = new Set();
+const regionObserver = new IntersectionObserver(
+  (entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) regionsInView.add(entry.target.id);
+      else regionsInView.delete(entry.target.id);
+    }
+    const links = [...$("region-nav").children];
+    const reading = links.find((link) => regionsInView.has(link.dataset.region));
+    for (const link of links) link.setAttribute("aria-current", String(link === reading));
+  },
+  { rootMargin: "-25% 0px -60% 0px" },
+);
+
+function refreshRegionNav() {
+  const regions = [...document.querySelectorAll("section.region")].filter((region) => !region.hidden);
+  const nav = $("region-nav");
+  const wanted = regions.map((region) => region.getAttribute("aria-label")).join("|");
+  if (nav.dataset.regions === wanted) return;
+  nav.dataset.regions = wanted;
+  nav.replaceChildren(
+    ...regions.map((region) => {
+      const label = region.getAttribute("aria-label");
+      if (!region.id) region.id = `region-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      const link = document.createElement("a");
+      link.href = `#${region.id}`;
+      link.textContent = label;
+      link.dataset.region = region.id;
+      return link;
+    }),
+  );
+  regionsInView.clear();
+  regionObserver.disconnect();
+  for (const region of regions) regionObserver.observe(region);
+}
+
+const benchElement = document.querySelector(".bench");
+new ResizeObserver(() => {
+  const height = Math.round(benchElement.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--bench-height", `${height}px`);
+}).observe(benchElement);
+// The bench only needs to lift off the page once something has scrolled underneath it.
+document.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 4), {
+  passive: true,
+});
+
 renderLegend();
 renderControlLog();
+refreshRegionNav();
 drawMap();

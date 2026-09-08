@@ -65,6 +65,12 @@ the two cases apart, and start the bridge with `--worker-log env/dist/logs/alles
 Interpreter panel can show the worker's own job outcomes. Every boot is a new run in the same directory;
 the world archives the previous run's files into `archive/<run>/` and the bridge restarts its tiers.
 
+The World state region reads the per-bot `planning` block the module publishes in each snapshot: with a world build
+that does not publish it, the objective and lead panels are empty and only *Needs attention* and *Run so far* carry
+figures. It is the first place to look when a cohort is online but appears to be doing nothing — an objective stuck on
+`navigation` or `executor`, or one active for minutes without progress, says so directly, where the activity mix only
+shows idling.
+
 The Memory region (`/api/memory`, `/api/memory/talk`) reads the committed `alles_*` tables with the `mysql`
 client and the checkout's `env/dist/etc/worldserver.conf`, and asks the worker's model named in
 `worker.json` beside `Alles.Worker.TokenFile`; no unit change is needed on a checkout that runs the world
