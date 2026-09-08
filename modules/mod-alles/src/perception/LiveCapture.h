@@ -11,6 +11,7 @@
 #define MOD_ALLES_LIVE_CAPTURE_H
 
 #include "PacketDecoder.h"
+#include "SpeechRoute.h"
 #include "domain/Memory.h"
 
 class Player;
@@ -35,22 +36,22 @@ struct CaptureResult
 {
     CaptureStatus status = CaptureStatus::Unsupported;
     std::optional<Perception> value;
+    std::optional<SpeechRoute> route;
 };
 
 // Pure policy seam after source/comprehension have been captured. Text is gated even for written emotes.
 CaptureResult GateDeliveredPacket(DecodedLocalPacket const& packet, Reference const& source, bool comprehended);
 
-// THREAD SAFETY: packet capture requires a safely readable receiver and its visibility container: either
-// the world thread after map workers join, or the caller's proven same-map delivery context. A SendPacket
-// callback alone is NOT proof of this precondition. Never call from a socket/DB/bridge thread.
-// Resolves sources only from this receiver's visible objects; no global player lookup or new hearing/LOS gate.
+// THREAD SAFETY: requires the world thread after map workers join. A SendPacket callback alone is NOT
+// proof of this precondition. Local sources resolve from receiver visibility; delivered remote speech
+// resolves only player identity globally, with the receiver's channel/group membership as routing evidence.
 CaptureResult CaptureDeliveredPacket(Player& receiver, DecodedLocalPacket const& packet,
     uint64_t gameTimeMs, uint64_t realTimeMs);
 
 // THREAD SAFETY: own death requires the player's safe gameplay context. Witness capture requires a safe
 // victim-map callback with observer/victim/killer still valid; caller must prefilter observer to that map.
 // No returned value contains a pointer. Self death is excluded from witness capture to avoid duplicate paths.
-CaptureResult CaptureOwnDeath(Player& player, uint64_t gameTimeMs, uint64_t realTimeMs);
+CaptureResult CaptureOwnDeath(Player& player, uint64_t gameTimeMs, uint64_t realTimeMs, Unit* killer = nullptr);
 CaptureResult CaptureWitnessedDeath(Player& observer, Unit& victim, Unit* killer, float witnessRange,
     uint64_t gameTimeMs, uint64_t realTimeMs);
 

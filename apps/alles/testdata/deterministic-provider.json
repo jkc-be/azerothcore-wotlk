@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "model": "alles-acceptance-fixture",
+  "max_requests": 100,
+  "rules": [
+    {
+      "name": "retain-grounded-memory-draft",
+      "schema": "memory_proposals",
+      "match": [],
+      "copy_from": ["draft"],
+      "max_uses": 100
+    },
+    {
+      "name": "exact-fixture-greeting",
+      "schema": "conversation_response",
+      "match": [
+        {"path": ["bot"], "value": "FixtureListener"},
+        {"path": ["message"], "value": "Hello."}
+      ],
+      "response": {"reply": true, "text": "Hello there.", "action": "none"},
+      "max_uses": 1
+    },
+    {
+      "name": "keep-current-decision",
+      "schema": "planning_response",
+      "match": [{"path": ["purpose"], "value": "decision"}],
+      "response": {
+        "version": 1,
+        "capability": "none",
+        "quest": 0,
+        "place": 0,
+        "person": null,
+        "evidence": "",
+        "reason": "Retain the current deterministic gameplay plan."
+      },
+      "max_uses": 100
+    }
+  ]
+}

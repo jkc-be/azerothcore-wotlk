@@ -37,7 +37,7 @@ public:
     void Login(Player& player);
     void Lifecycle(Player& player, IngressKind kind);
     void Packet(Player& receiver, WorldPacket const& packet);
-    void OwnDeath(Player& player);
+    void OwnDeath(Player& player, Unit* killer = nullptr);
     void WitnessDeath(Unit& victim, Unit* killer);
 
     std::vector<std::string> Recall(Player const& player, std::size_t count) const;

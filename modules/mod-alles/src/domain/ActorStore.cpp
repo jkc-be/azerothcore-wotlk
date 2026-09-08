@@ -68,7 +68,9 @@ bool IsValidSnapshot(OwnerSnapshot const& snapshot, StoreLimits const& limits, M
 {
     if (!IsValidPolicy(policy) || !IsValidActor(snapshot.owner) || !snapshot.nextMemoryId || !snapshot.nextPerceptionId
         || snapshot.memories.size() > limits.memories || snapshot.perceptions.size() > limits.perceptions
-        || snapshot.revision == std::numeric_limits<uint64_t>::max())
+        || snapshot.revision == std::numeric_limits<uint64_t>::max()
+        || (snapshot.planning && (snapshot.planning->owner != snapshot.owner
+            || snapshot.planning->revision > snapshot.revision || !IsValidPlanningSnapshot(*snapshot.planning))))
         return false;
 
     std::set<uint64_t> ids;
@@ -144,6 +146,28 @@ bool ActorStore::FinishLoad(ActorKey owner, uint64_t generation, OwnerSnapshot s
         MarkDirty(entry, realTimeMs, true);
     }
     return true;
+}
+
+std::optional<uint64_t> ActorStore::UpdatePlanning(ActorKey owner, uint64_t generation, uint64_t expectedRevision,
+    ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs)
+{
+    auto found = _owners.find(owner);
+    if (found == _owners.end() || found->second.state == ActorState::Loading
+        || found->second.generation != generation || expectedRevision >= std::numeric_limits<uint64_t>::max() - 1
+        || found->second.snapshot.revision >= std::numeric_limits<uint64_t>::max() - 1)
+        return std::nullopt;
+    auto& entry = found->second;
+    auto const& previous = entry.snapshot.planning;
+    if ((previous ? previous->revision : 0) != expectedRevision)
+        return std::nullopt;
+    PlanningSnapshot next{owner, expectedRevision + 1, std::move(objectives), std::move(knowledge)};
+    if (!IsValidPlanningSnapshot(next))
+        return std::nullopt;
+    if (previous && previous->objectives == next.objectives && previous->knowledge == next.knowledge)
+        return previous->revision;
+    entry.snapshot.planning = std::move(next);
+    MarkDirty(entry, realTimeMs, 1);
+    return entry.snapshot.planning->revision;
 }
 
 void ActorStore::Close(ActorKey owner, uint64_t attachment)
@@ -363,6 +387,7 @@ bool ActorStore::ApplyMutations(ActorKey owner, uint64_t generation, std::vector
             memory.formedGameTimeMs = gameTimeMs;
             memory.decayGameTimeMs = gameTimeMs;
             memory.recalledGameTimeMs = 0;
+            memory.salience = std::min(memory.salience, SalienceCeiling(memory));
             updated.memories.push_back(std::move(memory));
             continue;
         }
@@ -383,7 +408,7 @@ bool ActorStore::ApplyMutations(ActorKey owner, uint64_t generation, std::vector
             auto replacement = mutation.memory;
             replacement.id = target->id;
             replacement.contentRevision = expectedRevision + 1;
-            replacement.salience = target->salience;
+            replacement.salience = std::min(target->salience, SalienceCeiling(replacement));
             replacement.formedGameTimeMs = gameTimeMs;
             replacement.decayGameTimeMs = gameTimeMs;
             replacement.recalledGameTimeMs = 0;

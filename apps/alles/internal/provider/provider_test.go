@@ -89,6 +89,7 @@ func TestConversationContractAndActionBounds(t *testing.T) {
 		{"natural", `{"reply":true,"text":"What do you need a hand with?","action":"none"}`, true},
 		{"follow", `{"reply":true,"text":"I'll accompany you for a little while.","action":"follow"}`, true},
 		{"addressed-elsewhere", `{"reply":false,"text":"","action":"none"}`, true},
+		{"command-text", `{"reply":true,"text":"  .server shutdown 1","action":"none"}`, false},
 		{"arbitrary-command", `{"reply":true,"text":"Done","action":".modify money 999"}`, false},
 		{"hidden-action", `{"reply":false,"text":"","action":"assist"}`, false},
 		{"markup", `{"reply":true,"text":"|Hitem:1|hclick|h","action":"none"}`, false},
@@ -122,5 +123,73 @@ func TestConversationContractAndActionBounds(t *testing.T) {
 				t.Fatalf("valid=%t error=%v", tc.valid, err)
 			}
 		})
+	}
+}
+
+func TestRemoteConversationCannotAdvertiseOrExecuteLocalActions(t *testing.T) {
+	for _, action := range []string{"none", "wave", "follow", "stop", "assist"} {
+		t.Run(action, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Format json.RawMessage `json:"response_format"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				var format struct {
+					Schema struct {
+						Schema struct {
+							Properties struct{ Action struct{ Enum []string } } `json:"properties"`
+						} `json:"schema"`
+					} `json:"json_schema"`
+				}
+				if err := json.Unmarshal(request.Format, &format); err != nil {
+					t.Error(err)
+					return
+				}
+				allowed := format.Schema.Schema.Properties.Action.Enum
+				if len(allowed) != 1 || allowed[0] != "none" {
+					t.Errorf("remote actions: %v", allowed)
+				}
+				content, _ := json.Marshal(map[string]any{"reply": true, "text": "What kind of work?", "action": action})
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+					"message": map[string]any{"content": string(content)}, "finish_reason": "stop"}}})
+			}))
+			defer server.Close()
+			_, _, err := New(server.URL, "test").Converse(context.Background(), protocol.Conversation{
+				Context: json.RawMessage(`{"message":"where can I find work?","channel":"General",
+                  "localActions":false,"canFollow":true,"followingPlayer":true,"nearbyThreat":"wolf"}`),
+			})
+			if (err == nil) != (action == "none") {
+				t.Fatalf("action=%s error=%v", action, err)
+			}
+		})
+	}
+}
+
+func TestRecruitmentOfferRequiresOwnCapabilityEvenThroughRemoteChat(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Format json.RawMessage `json:"response_format"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(request.Format), "offer_help") != allowed {
+				t.Error("offer capability does not match own eligibility")
+			}
+			content := `{"reply":true,"text":"I can join you for Group work. Invite me.","action":"offer_help"}`
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+				"message": map[string]any{"content": content}, "finish_reason": "stop"}}})
+		}))
+		data, _ := json.Marshal(map[string]any{"localActions": false, "canOfferHelp": allowed,
+			"message": "Who will help with Group work?", "recruitment": map[string]any{"quest": "Group work"}})
+		_, _, err := New(server.URL, "test").Converse(context.Background(), protocol.Conversation{Context: data})
+		server.Close()
+		if (err == nil) != allowed {
+			t.Fatalf("allowed=%t error=%v", allowed, err)
+		}
 	}
 }

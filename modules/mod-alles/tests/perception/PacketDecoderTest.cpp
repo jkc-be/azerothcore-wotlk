@@ -36,7 +36,7 @@ WorldPacket ChatPacket(ChatMsg type, std::string const& text = "Humanb died", Ob
 {
     WorldPacket packet;
     ChatHandler::BuildChatPacket(packet, type, LANG_COMMON, IsMonster(type) ? CreatureSource() : PlayerSource(),
-        target, text, 0, "Young Wolf", "Humanb");
+        target, text, 0, "Young Wolf", "Humanb", 0, false, type == CHAT_MSG_CHANNEL ? "General - Elwynn Forest" : "");
     return packet;
 }
 
@@ -72,10 +72,13 @@ TEST_P(AllesLocalChatPacketTest, CoreBuilderRoundTripPreservesOnlyDeliveredValue
     EXPECT_EQ(decoded.sourceName, IsMonster(type) ? "Young Wolf" : "");
     EXPECT_TRUE(decoded.targetName.empty());
     EXPECT_EQ(decoded.text, "Humanb died");
+    EXPECT_EQ(decoded.channelName, type == CHAT_MSG_CHANNEL ? "General - Elwynn Forest" : "");
     EXPECT_EQ(decoded.language, LANG_COMMON);
     EXPECT_EQ(packet.rpos(), 2u);
     EXPECT_EQ(decoded.kind,
         type == CHAT_MSG_SAY || type == CHAT_MSG_YELL || type == CHAT_MSG_MONSTER_SAY || type == CHAT_MSG_MONSTER_YELL
+            || type == CHAT_MSG_WHISPER || type == CHAT_MSG_PARTY || type == CHAT_MSG_PARTY_LEADER
+            || type == CHAT_MSG_CHANNEL
             ? LocalPacketKind::Speech : LocalPacketKind::WrittenEmote);
 }
 
@@ -128,7 +131,8 @@ TEST_P(AllesLocalChatPacketTest, MessageLengthAndTerminatorMustMatchExactly)
 
 INSTANTIATE_TEST_SUITE_P(CoreBuilders, AllesLocalChatPacketTest,
     ::testing::Values(CHAT_MSG_SAY, CHAT_MSG_YELL, CHAT_MSG_EMOTE, CHAT_MSG_TEXT_EMOTE,
-        CHAT_MSG_MONSTER_SAY, CHAT_MSG_MONSTER_YELL, CHAT_MSG_MONSTER_EMOTE));
+        CHAT_MSG_MONSTER_SAY, CHAT_MSG_MONSTER_YELL, CHAT_MSG_MONSTER_EMOTE, CHAT_MSG_WHISPER,
+        CHAT_MSG_PARTY, CHAT_MSG_PARTY_LEADER, CHAT_MSG_CHANNEL));
 
 TEST(AllesPacketDecoderTest, MonsterTargetNameLayoutDependsOnTargetGuidType)
 {
@@ -191,8 +195,8 @@ TEST(AllesPacketDecoderTest, UnsupportedLocalityAndOpcodesNeverProduceValues)
 {
     ChatMsg const unsupported[] =
     {
-        CHAT_MSG_WHISPER, CHAT_MSG_WHISPER_FOREIGN, CHAT_MSG_MONSTER_WHISPER, CHAT_MSG_RAID_BOSS_WHISPER,
-        CHAT_MSG_PARTY, CHAT_MSG_MONSTER_PARTY, CHAT_MSG_GUILD, CHAT_MSG_SYSTEM, CHAT_MSG_RAID_BOSS_EMOTE,
+        CHAT_MSG_WHISPER_INFORM, CHAT_MSG_WHISPER_FOREIGN, CHAT_MSG_MONSTER_WHISPER, CHAT_MSG_RAID_BOSS_WHISPER,
+        CHAT_MSG_RAID, CHAT_MSG_MONSTER_PARTY, CHAT_MSG_GUILD, CHAT_MSG_SYSTEM, CHAT_MSG_RAID_BOSS_EMOTE,
         static_cast<ChatMsg>(255)
     };
     for (auto const type : unsupported)
@@ -216,11 +220,12 @@ TEST(AllesPacketDecoderTest, UnsupportedLocalityAndOpcodesNeverProduceValues)
 
 TEST(AllesPacketDecoderTest, PrivilegedLocalChatUsesTheCoreGmPacketLayout)
 {
-    for (auto const type : {CHAT_MSG_SAY, CHAT_MSG_YELL, CHAT_MSG_EMOTE, CHAT_MSG_TEXT_EMOTE})
+    for (auto const type : {CHAT_MSG_SAY, CHAT_MSG_YELL, CHAT_MSG_EMOTE, CHAT_MSG_TEXT_EMOTE,
+        CHAT_MSG_WHISPER, CHAT_MSG_PARTY, CHAT_MSG_PARTY_LEADER, CHAT_MSG_CHANNEL})
     {
         WorldPacket packet;
         ChatHandler::BuildChatPacket(packet, type, LANG_COMMON, PlayerSource(), {}, "HELP", 0,
-            "Josh", "", 0, true);
+            "Josh", "", 0, true, type == CHAT_MSG_CHANNEL ? "Trade - City" : "");
         ASSERT_EQ(packet.GetOpcode(), SMSG_GM_MESSAGECHAT);
         auto const result = DecodeLocalPacket(packet);
         ASSERT_EQ(result.status, PacketDecodeStatus::Accepted);
@@ -236,10 +241,31 @@ TEST(AllesPacketDecoderTest, PrivilegedLocalChatUsesTheCoreGmPacketLayout)
         packet << uint8(0);
         ExpectRejected(packet);
     }
-    WorldPacket whisper;
-    ChatHandler::BuildChatPacket(whisper, CHAT_MSG_WHISPER, LANG_COMMON, PlayerSource(), {}, "private", 0,
-        "Josh", "", 0, true);
-    EXPECT_EQ(DecodeLocalPacket(whisper).status, PacketDecodeStatus::Unsupported);
+
+}
+
+TEST(AllesPacketDecoderTest, ChannelNamesUseCStringLayoutAndRejectInvalidOrUnboundedNames)
+{
+    for (auto const& name : {std::string("General - Elwynn Forest"), RepeatScalar("\xE4\xB8\x96", 100)})
+    {
+        WorldPacket packet;
+        ChatHandler::BuildChatPacket(packet, CHAT_MSG_CHANNEL, LANG_COMMON, PlayerSource(), PlayerSource(),
+            "Where is there work?", 0, "", "", 0, false, name);
+        auto decoded = DecodeLocalPacket(packet);
+        ASSERT_TRUE(decoded.value);
+        EXPECT_EQ(decoded.value->channelName, name);
+        EXPECT_EQ(decoded.value->target, PlayerSource());
+    }
+    for (auto const& name : {std::string(101, 'x'), std::string("\x80"), std::string("a\0b", 3)})
+    {
+        WorldPacket packet;
+        ChatHandler::BuildChatPacket(packet, CHAT_MSG_CHANNEL, LANG_COMMON, PlayerSource(), PlayerSource(),
+            "Where is there work?", 0, "", "", 0, false, name);
+        ExpectRejected(packet);
+    }
+    auto packet = ChatPacket(CHAT_MSG_CHANNEL);
+    packet.put<uint8>(17, 0);
+    ExpectRejected(packet);
 }
 
 TEST(AllesPacketDecoderTest, EmptySourceAndExcessivePacketSizeAreRejected)

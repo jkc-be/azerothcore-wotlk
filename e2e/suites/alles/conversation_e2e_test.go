@@ -176,18 +176,31 @@ func TestAlles_NaturalConversationAndFollow(t *testing.T) {
 		}
 		return snapshot.Conversation.Following, positions
 	}
-	turn("Would you walk along with me for a little while?", f.Bots, "")
-	if !eventually(8*time.Second, func() bool { n, _ := read(); return n == 2 }) {
-		e2eharness.Assertf(t, "natural request did not start both temporary follows")
+	turn(f.Bots[0].Name+", would you walk along with me for a little while?", f.Bots[:1], "")
+	if !eventually(8*time.Second, func() bool { n, _ := read(); return n == 1 }) {
+		e2eharness.Assertf(t, "named request did not start exactly one follow")
 	}
 	// Moving the observer tests actual follow motion, rather than accepting a verbal promise as success.
-	guest.Teleport(t, -8930, -130, 83.5, 0)
-	command()
+	x, y, z, _, _ := guest.World.Position()
+	if err := guest.World.MoveForwardAt(x, y, z, 0); err != nil {
+		e2eharness.HarnessFailf(t, "start observer movement: %v", err)
+	}
+	movement := time.NewTicker(250 * time.Millisecond)
+	defer movement.Stop()
+	for step := 1; step <= 16; step++ {
+		<-movement.C
+		if err := guest.World.SendMovementHeartbeatAt(x+float32(step)*1.25, y, z, 0); err != nil {
+			e2eharness.HarnessFailf(t, "observer movement: %v", err)
+		}
+	}
+	if err := guest.World.MoveStopAt(x+20, y, z, 0); err != nil {
+		e2eharness.HarnessFailf(t, "stop observer movement: %v", err)
+	}
 	if !eventually(15*time.Second, func() bool {
 		_, positions := read()
-		for _, bot := range f.Bots {
+		for _, bot := range f.Bots[:1] {
 			p, ok := positions[bot.GUID]
-			if !ok || math.Hypot(p[0]+8930, p[1]+130) > 7 {
+			if !ok || math.Hypot(p[0]-float64(x+20), p[1]-float64(y)) > 7 {
 				return false
 			}
 		}
@@ -195,19 +208,24 @@ func TestAlles_NaturalConversationAndFollow(t *testing.T) {
 	}) {
 		e2eharness.Assertf(t, "bots promised to follow but did not approach the moving player")
 	}
+	turn(f.Bots[0].Name+", please stop accompanying me and return to your own tasks.", f.Bots[:1], "")
+	if !eventually(8*time.Second, func() bool { n, _ := read(); return n == 0 }) {
+		e2eharness.Assertf(t, "natural stop request did not release the follow before its deadline")
+	}
+
 	channel = client.ChatMsgYell
 	nicknames := []string{"Marmalade", "Dandelion", "Hazelnut", "Buttercup", "Peppermint", "Bluebell"}
 	nickname := nicknames[time.Now().UnixNano()%int64(len(nicknames))]
-	turn("Please call me "+nickname+" while we talk.", f.Bots, "")
-	turn("What nickname did I just ask you to use?", f.Bots, nickname)
+	turn(f.Bots[1].Name+", please call me "+nickname+" while we talk.", f.Bots[1:], "")
+	turn(f.Bots[1].Name+", which name should you use for me now?", f.Bots[1:], nickname)
 	channel = client.ChatMsgSay
-	turn(f.Bots[0].Name+", what nickname did I ask you to use?", f.Bots[:1], nickname)
+	turn(f.Bots[1].Name+", what nickname did I ask you to use?", f.Bots[1:], nickname)
 	// Continue observing after the addressed reply to catch an unwanted second respondent.
 	if eventually(4*time.Second, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, line := range heard {
-			if line.source == f.Bots[1].GUID && strings.Contains(line.text, nickname) {
+			if line.source == f.Bots[0].GUID && strings.Contains(line.text, nickname) {
 				return true
 			}
 		}
@@ -256,16 +274,13 @@ func TestAlles_NaturalConversationAndFollow(t *testing.T) {
 	})
 	defer unhook()
 	guest.Engage(t, threat, 8*time.Second)
-	turn("Please help me fight this boar attacking me.", f.Bots, "")
+	turn(f.Bots[0].Name+", please help me fight this boar attacking me.", f.Bots[:1], "")
 	select {
 	case source := <-attacks:
 		t.Logf("PASS model-assisted attack start from bot %d against temporary threat %x", source, threat)
 	case <-time.After(5 * time.Second):
 		e2eharness.Assertf(t, "assist promise produced no bot attack against the engaged threat")
 	}
-	turn("Please stop following me and return to your own tasks.", f.Bots, "")
-	if !eventually(8*time.Second, func() bool { n, _ := read(); return n == 0 }) {
-		e2eharness.Assertf(t, "natural stop request did not release temporary follows")
-	}
-	t.Log("PASS natural SAY/YELL, multiple respondents, history, direct address, physical follow/stop and NPC assist")
+
+	t.Log("PASS natural SAY/YELL, distinct addressed respondents, history, physical follow/stop and NPC assist")
 }

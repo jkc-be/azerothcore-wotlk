@@ -20,6 +20,17 @@ namespace Alles::Telemetry
 {
 namespace
 {
+void Atomic(std::filesystem::path const& path, std::string const& text)
+{
+    auto temp = path.string() + ".tmp";
+    std::ofstream output;
+    output.exceptions(std::ios::failbit | std::ios::badbit);
+    output.open(temp, std::ios::trunc);
+    output << text << '\n';
+    output.close();
+    std::filesystem::rename(temp, path);
+}
+
 std::string Stem(std::string const& name)
 {
     static std::string const suffix = ".ndjson";
@@ -45,8 +56,10 @@ uint32_t HighestSegment(std::filesystem::path const& directory, std::string cons
 }
 } // namespace
 
-Journal::Journal(std::filesystem::path directory, std::string name, uint64_t segmentBytes, std::size_t queueLimit)
-    : _directory(std::move(directory)), _name(std::move(name)), _segmentBytes(segmentBytes), _queueLimit(queueLimit)
+Journal::Journal(std::filesystem::path directory, std::string name, uint64_t segmentBytes, std::size_t queueLimit,
+    std::string manifest)
+    : _directory(std::move(directory)), _name(std::move(name)), _segmentBytes(segmentBytes), _queueLimit(queueLimit),
+      _manifest(std::move(manifest))
 {
     std::error_code error;
     auto const path = _directory / _name;
@@ -156,6 +169,11 @@ void Journal::Write(std::vector<std::string> const& batch)
     _stream.flush();
     if (!_stream)
         throw std::runtime_error("telemetry journal write failed");
+    if (!_manifest.empty())
+    {
+        Atomic(_directory / "manifest.json", _manifest);
+        Atomic(_directory / "latest.json", batch.back());
+    }
     _records += batch.size();
     _written = _bytes;
     if (_segmentBytes && _bytes >= _segmentBytes)

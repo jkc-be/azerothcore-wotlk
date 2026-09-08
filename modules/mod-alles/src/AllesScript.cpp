@@ -83,7 +83,7 @@ namespace
     {
     public:
         AllesPlayerScript() : PlayerScript("AllesPlayerScript", {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_SAVE,
-            PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_PLAYER_JUST_DIED}) { }
+            PLAYERHOOK_ON_LOGOUT}) { }
 
         void OnPlayerLogin(Player* player) override
         {
@@ -101,12 +101,6 @@ namespace
         {
             if (auto* runtime = Alles::ActiveRuntime(); runtime && player)
                 runtime->Lifecycle(*player, Alles::IngressKind::Logout);
-        }
-
-        void OnPlayerJustDied(Player* player) override
-        {
-            if (auto* runtime = Alles::ActiveRuntime(); runtime && player)
-                runtime->OwnDeath(*player);
         }
     };
 
@@ -130,7 +124,11 @@ namespace
         void OnUnitDeath(Unit* victim, Unit* killer) override
         {
             if (auto* runtime = Alles::ActiveRuntime(); runtime && victim)
+            {
+                if (auto* player = victim->ToPlayer())
+                    runtime->OwnDeath(*player, killer);
                 runtime->WitnessDeath(*victim, killer);
+            }
         }
     };
 }

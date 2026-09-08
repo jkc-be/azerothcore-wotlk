@@ -79,6 +79,47 @@ OwnerStatus Ready(uint64_t generation, uint64_t committed = 0, bool saveFailed =
 }
 } // namespace
 
+TEST(AllesTelemetryRecorder, PublishesFreshSnapshotsWithoutAWorkerOrLedger)
+{
+    auto const directory = FreshDirectory("publish");
+    {
+        Recorder recorder(directory, "fallback-run", {Humana}, 1, 1000, "{\"run\":\"fallback-run\"}");
+        recorder.RecordSnapshot("{\"seq\":1}");
+        recorder.Flush();
+        recorder.RecordSnapshot("{\"seq\":2}");
+        recorder.Flush();
+        std::string latest, manifest;
+        std::ifstream snapshotFile(directory / "latest.json");
+        std::ifstream manifestFile(directory / "manifest.json");
+        std::getline(snapshotFile, latest);
+        std::getline(manifestFile, manifest);
+        EXPECT_EQ(boost::json::parse(latest).at("seq").as_int64(), 2);
+        EXPECT_EQ(boost::json::parse(manifest).at("run").as_string(), "fallback-run");
+        EXPECT_TRUE(std::filesystem::exists(directory / "snapshots.000002.ndjson"));
+        EXPECT_FALSE(recorder.Status().at("snapshots").at("failed").as_bool());
+    }
+    std::filesystem::remove_all(directory);
+}
+
+TEST(AllesTelemetryRecorder, FailedSnapshotPublicationPreservesLastSampleAndReportsFailure)
+{
+    auto const directory = FreshDirectory("publish-failure");
+    {
+        Recorder recorder(directory, "fallback-run", {Humana}, 0, 1000, "{}");
+        recorder.RecordSnapshot("{\"seq\":1}");
+        recorder.Flush();
+        std::filesystem::create_directory(directory / "latest.json.tmp");
+        recorder.RecordSnapshot("{\"seq\":2}");
+        recorder.Flush();
+        std::string latest;
+        std::ifstream snapshotFile(directory / "latest.json");
+        std::getline(snapshotFile, latest);
+        EXPECT_EQ(boost::json::parse(latest).at("seq").as_int64(), 1);
+        EXPECT_TRUE(recorder.Status().at("snapshots").at("failed").as_bool());
+    }
+    std::filesystem::remove_all(directory);
+}
+
 TEST(AllesTelemetryRecorder, CountsAiUpdatesAndProgressionForConfiguredOwnersOnly)
 {
     auto const directory = FreshDirectory("counters");

@@ -19,6 +19,7 @@ if("${MODULE_MOD-ALLES}" STREQUAL "static")
       "${CMAKE_CURRENT_LIST_DIR}/tests/telemetry/*.cpp")
     set_property(GLOBAL APPEND PROPERTY ACORE_MODULE_TEST_SOURCES ${ALLES_TEST_SOURCES})
     set_property(GLOBAL APPEND PROPERTY ACORE_MODULE_TEST_INCLUDES
+      "${CMAKE_CURRENT_LIST_DIR}/../mod-playerbots/src/Ai/World/Rpg"
       "${CMAKE_CURRENT_LIST_DIR}/src/domain"
       "${CMAKE_CURRENT_LIST_DIR}/src")
   endif()

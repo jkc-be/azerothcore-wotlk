@@ -38,15 +38,6 @@ void WriteAll(int fd, std::string const& text)
     }
 }
 
-void Atomic(std::filesystem::path const& path, std::string const& text)
-{
-    auto temp = path.string() + ".tmp";
-    std::ofstream output(temp, std::ios::trunc);
-    output.exceptions(std::ios::failbit | std::ios::badbit);
-    output << text << '\n';
-    output.close();
-    std::filesystem::rename(temp, path);
-}
 } // namespace
 
 struct Transport::Impl
@@ -244,7 +235,6 @@ struct Transport::Impl
     std::mutex mutex;
     std::vector<Frame> incoming;
     std::atomic<unsigned> posts{0};
-    std::atomic<bool> publishing{false};
     int ledger = -1;
     int lockFile = -1;
     std::string ledgerPath;
@@ -332,25 +322,4 @@ void Transport::Reserve(std::string permit, std::string record)
         });
 }
 
-void Transport::Publish(std::string directory, std::string snapshot, std::string manifest)
-{
-    // Keep at most one pending observation; a slow disk cannot accumulate gameplay snapshots.
-    if (_impl->publishing.exchange(true))
-        return;
-    boost::asio::post(_impl->io,
-                      [p = _impl.get(), directory = std::move(directory), snapshot = std::move(snapshot),
-                       manifest = std::move(manifest)]
-                      {
-                          try
-                          {
-                              auto path = std::filesystem::path(directory);
-                              Atomic(path / "manifest.json", manifest);
-                              Atomic(path / "latest.json", snapshot);
-                          }
-                          catch (...)
-                          { /* A failed publisher leaves the last sample stale; never forge freshness. */
-                          }
-                          p->publishing = false;
-                      });
-}
 } // namespace Alles::Bridge

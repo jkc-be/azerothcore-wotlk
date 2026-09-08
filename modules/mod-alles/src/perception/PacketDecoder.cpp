@@ -54,6 +54,17 @@ public:
         return Number(bytes) && Text(result, bytes, maxCharacters);
     }
 
+    bool CString(std::string& result, std::size_t maxCharacters)
+    {
+        std::size_t bytes = 0;
+        while (bytes < _packet.size() - _position && _packet.contents()[_position + bytes] != 0)
+        {
+            if (++bytes > maxCharacters * 4)
+                return Fail(PacketDecodeStatus::TooLarge);
+        }
+        return Text(result, uint32(bytes + 1), maxCharacters);
+    }
+
     bool Text(std::string& result, uint32 bytesWithTerminator, std::size_t maxCharacters)
     {
         if (bytesWithTerminator == 0)
@@ -128,6 +139,10 @@ PacketDecodeResult DecodeLocalPacket(WorldPacket const& packet)
         {
             case CHAT_MSG_SAY:
             case CHAT_MSG_YELL:
+            case CHAT_MSG_WHISPER:
+            case CHAT_MSG_PARTY:
+            case CHAT_MSG_PARTY_LEADER:
+            case CHAT_MSG_CHANNEL:
                 break;
             case CHAT_MSG_EMOTE:
             case CHAT_MSG_TEXT_EMOTE:
@@ -152,6 +167,13 @@ PacketDecodeResult DecodeLocalPacket(WorldPacket const& packet)
             return Failure(PacketDecodeStatus::Unsupported);
         if ((monster || packet.GetOpcode() == SMSG_GM_MESSAGECHAT) && !reader.SizedText(decoded.sourceName, 100))
             return Failure(reader.Status());
+        if (decoded.chatType == CHAT_MSG_CHANNEL)
+        {
+            if (!reader.CString(decoded.channelName, 100))
+                return Failure(reader.Status());
+            if (decoded.channelName.empty())
+                return Failure(PacketDecodeStatus::Malformed);
+        }
         if (!reader.Guid(decoded.target))
             return Failure(reader.Status());
         if (monster && decoded.target && !decoded.target.IsPlayer() && !decoded.target.IsPet())

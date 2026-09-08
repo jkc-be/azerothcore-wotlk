@@ -120,6 +120,14 @@ func checkFixtureIdentity(t *testing.T, authDB, charDB *sql.DB, actor *actorFixt
 
 func loginFixture(t *testing.T, authDB, charDB *sql.DB, actor actorFixture) *e2eharness.ScenarioBot {
 	t.Helper()
+	return loginFixtureAccount(t, authDB, charDB, actor, true)
+}
+
+// The objective takeover fixture may have offline siblings in its numbered bot account.
+// Always select the exact authenticated character; ordinary fixtures still require a single character.
+func loginFixtureAccount(t *testing.T, authDB, charDB *sql.DB, actor actorFixture,
+	singleCharacter bool) *e2eharness.ScenarioBot {
+	t.Helper()
 	auth := client.NewAuthClient(actor.Account, e2eharness.DefaultPassword)
 	realms, err := auth.Authenticate(e2eharness.AuthAddr)
 	if err != nil || len(realms) != 1 {
@@ -161,9 +169,14 @@ func loginFixture(t *testing.T, authDB, charDB *sql.DB, actor actorFixture) *e2e
 	}
 	select {
 	case entries := <-characters:
-		if enumOverflow.Load() || len(entries) != 1 || entries[0].GUID != actor.GUID ||
-			entries[0].Name != actor.Name || entries[0].Race != e2eharness.RaceHuman ||
-			entries[0].Class != e2eharness.ClassWarrior {
+		matches := 0
+		for _, entry := range entries {
+			if entry.GUID == actor.GUID && entry.Name == actor.Name && entry.Race == e2eharness.RaceHuman &&
+				entry.Class == e2eharness.ClassWarrior {
+				matches++
+			}
+		}
+		if enumOverflow.Load() || (singleCharacter && len(entries) != 1) || matches != 1 {
 			e2eharness.Preconditionf(t, "realm returned a different fixture character")
 		}
 	case <-time.After(15 * time.Second):

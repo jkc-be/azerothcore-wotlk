@@ -39,7 +39,9 @@ struct JournalStatus
 class Journal
 {
 public:
-    Journal(std::filesystem::path directory, std::string name, uint64_t segmentBytes, std::size_t queueLimit = 4096);
+    // A nonempty manifest also publishes latest.json from each flushed batch, on the same writer thread.
+    Journal(std::filesystem::path directory, std::string name, uint64_t segmentBytes, std::size_t queueLimit = 4096,
+        std::string manifest = "");
     ~Journal();
     Journal(Journal const&) = delete;
     Journal& operator=(Journal const&) = delete;
@@ -59,6 +61,7 @@ private:
     std::string const _name;
     uint64_t const _segmentBytes;
     std::size_t const _queueLimit;
+    std::string const _manifest;
     std::ofstream _stream;
     uint64_t _bytes = 0;
     uint32_t _segments = 0;

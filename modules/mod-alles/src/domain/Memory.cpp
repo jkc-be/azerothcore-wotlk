@@ -31,6 +31,12 @@ std::string NameOrSomeone(Reference const& reference)
     return reference.name.empty() ? "someone" : reference.name;
 }
 
+bool PlayerKilledByPlayer(Reference const& victim, Reference const& killer)
+{
+    return victim.actor && killer.actor && victim.actor->kind == ActorKind::Player
+        && killer.actor->kind == ActorKind::Player && victim.actor != killer.actor;
+}
+
 void ParseAttribution(Memory& memory, std::string const& text)
 {
     // These are exact audible English forms, not a general natural-language parser.
@@ -183,7 +189,8 @@ Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, ui
             break;
         case PerceptionKind::OwnDeath:
             memory.kind = MemoryKind::OwnDeath;
-            memory.claim = "I died.";
+            memory.claim = gated.source.name.empty() ? "I died."
+                : "I died after being attacked by " + gated.source.name + ".";
             memory.salience = 1;
             break;
         case PerceptionKind::Met:
@@ -193,7 +200,25 @@ Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, ui
             memory.formation = FormationMode::Reflex;
             break;
     }
+    memory.salience = std::min(memory.salience, SalienceCeiling(memory));
+    if (UsesReflexFormation(gated))
+        memory.formation = FormationMode::Reflex;
     return memory;
+}
+
+bool UsesReflexFormation(Perception const& perception)
+{
+    return perception.kind == PerceptionKind::Met
+        || ((perception.kind == PerceptionKind::WitnessedDeath || perception.kind == PerceptionKind::OwnDeath)
+            && !PlayerKilledByPlayer(perception.subject, perception.source));
+}
+
+double SalienceCeiling(Memory const& memory)
+{
+    if ((memory.kind == MemoryKind::WitnessedDeath || memory.kind == MemoryKind::OwnDeath)
+        && !PlayerKilledByPlayer(memory.subject, memory.source))
+        return 0.05;
+    return 1;
 }
 
 std::string RenderMemory(Memory const& memory)
@@ -217,8 +242,10 @@ bool DecayMemory(Memory& memory, MemoryPolicy const& policy, uint64_t gameTimeMs
 {
     if (!IsValidPolicy(policy))
         throw std::invalid_argument("Invalid alles memory policy");
+    double const previous = memory.salience;
+    memory.salience = std::min(memory.salience, SalienceCeiling(memory));
     if (gameTimeMs <= memory.decayGameTimeMs)
-        return false;
+        return memory.salience != previous;
 
     auto const elapsed = gameTimeMs - memory.decayGameTimeMs;
     memory.salience *= std::exp2(-static_cast<double>(elapsed) / policy.salienceHalfLifeMs);
@@ -246,7 +273,7 @@ void RehearseMemory(Memory& memory, MemoryPolicy const& policy, uint64_t gameTim
     if (!IsProbability(strength))
         throw std::invalid_argument("Invalid alles rehearsal strength");
     DecayMemory(memory, policy, gameTimeMs);
-    memory.salience = std::min(1.0, memory.salience + strength);
+    memory.salience = std::min(SalienceCeiling(memory), memory.salience + strength);
     // Repetition is not new corroboration. Confidence and erased provenance stay unchanged.
     memory.recalledGameTimeMs = std::max(memory.recalledGameTimeMs, gameTimeMs);
 }

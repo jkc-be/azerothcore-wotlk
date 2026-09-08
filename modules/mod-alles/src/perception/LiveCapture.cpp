@@ -8,9 +8,11 @@
  */
 
 #include "LiveCapture.h"
+#include "ChatAudience.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "ObjectMgr.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "SharedDefines.h"
 #include "SpellAuraEffects.h"
@@ -52,7 +54,7 @@ std::string BoundedLabel(char const* value)
     return value && IsBoundedText(value, 100) ? value : "";
 }
 
-void CaptureSelfContext(Player const& player, Perception& perception)
+void CaptureSelfContext(Player const& player, Perception& perception, std::string const& deliveryContext = "")
 {
     auto const locale = ObserverLocale(player);
     if (auto const* area = GetAreaEntryByAreaID(player.GetAreaId()))
@@ -65,7 +67,7 @@ void CaptureSelfContext(Player const& player, Perception& perception)
         perception.selfContext += ", " + BoundedLabel(race->name[locale]);
     if (unitClass)
         perception.selfContext += " " + BoundedLabel(unitClass->name[locale]);
-    perception.selfContext += ".";
+    perception.selfContext += "." + deliveryContext;
 
     // The game's own skill slots bound the input; sort for reproducible, bounded self descriptions.
     std::vector<uint32> skills;
@@ -112,14 +114,19 @@ bool Comprehends(Player const& receiver, uint32 language)
     return false;
 }
 
-CaptureResult Finish(Player const& observer, Perception perception, uint64_t gameTimeMs, uint64_t realTimeMs)
+CaptureResult Finish(Player const& observer, Perception perception, uint64_t gameTimeMs, uint64_t realTimeMs,
+    std::optional<SpeechRoute> route = std::nullopt)
 {
-    CaptureSelfContext(observer, perception);
+    std::string deliveryContext;
+    if (route && IsRemoteSpeech(route->type))
+        deliveryContext = " I heard this through " + SpeechRouteLabel(*route)
+            + "; my current place does not establish the speaker's location.";
+    CaptureSelfContext(observer, perception, deliveryContext);
     perception.gameTimeMs = gameTimeMs;
     perception.admittedRealTimeMs = realTimeMs;
     if (!GatePerception(perception))
         return Omit(CaptureStatus::InvalidText);
-    return {CaptureStatus::Accepted, std::move(perception)};
+    return {CaptureStatus::Accepted, std::move(perception), std::move(route)};
 }
 
 bool VisibleForDeath(Player const& observer, Unit const& subject, float range)
@@ -190,6 +197,21 @@ CaptureResult CaptureDeliveredPacket(Player& receiver, DecodedLocalPacket const&
     if (packet.source == receiver.GetGUID())
         return Omit(CaptureStatus::SelfFeedback);
 
+    if (IsRemoteSpeech(packet.chatType))
+    {
+        auto* source = ObjectAccessor::FindConnectedPlayer(packet.source);
+        if (!source)
+            return Omit(CaptureStatus::SourceUnavailable);
+        auto route = CaptureSpeechRoute(receiver, *source, packet.chatType, packet.channelName);
+        if (!route)
+            return Omit(CaptureStatus::Unsupported);
+        auto result = GateDeliveredPacket(packet, CaptureReference(*source, ObserverLocale(receiver)),
+            Comprehends(receiver, packet.language));
+        if (!result.value)
+            return result;
+        return Finish(receiver, std::move(*result.value), gameTimeMs, realTimeMs, std::move(route));
+    }
+
     // Avoid ObjectAccessor's global player lookup: only dereference this safe visibility container.
     auto const* visible = receiver.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap();
     if (!visible)
@@ -201,6 +223,14 @@ CaptureResult CaptureDeliveredPacket(Player& receiver, DecodedLocalPacket const&
     if (!source->IsInWorld() || !receiver.IsInMap(source))
         return Omit(CaptureStatus::SourceUnavailable);
 
+    std::optional<SpeechRoute> route;
+    if (source->IsPlayer() && packet.kind == LocalPacketKind::Speech)
+    {
+        route = CaptureSpeechRoute(receiver, *found->second->ToPlayer(), packet.chatType);
+        if (!route)
+            return Omit(CaptureStatus::Unsupported);
+    }
+
     auto reference = CaptureReference(*source, ObserverLocale(receiver));
     if (packet.chatType == CHAT_MSG_MONSTER_SAY || packet.chatType == CHAT_MSG_MONSTER_YELL
         || packet.chatType == CHAT_MSG_MONSTER_EMOTE)
@@ -208,16 +238,18 @@ CaptureResult CaptureDeliveredPacket(Player& receiver, DecodedLocalPacket const&
     auto result = GateDeliveredPacket(packet, reference, Comprehends(receiver, packet.language));
     if (!result.value)
         return result;
-    return Finish(receiver, std::move(*result.value), gameTimeMs, realTimeMs);
+    return Finish(receiver, std::move(*result.value), gameTimeMs, realTimeMs, std::move(route));
 }
 
-CaptureResult CaptureOwnDeath(Player& player, uint64_t gameTimeMs, uint64_t realTimeMs)
+CaptureResult CaptureOwnDeath(Player& player, uint64_t gameTimeMs, uint64_t realTimeMs, Unit* killer)
 {
     if (!player.IsInWorld())
         return Omit(CaptureStatus::NotInWorld);
     Perception perception;
     perception.kind = PerceptionKind::OwnDeath;
     perception.subject = CaptureReference(player, ObserverLocale(player));
+    if (killer && killer != &player && VisibleForDeath(player, *killer, 100.0f))
+        perception.source = CaptureReference(*killer, ObserverLocale(player));
     return Finish(player, std::move(perception), gameTimeMs, realTimeMs);
 }
 

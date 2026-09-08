@@ -380,6 +380,51 @@ changing the harness pin or disabling Warden.
 
 ### alles memory coverage
 
+P1, compiled but not run: `suites/alles/TestAlles_ExplorationAcquiresWork` observes local investigation,
+deferral, ordinary travel and an actual saved newly accepted quest. `TestAlles_ObjectiveEarnsQuestReward`
+requires new quest credit and an authoritative saved reward. Both require an exclusive disposable objective
+cohort and `E2E_ALLES_OBJECTIVE_FIXTURE`; see [fixture requirements](suites/alles/README.md).
+`TestAlles_QuestReadinessDefersWithoutAbandoning` uses an observed level change on that exact disposable target
+to require bounded strength deferral, another active intention and saved quest retention without reward. It also
+compiles but has not run live. Objective relog/handoff and live repair/respawn competition remain gaps.
+
+P1, compiled but not run: `suites/alles/TestAlles_HumanInvitationSuspendsAndResumesQuest` requires the exact normal
+human-led party, acknowledged saved quest checkpoint/attempt, a paused active-work timer and autonomous resumption
+after the human leaves. It uses the exclusive objective fixture on a quiet route and cleans up the new party.
+Real logout/cache-eviction/relogin persistence and live human handoff remain unverified.
+
+P1, compiled but not run: `suites/alles/TestAlles_ObjectiveSurvivesEvictionAndClientRelog` uses explicit disposable
+client takeover, acknowledged graceful logout, owner eviction and a new generation. A witnessed post-relog SAY
+must force a newer snapshot containing that input and the exact retained quest/private-knowledge payload.
+Requires the suite's Human Warrior takeover fixture and no automatic bot relog during the eviction window.
+Autonomous bot resumption after relog remains a live acceptance gap; this test retains client control.
+
+P1, compiled but not run: `suites/alles/TestAlles_ObjectiveEarnsQuestReward` has a `fundingQuest` variant.
+An active paying quest must gain real credit and its saved reward, produce an observed sufficient own balance,
+and lead to the retained money-blocked parent's actual saved reward. Only the observer is teleported; no funds or credit
+are granted. See the suite's paired quest and separated turn-in fixture requirements. Live income acceptance remains pending.
+
+Deterministic Alles trial support: `apps/alles/cmd/alles-fixture-provider` returns bounded, journaled responses
+through the ordinary worker provider adapter, with exact delivered-context matches and unchanged worker/world
+validation. Its memory/conversation/planning adapter and rejection tests pass offline with the race detector.
+The example is a starting point; case-specific advice/cooperation rules and live keeper results remain pending.
+See `apps/alles/README.md`. Keep scratch scenarios and orchestration under `e2e/local/` and retain trial journals.
+
+P1, compiled but not run: `suites/alles/TestAlles_EquipmentPreparationPaysForRealRepair` requires client-observed
+approach, actual saved equipped durability gain and matching currency expense. Its `recallRepair` fixture variant
+starts beyond visible-service search range, requires a saved personally observed repair site and returning telemetry,
+then the same real paid repair. Both variants remain unrun and use the exclusive objective fixture with already
+damaged equipment and sufficient own funds. Live party preparation and discovery of never-encountered services
+remain gaps.
+
+P1, compiled but not run: `suites/alles/TestAlles_SupplyPreparationBuysRequiredItems` requires actual new quest
+items and matching saved own-money expense after normal merchant purchase. Its exclusive disposable fixture
+freezes the target during setup and creates a guarded temporary merchant, then unfreezes for normal execution.
+Its optional `fundingItem` fixture starts with zero money and requires the exact owned junk stack to shrink plus
+positive sale income and the matching saved net balance. See the suite's quest/item/vendor, funds and quiet-scene
+requirements. Live supplies acquisition, earning missing money, distant vendor discovery and coordinated party
+preparation remain gaps.
+
 P1, compiled but not run: `suites/alles/TestAlles_HeardMemorySurvivesRelog` asserts ordinary heard text becomes
 locally attributed hearsay, a same-map distant receiver retains nothing, and the listener's memory survives an
 acknowledged flush, cache eviction and login. It requires an exclusive configured mod-alles realm and explicit
@@ -392,11 +437,13 @@ local SAY/YELL capture and autonomous bot SAY reaching a nearby unmanaged human 
 audience nearby. Requires `E2E_ALLES_AUDIENCE_FIXTURE`; see the same suite guide. This does not assert an LLM
 conversation or HELP action.
 
-P1, covered: `suites/alles/TestAlles_NaturalConversationAndFollow` passed on 2026-09-07 with the Ollama provider.
-It verifies natural SAY/YELL, multiple respondents, short history, direct address, physical follow/stop, and
+P1, covered by keeper: the earlier `suites/alles/TestAlles_NaturalConversationAndFollow` passed on 2026-09-07
+with the Ollama provider. The revised request-objective version awaits a fresh live run. It verifies natural
+SAY/YELL, separate addressed respondents, short history, physical follow through client movement, stop, and
 combat assistance against an engaged NPC. Requires `E2E_ALLES_CONVERSATION_FIXTURE` and permission to summon
 and recall its two bots; see the suite guide. Language interpretation remains model-dependent.
 
 P2, conversation telemetry: `suites/alles/TestAlles_ConversationJournal` drives actual SAY/YELL and checks
-matching delivered replies and action results in the live journal. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
+matching delivered replies and action results in the live journal, including actual wave packets to the human.
+The revised wave oracle awaits a fresh live run. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
 moves only the disposable human; see the suite guide for conversation and journal prerequisites.

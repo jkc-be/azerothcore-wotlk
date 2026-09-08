@@ -1,0 +1,474 @@
+/*
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
+ * Released under GNU GPL v2 or later; see COPYING.
+ */
+
+#include "PlanningCodec.h"
+#include "bridge/Wire.h"
+#include <limits>
+#include <stdexcept>
+
+namespace Alles::Storage
+{
+namespace
+{
+using boost::json::array;
+using boost::json::object;
+using boost::json::value;
+using Bridge::Fields;
+using Bridge::String;
+
+template <typename T>
+T UInt(object const& object, char const* key)
+{
+    auto const number = Bridge::Number(object, key);
+    if (number > std::numeric_limits<T>::max())
+        throw std::invalid_argument("planning integer overflow");
+    return static_cast<T>(number);
+}
+
+object Actor(ActorKey owner)
+{
+    return {{"kind", uint8_t(owner.kind)}, {"id", owner.id}};
+}
+
+value MaybeActor(std::optional<ActorKey> actor)
+{
+    return actor ? value(Actor(*actor)) : value(nullptr);
+}
+
+ActorKey ReadActor(value const& value)
+{
+    auto const& object = value.as_object();
+    Fields(object, {"kind", "id"});
+    ActorKey actor{ActorKind(UInt<uint8_t>(object, "kind")), UInt<uint64_t>(object, "id")};
+    if (!IsValidActor(actor))
+        throw std::invalid_argument("invalid planning actor");
+    return actor;
+}
+
+std::optional<ActorKey> ReadMaybeActor(value const& value)
+{
+    return value.is_null() ? std::nullopt : std::optional(ReadActor(value));
+}
+
+object Progress(QuestProgress const& progress)
+{
+    array counters;
+    for (auto count : progress.counters)
+        counters.push_back(count);
+    return {{"counters", std::move(counters)}, {"inLog", progress.inLog},
+        {"readyToReward", progress.readyToReward}, {"rewarded", progress.rewarded}, {"failed", progress.failed}};
+}
+
+QuestProgress ReadProgress(object const& object)
+{
+    Fields(object, {"counters", "inLog", "readyToReward", "rewarded", "failed"});
+    QuestProgress progress;
+    auto const& counters = object.at("counters").as_array();
+    if (counters.size() != progress.counters.size())
+        throw std::invalid_argument("invalid quest checkpoint");
+    for (std::size_t index = 0; index < counters.size(); ++index)
+        progress.counters[index] = UInt<uint32_t>({{"count", counters[index]}}, "count");
+    progress.inLog = object.at("inLog").as_bool();
+    progress.readyToReward = object.at("readyToReward").as_bool();
+    progress.rewarded = object.at("rewarded").as_bool();
+    progress.failed = object.at("failed").as_bool();
+    return progress;
+}
+
+object EncodeInformation(InformationSearch const& information)
+{
+    return {{"status", uint8_t(information.status)}, {"attempts", information.attempts},
+        {"askedMs", information.askedMs}, {"expiresMs", information.expiresMs},
+        {"deliveredMs", information.deliveredMs}, {"leadReport", information.leadReport},
+        {"question", information.question}};
+}
+
+InformationSearch ReadInformation(object const& object)
+{
+    Fields(object, {"status", "attempts", "askedMs", "expiresMs", "deliveredMs", "leadReport", "question"});
+    return {InformationStatus(UInt<uint8_t>(object, "status")), UInt<uint32_t>(object, "attempts"),
+        UInt<uint64_t>(object, "askedMs"), UInt<uint64_t>(object, "expiresMs"),
+        UInt<uint64_t>(object, "deliveredMs"), UInt<uint64_t>(object, "leadReport"), String(object, "question", 255)};
+}
+
+value EncodeCooperation(Cooperation const& cooperation)
+{
+    if (cooperation.state == CooperationState::None)
+        return nullptr;
+    array agreements;
+    for (auto const& [actor, agreement] : cooperation.agreements)
+        agreements.emplace_back(object{{"actor", Actor(actor)}, {"name", agreement.person.name},
+            {"statement", agreement.statement}, {"agreedMs", agreement.agreedMs},
+            {"reportedBy", agreement.reportedBy ? value(object{{"actor", MaybeActor(agreement.reportedBy->actor)},
+                {"name", agreement.reportedBy->name}}) : value(nullptr)}});
+    return object{{"state", uint8_t(cooperation.state)}, {"owner", Actor(cooperation.owner)},
+        {"leader", Actor(cooperation.leader)}, {"objective", cooperation.objective}, {"quest", cooperation.quest},
+        {"place", cooperation.rendezvousPlace}, {"attempts", cooperation.attempts},
+        {"startedMs", cooperation.startedMs}, {"deadlineMs", cooperation.deadlineMs},
+        {"reconsiderMs", cooperation.reconsiderMs}, {"reason", cooperation.reason}, {"agreements", agreements}};
+}
+
+Cooperation ReadCooperation(value const& value, uint32_t version)
+{
+    if (value.is_null())
+        return {};
+    auto const& object = value.as_object();
+    Fields(object, {"state", "owner", "leader", "objective", "quest", "place", "attempts", "startedMs",
+        "deadlineMs", "reconsiderMs", "reason", "agreements"});
+    Cooperation result;
+    result.state = CooperationState(UInt<uint8_t>(object, "state"));
+    result.owner = ReadActor(object.at("owner"));
+    result.leader = ReadActor(object.at("leader"));
+    result.objective = UInt<uint64_t>(object, "objective");
+    result.quest = UInt<uint32_t>(object, "quest");
+    result.rendezvousPlace = UInt<uint32_t>(object, "place");
+    result.attempts = UInt<uint32_t>(object, "attempts");
+    result.startedMs = UInt<uint64_t>(object, "startedMs");
+    result.deadlineMs = UInt<uint64_t>(object, "deadlineMs");
+    result.reconsiderMs = UInt<uint64_t>(object, "reconsiderMs");
+    result.reason = String(object, "reason", 2048);
+    auto const& agreements = object.at("agreements").as_array();
+    if (agreements.size() > 5)
+        throw std::invalid_argument("too many agreed companions");
+    for (auto const& value : agreements)
+    {
+        auto const& agreement = value.as_object();
+        if (version >= 5)
+            Fields(agreement, {"actor", "name", "statement", "agreedMs", "reportedBy"});
+        else
+            Fields(agreement, {"actor", "name", "statement", "agreedMs"});
+        auto const actor = ReadActor(agreement.at("actor"));
+        CompanionAgreement item{{actor, String(agreement, "name", 400)}, String(agreement, "statement", 2048),
+            UInt<uint64_t>(agreement, "agreedMs")};
+        if (version >= 5 && !agreement.at("reportedBy").is_null())
+        {
+            auto const& source = agreement.at("reportedBy").as_object();
+            Fields(source, {"actor", "name"});
+            item.reportedBy = Reference{ReadMaybeActor(source.at("actor")), String(source, "name", 400)};
+        }
+        if (!result.agreements.emplace(actor, std::move(item)).second)
+            throw std::invalid_argument("duplicate companion agreement");
+    }
+    if (!IsValidCooperation(result))
+        throw std::invalid_argument("invalid cooperation");
+    return result;
+}
+
+value EncodeRequest(std::optional<HumanRequest> const& request)
+{
+    if (!request)
+        return nullptr;
+    return object{{"action", uint8_t(request->action)}, {"source", MaybeActor(request->source.actor)},
+        {"name", request->source.name}, {"statement", request->statement}, {"targetName", request->targetName},
+        {"acceptedMs", request->acceptedMs}, {"expiresMs", request->expiresMs}};
+}
+
+std::optional<HumanRequest> ReadRequest(value const& value)
+{
+    if (value.is_null())
+        return std::nullopt;
+    auto const& object = value.as_object();
+    Fields(object, {"action", "source", "name", "statement", "targetName", "acceptedMs", "expiresMs"});
+    return HumanRequest{RequestAction(UInt<uint8_t>(object, "action")),
+        {ReadMaybeActor(object.at("source")), String(object, "name", 400)}, String(object, "statement", 1020),
+        String(object, "targetName", 400), UInt<uint64_t>(object, "acceptedMs"), UInt<uint64_t>(object, "expiresMs")};
+}
+
+value EncodePreparation(std::optional<ResourcePreparation> const& preparation)
+{
+    if (!preparation)
+        return nullptr;
+    return object{{"state", uint8_t(preparation->state)}, {"attempts", preparation->attempts},
+        {"transactions", preparation->transactions}, {"startedMs", preparation->startedMs},
+        {"deadlineMs", preparation->deadlineMs}, {"reconsiderMs", preparation->reconsiderMs},
+        {"lastTransactionMs", preparation->lastTransactionMs}, {"spentMoney", preparation->spentMoney},
+        {"reason", preparation->reason}, {"kind", uint8_t(preparation->kind)},
+        {"item", preparation->item}, {"count", preparation->count},
+        {"attemptsInCircumstances", preparation->attemptsInCircumstances}, {"ownMoney", preparation->ownMoney},
+        {"fundsAtAttempt", preparation->fundsAtAttempt}, {"fundsKnown", preparation->fundsKnown},
+        {"earnedMoney", preparation->earnedMoney}};
+}
+
+std::optional<ResourcePreparation> ReadPreparation(value const& value, uint32_t version)
+{
+    if (value.is_null())
+        return std::nullopt;
+    auto const& object = value.as_object();
+    if (version == 7)
+        Fields(object, {"state", "attempts", "transactions", "startedMs", "deadlineMs", "reconsiderMs",
+            "lastTransactionMs", "spentMoney", "reason"});
+    else if (version == 8)
+        Fields(object, {"state", "attempts", "transactions", "startedMs", "deadlineMs", "reconsiderMs",
+            "lastTransactionMs", "spentMoney", "reason", "kind", "item", "count", "attemptsInCircumstances",
+            "ownMoney", "fundsAtAttempt", "fundsKnown"});
+    else
+        Fields(object, {"state", "attempts", "transactions", "startedMs", "deadlineMs", "reconsiderMs",
+            "lastTransactionMs", "spentMoney", "reason", "kind", "item", "count", "attemptsInCircumstances",
+            "ownMoney", "fundsAtAttempt", "fundsKnown", "earnedMoney"});
+    auto result = ResourcePreparation{PreparationState(UInt<uint8_t>(object, "state")),
+        UInt<uint32_t>(object, "attempts"), UInt<uint32_t>(object, "transactions"),
+        UInt<uint64_t>(object, "startedMs"), UInt<uint64_t>(object, "deadlineMs"),
+        UInt<uint64_t>(object, "reconsiderMs"), UInt<uint64_t>(object, "lastTransactionMs"),
+        UInt<uint64_t>(object, "spentMoney"), String(object, "reason", 2048)};
+    if (version >= 8)
+    {
+        result.kind = PreparationKind(UInt<uint8_t>(object, "kind"));
+        result.item = UInt<uint32_t>(object, "item");
+        result.count = UInt<uint32_t>(object, "count");
+        result.attemptsInCircumstances = UInt<uint32_t>(object, "attemptsInCircumstances");
+        result.ownMoney = UInt<uint32_t>(object, "ownMoney");
+        result.fundsAtAttempt = UInt<uint32_t>(object, "fundsAtAttempt");
+        result.fundsKnown = object.at("fundsKnown").as_bool();
+    }
+    else
+        result.attemptsInCircumstances = result.attempts;
+    if (version >= 9)
+        result.earnedMoney = UInt<uint64_t>(object, "earnedMoney");
+    return result;
+}
+
+object EncodeObjective(Objective const& objective)
+{
+    array evidence;
+    for (auto id : objective.evidence)
+        evidence.push_back(id);
+    return {{"id", objective.id}, {"revision", objective.revision}, {"parent", objective.parent},
+        {"quest", objective.quest}, {"place", objective.place}, {"person", MaybeActor(objective.person)},
+        {"state", uint8_t(objective.state)}, {"step", uint8_t(objective.step)},
+        {"obstruction", uint8_t(objective.obstruction)}, {"outcome", objective.outcome}, {"reason", objective.reason},
+        {"approach", objective.approach}, {"evidence", std::move(evidence)},
+        {"checkpoint", Progress(objective.checkpoint)}, {"lastProgressMs", objective.lastProgressMs},
+        {"activeWithoutProgressMs", objective.activeWithoutProgressMs},
+        {"nextReconsiderationMs", objective.nextReconsiderationMs}, {"circumstances", objective.circumstances},
+        {"attempts", objective.attempts}, {"attemptsInCircumstances", objective.attemptsInCircumstances},
+        {"deaths", objective.deaths}, {"gainedCredit", objective.gainedCredit},
+        {"arrivedMs", objective.arrivedMs}, {"discoveredQuest", objective.discoveredQuest},
+        {"information", EncodeInformation(objective.information)}, {"plannedMs", objective.plannedMs},
+        {"cooperation", EncodeCooperation(objective.cooperation)}, {"request", EncodeRequest(objective.request)},
+        {"preparation", EncodePreparation(objective.preparation)}};
+}
+
+Objective ReadObjective(object const& object, uint32_t version)
+{
+    if (version == 1)
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest"});
+    else if (version == 2)
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information"});
+    else if (version == 3)
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information", "plannedMs"});
+    else if (version <= 5)
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information", "plannedMs", "cooperation"});
+    else if (version == 6)
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information", "plannedMs", "cooperation", "request"});
+    else
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information", "plannedMs", "cooperation", "request", "preparation"});
+    Objective objective;
+    objective.id = UInt<uint64_t>(object, "id");
+    objective.revision = UInt<uint64_t>(object, "revision");
+    objective.parent = UInt<uint64_t>(object, "parent");
+    objective.quest = UInt<uint32_t>(object, "quest");
+    objective.place = UInt<uint32_t>(object, "place");
+    objective.person = ReadMaybeActor(object.at("person"));
+    objective.state = ObjectiveState(UInt<uint8_t>(object, "state"));
+    objective.step = ObjectiveStep(UInt<uint8_t>(object, "step"));
+    objective.obstruction = Obstruction(UInt<uint8_t>(object, "obstruction"));
+    objective.outcome = String(object, "outcome", 2048);
+    objective.reason = String(object, "reason", 2048);
+    objective.approach = String(object, "approach", 256);
+    auto const& evidence = object.at("evidence").as_array();
+    if (evidence.size() > 16)
+        throw std::invalid_argument("too much objective evidence");
+    for (auto const& id : evidence)
+        objective.evidence.push_back(UInt<uint64_t>({{"id", id}}, "id"));
+    objective.checkpoint = ReadProgress(object.at("checkpoint").as_object());
+    objective.lastProgressMs = UInt<uint64_t>(object, "lastProgressMs");
+    objective.activeWithoutProgressMs = UInt<uint64_t>(object, "activeWithoutProgressMs");
+    objective.nextReconsiderationMs = UInt<uint64_t>(object, "nextReconsiderationMs");
+    objective.circumstances = UInt<uint64_t>(object, "circumstances");
+    objective.attempts = UInt<uint32_t>(object, "attempts");
+    objective.attemptsInCircumstances = UInt<uint32_t>(object, "attemptsInCircumstances");
+    objective.deaths = UInt<uint32_t>(object, "deaths");
+    objective.gainedCredit = UInt<uint32_t>(object, "gainedCredit");
+    objective.arrivedMs = UInt<uint64_t>(object, "arrivedMs");
+    objective.discoveredQuest = UInt<uint32_t>(object, "discoveredQuest");
+    if (version >= 7)
+        objective.preparation = ReadPreparation(object.at("preparation"), version);
+    if (version >= 6)
+        objective.request = ReadRequest(object.at("request"));
+    if (version >= 4)
+        objective.cooperation = ReadCooperation(object.at("cooperation"), version);
+    if (version >= 3)
+        objective.plannedMs = UInt<uint64_t>(object, "plannedMs");
+    if (version >= 2)
+        objective.information = ReadInformation(object.at("information").as_object());
+    return objective;
+}
+
+object EncodePlace(KnownPlace const& place)
+{
+    object result{{"area", place.area}, {"name", place.name}, {"minimumLevel", place.minimumLevel},
+        {"maximumLevel", place.maximumLevel}, {"relativeTo", place.relativeTo}, {"direction", place.direction},
+        {"origin", uint8_t(place.origin)}, {"visitedMs", place.visitedMs},
+        {"lastUsefulWorkMs", place.lastUsefulWorkMs}, {"investigations", place.investigations}};
+    if (place.repair)
+        result["repair"] = object{{"map", place.repair->map}, {"phase", place.repair->phase},
+            {"x", place.repair->x}, {"y", place.repair->y}, {"z", place.repair->z},
+            {"observedMs", place.repair->observedMs}};
+    return result;
+}
+
+KnownPlace ReadPlace(object const& object, uint32_t version)
+{
+    if (version >= 10 && object.contains("repair"))
+        Fields(object, {"area", "name", "minimumLevel", "maximumLevel", "relativeTo", "direction", "origin",
+            "visitedMs", "lastUsefulWorkMs", "investigations", "repair"});
+    else
+        Fields(object, {"area", "name", "minimumLevel", "maximumLevel", "relativeTo", "direction", "origin",
+            "visitedMs", "lastUsefulWorkMs", "investigations"});
+    KnownPlace place;
+    place.area = UInt<uint32_t>(object, "area");
+    place.name = String(object, "name", 400);
+    place.minimumLevel = UInt<uint8_t>(object, "minimumLevel");
+    place.maximumLevel = UInt<uint8_t>(object, "maximumLevel");
+    place.relativeTo = UInt<uint32_t>(object, "relativeTo");
+    place.direction = String(object, "direction", 400);
+    place.origin = KnowledgeOrigin(UInt<uint8_t>(object, "origin"));
+    place.visitedMs = UInt<uint64_t>(object, "visitedMs");
+    place.lastUsefulWorkMs = UInt<uint64_t>(object, "lastUsefulWorkMs");
+    place.investigations = UInt<uint32_t>(object, "investigations");
+    if (version >= 10 && object.contains("repair"))
+    {
+        auto const& repair = object.at("repair").as_object();
+        Fields(repair, {"map", "phase", "x", "y", "z", "observedMs"});
+        place.repair = RepairLocation{UInt<uint32_t>(repair, "map"), UInt<uint32_t>(repair, "phase"),
+            repair.at("x").to_number<float>(), repair.at("y").to_number<float>(), repair.at("z").to_number<float>(),
+            UInt<uint64_t>(repair, "observedMs")};
+    }
+    return place;
+}
+
+object EncodeReport(LearnedReport const& report)
+{
+    return {{"id", report.id}, {"source", object{{"actor", MaybeActor(report.source.actor)},
+        {"name", report.source.name}}}, {"topic", object{{"activity", uint8_t(report.topic.activity)},
+        {"quest", report.topic.quest}, {"place", report.topic.place}, {"person", MaybeActor(report.topic.person)}}},
+        {"text", report.text}, {"receivedMs", report.receivedMs}, {"confidence", report.confidence},
+        {"usefulVisits", report.usefulVisits}, {"unsuccessfulVisits", report.unsuccessfulVisits},
+        {"lastAssessedVisitMs", report.lastAssessedVisitMs}};
+}
+
+LearnedReport ReadReport(object const& object)
+{
+    Fields(object, {"id", "source", "topic", "text", "receivedMs", "confidence", "usefulVisits",
+        "unsuccessfulVisits", "lastAssessedVisitMs"});
+    auto const& source = object.at("source").as_object();
+    auto const& topic = object.at("topic").as_object();
+    Fields(source, {"actor", "name"});
+    Fields(topic, {"activity", "quest", "place", "person"});
+    LearnedReport report;
+    report.id = UInt<uint64_t>(object, "id");
+    report.source = {ReadMaybeActor(source.at("actor")), String(source, "name", 400)};
+    report.topic = {Activity(UInt<uint8_t>(topic, "activity")), UInt<uint32_t>(topic, "quest"),
+        UInt<uint32_t>(topic, "place"), ReadMaybeActor(topic.at("person"))};
+    report.text = String(object, "text", 2048);
+    report.receivedMs = UInt<uint64_t>(object, "receivedMs");
+    report.confidence = object.at("confidence").to_number<double>();
+    report.usefulVisits = UInt<uint32_t>(object, "usefulVisits");
+    report.unsuccessfulVisits = UInt<uint32_t>(object, "unsuccessfulVisits");
+    report.lastAssessedVisitMs = UInt<uint64_t>(object, "lastAssessedVisitMs");
+    return report;
+}
+}
+
+std::string EncodePlanning(PlanningSnapshot const& snapshot)
+{
+    if (!IsValidPlanningSnapshot(snapshot))
+        throw std::invalid_argument("invalid planning snapshot");
+    array objectives, places, reports;
+    for (auto const& [id, objective] : snapshot.objectives.objectives)
+        objectives.push_back(EncodeObjective(objective));
+    for (auto const& [id, place] : snapshot.knowledge.places)
+        places.push_back(EncodePlace(place));
+    for (auto const& [id, report] : snapshot.knowledge.reports)
+        reports.push_back(EncodeReport(report));
+    auto encoded = boost::json::serialize(object{{"version", 10}, {"owner", Actor(snapshot.owner)},
+        {"revision", snapshot.revision}, {"nextObjectiveId", snapshot.objectives.nextId},
+        {"objectives", std::move(objectives)}, {"seedVersion", snapshot.knowledge.seedVersion},
+        {"nextReportId", snapshot.knowledge.nextReport}, {"places", std::move(places)},
+        {"reports", std::move(reports)}});
+    if (encoded.size() > MaxPlanningBytes)
+        throw std::invalid_argument("planning snapshot exceeds bounds");
+    return encoded;
+}
+
+std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey expectedOwner)
+{
+    try
+    {
+        // Share the strict duplicate-key/depth parser; the bridge's default 64 KiB frame limit is unchanged.
+        auto const decoded = Bridge::Parse(text, MaxPlanningBytes);
+        auto const& object = decoded.as_object();
+        Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",
+            "nextReportId", "places", "reports"});
+        auto const version = UInt<uint32_t>(object, "version");
+        if (version < 1 || version > 10)
+            return std::nullopt;
+        PlanningSnapshot snapshot;
+        snapshot.owner = ReadActor(object.at("owner"));
+        snapshot.revision = UInt<uint64_t>(object, "revision");
+        snapshot.objectives.nextId = UInt<uint64_t>(object, "nextObjectiveId");
+        snapshot.knowledge.seedVersion = UInt<uint32_t>(object, "seedVersion");
+        snapshot.knowledge.nextReport = UInt<uint64_t>(object, "nextReportId");
+        auto const& objectives = object.at("objectives").as_array();
+        auto const& places = object.at("places").as_array();
+        auto const& reports = object.at("reports").as_array();
+        if (snapshot.owner != expectedOwner || objectives.size() > 32 || places.size() > 64 || reports.size() > 64)
+            return std::nullopt;
+        for (auto const& value : objectives)
+        {
+            auto objective = ReadObjective(value.as_object(), version);
+            if (!snapshot.objectives.objectives.emplace(objective.id, std::move(objective)).second)
+                return std::nullopt;
+        }
+        for (auto const& value : places)
+        {
+            auto place = ReadPlace(value.as_object(), version);
+            if (!snapshot.knowledge.places.emplace(place.area, std::move(place)).second)
+                return std::nullopt;
+        }
+        for (auto const& value : reports)
+        {
+            auto report = ReadReport(value.as_object());
+            if (!snapshot.knowledge.reports.emplace(report.id, std::move(report)).second)
+                return std::nullopt;
+        }
+        if (IsValidPlanningSnapshot(snapshot))
+            return snapshot;
+    }
+    catch (std::exception const&)
+    {
+        // Corrupt or newer state must never become an empty overwrite of an owner's saved intentions.
+    }
+    return std::nullopt;
+}
+}

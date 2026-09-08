@@ -21,6 +21,7 @@ void BindOwner(CharacterDatabasePreparedStatement& statement, ActorKey owner);
 void BindActor(CharacterDatabasePreparedStatement& statement, OwnerSnapshot const& snapshot);
 void BindPerception(CharacterDatabasePreparedStatement& statement, ActorKey owner, Perception const& perception);
 void BindMemory(CharacterDatabasePreparedStatement& statement, ActorKey owner, Memory const& memory);
+void BindPlanning(CharacterDatabasePreparedStatement& statement, PlanningSnapshot const& snapshot);
 }
 
 #endif

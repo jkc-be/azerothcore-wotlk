@@ -85,9 +85,9 @@ class Keys
 };
 } // namespace
 
-boost::json::value Parse(std::string_view text)
+boost::json::value Parse(std::string_view text, std::size_t maxBytes)
 {
-    if (text.empty() || text.size() > 65536)
+    if (text.empty() || text.size() > maxBytes)
         throw std::invalid_argument("JSON frame size");
     boost::json::parse_options options;
     options.max_depth = 16;

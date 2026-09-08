@@ -56,3 +56,6 @@ Alles.Conversation.Enable = 0
 # Use a new profile-matched ledger for a changed model/prompt contract; preserve old trial evidence.
 Alles.Interpreter.BudgetMode = "trial"
 Alles.Interpreter.RequestsPerMinute = 30
+# Objective execution is opt-in while exploration, cooperation and persistence are being integrated.
+# Uses the active New RPG engine; incompatible strategy sets suspend objective execution.
+Alles.Objectives.Enable = 0

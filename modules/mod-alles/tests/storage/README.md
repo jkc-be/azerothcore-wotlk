@@ -4,11 +4,44 @@
 then keep it alive through `OnAfterUnloadAllMaps` while the pools remain open. The runtime connects this lifecycle
 for the configured in-process pilot; database-backed behavior still needs live validation.
 
-`StartLoad(owner, generation)` queues four prepared queries on one query-holder connection: actor metadata,
-pending perceptions, memories, then actor metadata again. All three statement forms use a left-join seed so
+`StartLoad(owner, generation)` queues five prepared queries on one query-holder connection: actor metadata,
+pending perceptions, memories, planning, then actor metadata again. All four statement forms use a left-join seed so
 successful empty results contain one null sentinel row. A null query result always means failure, including
 when the owner has never existed. Child reads fetch at most the configured cap plus one; the extra row detects
 oversized snapshots. Missing actor metadata with retained children is corrupt and is rejected.
+
+Planning is an optional, versioned, owner-bound JSON payload in `alles_planning`, saved in the same transaction
+as memories and actor metadata. Its independent revision fences planning updates without rejecting concurrent
+memory ingress. Decode rejects duplicate keys, unknown fields or versions, invalid references, numeric overflow,
+oversized collections and malformed semantic state. An invalid planning payload rejects the whole load; it never
+becomes an empty replacement. The pending migration adds a table without modifying existing memory rows.
+
+Planning snapshots retain objective attempts, deferred work, private geography and source-attributed reports.
+The writer emits version 10, retaining resource preparation kinds, item requirements, observed funds and sale income,
+deadlines/charges, information questions,
+validated leads, grounded preference times and owner/quest-bound cooperation agreements with statements, actors,
+attempt limits and deadlines. Relayed roster
+entries retain their reporting leader separately from direct statements. Human request objectives retain the
+actual speaker, statement, action and deadline; they omit live movement/combat handles. Readers accept versions 1–10
+and upgrade older formats without inventing missing preparation, funds, request, question, preference, consent or
+reporting-source state. Version 10 adds optional personally observed repair locations per known place, bounded to
+finite coordinates with map, phase and observation time. These are search locations, never NPC handles or remote
+repair authority. Versions 1–9 create no repair-location knowledge. Version 7 preparation upgrades to repair with an
+unknown funds baseline; its first balance observation cannot refund attempts. Versions 1–8 invent no sale income.
+Income remains distinct from spending and
+cannot complete a quest or preparation by itself. Merchant identities, stock, prices and sale item GUIDs do not
+persist as transaction authority.
+Unknown versions and missing required fields reject the whole load. The 2 MiB payload bound covers worst-case
+escaping with retained agreements.
+Question counters, preferred intentions and agreements survive reload; live dialogue threads, worker jobs,
+party pointers, invitations and readiness do not. Cooperation must name the snapshot owner and a privately known
+meeting place. Only one cooperative intention per owner may be recruiting, agreed, rendezvousing or working.
+They omit live movement handles and elapsed-sample timestamps. Reload places active intentions in a waiting
+state and reconciles all saved quest outcomes with the owner's actual quest state before execution resumes.
+A saved completion whose reward is absent after reload is reopened or cancelled according to the quest log.
+Follow requests reconcile against the current requester without renewing their deadline. Immediate wave/assist
+requests cannot replay a lost execution after reload; observed effects remain completed.
+`PlanningCodecTest.cpp` and `PlanningStoreTest.cpp` exercise these boundaries without a live worldserver.
 
 The before/after actor metadata must match. Consistency relies on mod-alles being the sole writer, each
 snapshot being one transaction, revisions increasing on every material/decay change, and retries preserving
