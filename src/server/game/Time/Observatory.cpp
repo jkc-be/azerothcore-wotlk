@@ -826,7 +826,10 @@ void Observatory::Run()
     SimulationBudget budget;
     uint64 maxTickUs = 0;
     Control applied;
-    applied = pending;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        applied = pending;
+    }
     uint64 populationSince = 0;
     std::string problem;
     bool ready = false;

@@ -714,7 +714,8 @@ void PilotCoordinator::Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::siz
                 --itemBudget;
             }
         }
-        else if (Elapsed(gameTimeMs, first.gameTimeMs, DebounceMs) && _impl->jobs.size() < std::min(_impl->limits.jobs, _impl->admissionLimit))
+        else if (Elapsed(gameTimeMs, first.gameTimeMs, DebounceMs)
+            && _impl->jobs.size() < std::min(_impl->limits.jobs, _impl->admissionLimit))
         {
             if (auto job = _impl->Capture(owner))
             {

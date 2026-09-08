@@ -49,7 +49,8 @@ bool Service::Busy(uint64_t realMs) const
 bool Service::QueueWorkerJob(std::string id, boost::json::object context, uint64_t realMs, Purpose purpose)
 {
     auto const& results = purpose == Purpose::Planning ? planningResults : conversationResults;
-    if (PendingJobs() >= queueLimit || workerJobs.size() >= 32 || results.size() >= 64 || id.empty() || id.size() > 64 ||
+    if (PendingJobs() >= queueLimit || workerJobs.size() >= 32 || results.size() >= 64
+        || id.empty() || id.size() > 64 ||
         boost::json::serialize(context).size() > 10000 ||
         std::any_of(workerJobs.begin(), workerJobs.end(), [&](auto const& item) { return item.id == id; }))
         return false;
