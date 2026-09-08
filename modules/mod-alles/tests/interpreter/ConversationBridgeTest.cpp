@@ -36,7 +36,7 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while (response.find('\n') == std::string::npos && std::chrono::steady_clock::now() < deadline)
             {
-                service.Update(now, now);
+                service.Update(now, now, false, now);
                 char data[16384];
                 boost::system::error_code error;
                 auto count = socket.read_some(boost::asio::buffer(data), error);
@@ -50,7 +50,8 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
         auto claim = [&](std::string const& id, bool enqueue = true)
         {
             if (enqueue)
-                EXPECT_TRUE(service.QueueConversation(id, {{"message", "Could you lend a hand?"}}, now));
+                EXPECT_TRUE(service.QueueConversation(id, {{"message", "Could you lend a hand?"}},
+                    now, {ActorKind::Player, 3}));
             boost::json::object answer;
             for (unsigned tries = 0; tries < 100; ++tries)
             {
@@ -95,6 +96,7 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
         EXPECT_EQ(String(submit(job, {{"reply", false}, {"text", ""}, {"action", "none"}}).at("result").as_object(),
                          "status"),
                   "accepted");
+        EXPECT_EQ(service.TakeConversations().size(), 1u);
         EXPECT_TRUE(call("next_jobs", {{"n", 1}}).at("result").as_object().at("budgetExhausted").as_bool());
         EXPECT_EQ(Number(service.Status(), "remainingRequests"), 0u);
         now += 60000;
@@ -112,7 +114,9 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
         observation.admittedRealTimeMs = now - 5000;
         ASSERT_TRUE(store.Observe(owner, observation, now - 5000));
         coordinator.Update(now, now);
-        ASSERT_TRUE(service.QueueConversation("refilled", {{"message", "Could you lend a hand?"}}, now));
+        service.Update(now, now, false, now);
+        ASSERT_TRUE(service.QueueConversation("refilled", {{"message", "Could you lend a hand?"}},
+            now, {ActorKind::Player, 3}));
         auto memory = call("next_jobs", {{"n", 1}}).at("result").as_object().at("job");
         ASSERT_TRUE(memory.is_object());
         auto const& memoryJob = memory.as_object();
@@ -132,7 +136,7 @@ TEST(AllesConversationBridgeTest, DurableSharedRateBudgetRefillsAndRejectsInvali
     {
         Transport reopened(0, path.string(), "profile", 0);
         EXPECT_EQ(reopened.Charged(), 3u);
-        EXPECT_EQ(reopened.RecentReservations().back(), 160000u);
+        EXPECT_EQ(reopened.RecentReservations().rbegin()->first, 160000u);
     }
     std::filesystem::remove(path);
     std::filesystem::remove(path.string() + ".lock");
@@ -181,7 +185,7 @@ TEST(AllesConversationLedgerTest, CompactionPreservesCountRecentReservationsAndL
     {
         Transport transport(0, path.string(), "profile", 0);
         EXPECT_EQ(transport.Charged(), 3001u);
-        EXPECT_EQ(transport.RecentReservations(), std::vector<uint64_t>{100000});
+        EXPECT_EQ(transport.RecentReservations(), (ReservationHistory{{1000, 3000}, {100000, 1}}));
     }
     std::filesystem::remove(path);
     std::filesystem::remove(path.string() + ".lock");

@@ -407,6 +407,13 @@ test("live realm alerts name the worker, the budget, the journal and stale telem
     interpreter: { connected: true, budgetMode: "rolling", usedRequests: 100, maxRequests: 100 },
   });
   assert.deepEqual(rolling, []);
+  const unlimited = alerts({
+    source: "alles-live",
+    bots: [],
+    interpreter: { connected: true, budgetMode: "unlimited", usedRequests: 1000, maxRequests: 100,
+      remainingRequests: null },
+  });
+  assert.deepEqual(unlimited, [], "Unlimited has no exhausted trial allowance");
   const faults = alerts({
     source: "alles-live",
     bots: [],

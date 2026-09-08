@@ -719,7 +719,8 @@ void ConversationRuntime::Update(uint64_t gameMs, uint64_t realMs)
                     candidate = turn->candidates.erase(candidate);
                     continue;
                 }
-                if (!impl->bridge.QueueConversation(id, std::move(context), realMs))
+                if (!impl->bridge.QueueConversation(id, std::move(context), realMs,
+                    {ActorKind::Player, candidate->bot}, candidate->generation, std::to_string(turn->thread)))
                 {
                     impl->policy.Finish(turn->thread);
                     ++impl->omitted;

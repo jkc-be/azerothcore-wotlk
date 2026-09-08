@@ -635,6 +635,12 @@ void PilotCoordinator::Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::siz
             FormationMode::Fallback, gameTimeMs, realTimeMs))
         {
             ++_impl->stats.expiredJobs;
+            if (Elapsed(gameTimeMs, job.snapshot.admittedGameTimeMs, GameDeadlineMs))
+                ++_impl->stats.gameDeadlineExpiries;
+            else if (Elapsed(realTimeMs, job.snapshot.admittedRealTimeMs, RealDeadlineMs))
+                ++_impl->stats.realDeadlineExpiries;
+            else
+                ++_impl->stats.leaseExpiries;
             ++iterator;
             _impl->RemoveJob(owner);
             --itemBudget;
@@ -707,9 +713,14 @@ void PilotCoordinator::Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::siz
             || Elapsed(gameTimeMs, first.gameTimeMs, GameDeadlineMs))
         {
             // This path also drains owners whose work waited outside the bounded job queue.
+            bool const gameExpired = Elapsed(gameTimeMs, first.gameTimeMs, GameDeadlineMs);
             if (_impl->ApplyTemplate(owner, 1, FormationMode::Fallback, gameTimeMs, realTimeMs))
             {
                 ++_impl->stats.expiredJobs;
+                if (gameExpired)
+                    ++_impl->stats.gameDeadlineExpiries;
+                else
+                    ++_impl->stats.realDeadlineExpiries;
                 --itemBudget;
             }
         }
@@ -768,11 +779,12 @@ void PilotCoordinator::EnableExternal()
 }
 
 std::optional<JobSnapshot> PilotCoordinator::Claim(std::string worker, std::string profile,
-    uint64_t gameMs, uint64_t realMs)
+    uint64_t gameMs, uint64_t realMs, std::optional<ActorKey> selected)
 {
     _impl->CheckThread();
     if (!_impl->external || _impl->stopping || worker.empty() || worker.size() > 64 || profile.size() > 128
-        || std::any_of(_impl->jobs.begin(), _impl->jobs.end(), [](auto const& pair) { return pair.second.leased; }))
+        || (!selected && std::any_of(_impl->jobs.begin(), _impl->jobs.end(),
+            [](auto const& pair) { return pair.second.leased; })))
         return std::nullopt;
     auto candidates = _impl->ready.size();
     while (candidates-- && !_impl->ready.empty())
@@ -785,7 +797,8 @@ std::optional<JobSnapshot> PilotCoordinator::Claim(std::string worker, std::stri
         auto& job = found->second;
         auto& input = job.snapshot;
         auto& schedule = _impl->owners.at(owner);
-        if (realMs < schedule.nextTokenRealMs || DeadlineExpired(input, gameMs, realMs)
+        if ((selected && owner != *selected) || job.leased ||
+            realMs < schedule.nextTokenRealMs || DeadlineExpired(input, gameMs, realMs)
             || AddTime(realMs, 25000) > AddTime(input.admittedRealTimeMs, RealDeadlineMs))
         {
             _impl->ready.push_back(owner);
@@ -797,11 +810,43 @@ std::optional<JobSnapshot> PilotCoordinator::Claim(std::string worker, std::stri
         input.leaseExpiresRealTimeMs = std::min(AddTime(realMs, LeaseMs),
             AddTime(input.admittedRealTimeMs, RealDeadlineMs));
         job.leased = true;
-        schedule.nextTokenRealMs = AddTime(realMs, OwnerTokenIntervalMs);
+        schedule.nextTokenRealMs = realMs; // External scheduling/rate policy owns admission; no hidden pilot bucket.
         ++_impl->stats.dispatched;
         return input;
     }
     return std::nullopt;
+}
+
+std::vector<JobSnapshot> PilotCoordinator::Ready(uint64_t gameMs, uint64_t realMs) const
+{
+    _impl->CheckThread();
+    std::vector<JobSnapshot> result;
+    for (auto owner : _impl->ready)
+    {
+        auto found = _impl->jobs.find(owner);
+        if (found == _impl->jobs.end() || found->second.leased)
+            continue;
+        auto const& job = found->second.snapshot;
+        if (realMs >= _impl->owners.at(owner).nextTokenRealMs && !DeadlineExpired(job, gameMs, realMs) &&
+            AddTime(realMs, 25000) <= AddTime(job.admittedRealTimeMs, RealDeadlineMs))
+            result.push_back(job);
+    }
+    return result;
+}
+
+void PilotCoordinator::RejectQueued(std::string const& token, uint64_t gameMs, uint64_t realMs)
+{
+    _impl->CheckThread();
+    auto found = std::find_if(_impl->jobs.begin(), _impl->jobs.end(), [&](auto const& pair)
+        { return pair.second.snapshot.jobToken == token && !pair.second.leased; });
+    if (found == _impl->jobs.end())
+        return;
+    auto const owner = found->first;
+    auto const& job = found->second.snapshot;
+    if (_impl->PrefixCurrent(job))
+        _impl->ApplyTemplate(owner, job.perceptions.size(), FormationMode::Fallback, gameMs, realMs);
+    // If persistence/handoff prevents the fallback, retained perceptions keep their original bounded age.
+    _impl->RemoveJob(owner);
 }
 
 bool PilotCoordinator::Heartbeat(std::string const& token, std::string const& worker,

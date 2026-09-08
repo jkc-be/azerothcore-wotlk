@@ -276,3 +276,8 @@ Enable conversation and telemetry journals and disable ambient speech. It moves 
 the named existing bot, sends directly addressed SAY and YELL requests to wave, and matches each received reply
 to its journal text, bot identity, human, channel, action result and job. Bot positions and strategies are not
 changed by setup. Run it alone with `-run '^TestAlles_ConversationJournal$' -timeout=3m`.
+
+Passed on the native realm with agent protocol 2 and the Ollama provider on 2026-09-08 (4.924 seconds), including
+both client-visible wave emotes. SAY and YELL use distinct requests because local routes deliberately share
+duplicate-topic suppression. The first run exposed that fixture error; identical repeated requests are not a
+valid oracle for a second reply. Existing bots were not summoned, reset or moved by setup.

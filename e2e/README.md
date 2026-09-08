@@ -445,5 +445,6 @@ and recall its two bots; see the suite guide. Language interpretation remains mo
 
 P2, conversation telemetry: `suites/alles/TestAlles_ConversationJournal` drives actual SAY/YELL and checks
 matching delivered replies and action results in the live journal, including actual wave packets to the human.
-The revised wave oracle awaits a fresh live run. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
+The revised wave oracle passed on 2026-09-08 with agent protocol 2 and distinct SAY/YELL topics.
+It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
 moves only the disposable human; see the suite guide for conversation and journal prerequisites.

@@ -9,7 +9,8 @@ Alles.Enable = 0
 # No accounts are created or changed by this configuration. NPC owners require the later W7 adapter.
 Alles.Owners = ""
 
-# Ordinary-realm pilot. Use bridge for the external Ollama worker; pause-safe lab support is separate.
+# Use pilot on the ordinary realm; simulation requires isolated Observatory mode and its acceptance checks.
+# Use bridge for the external agent worker. Simulation keeps Alles.Telemetry.Directory empty.
 Alles.Worker.Mode = "inprocess-fake"
 Alles.SchedulingProfile = "pilot"
 # Withhold fake replies to exercise normal permit/lease/deadline fallback (the earliest expiry wins).
@@ -29,7 +30,7 @@ Alles.Speech.RepeatSeconds = 300
 # cannot currently be cancelled; this is not a hard maximum worldserver shutdown duration.
 Alles.Shutdown.DrainSeconds = 10
 
-# Optional external Ollama pilot: authenticated loopback, one fleet slot, one attempt per job.
+# External agent worker: authenticated loopback, shared fair queues, one model attempt per job.
 # Set Mode=bridge and all paths/profile fields explicitly after running the worker's offline fixtures.
 Alles.Worker.Port = 8779
 Alles.Worker.TokenFile = ""
@@ -52,10 +53,25 @@ Alles.Telemetry.JournalSegmentBytes = 67108864
 # Requires bridge mode. Every eligible nearby autonomous bot may respond; direct naming limits the audience.
 Alles.Conversation.Enable = 0
 
-# "trial": lifetime TrialMaxRequests cap; "rolling": a replenishing, shared one-minute request allowance.
+# "limited": real-minute model allowance; "unlimited": no rate throttle; "trial": explicit finite test.
+# The legacy "rolling" spelling remains accepted. Concurrency and queue bounds apply in every mode.
 # Use a new profile-matched ledger for a changed model/prompt contract; preserve old trial evidence.
-Alles.Interpreter.BudgetMode = "trial"
+Alles.Interpreter.BudgetMode = "limited"
 Alles.Interpreter.RequestsPerMinute = 30
 # Objective execution is opt-in while exploration, cooperation and persistence are being integrated.
 # Uses the active New RPG engine; incompatible strategy sets suspend objective execution.
 Alles.Objectives.Enable = 0
+
+# Provisional measurement defaults; tune using waiting ages and outcomes, not provider assumptions.
+Alles.Interpreter.ConcurrentJobs = 1
+Alles.Interpreter.ConcurrentCalls = 1
+Alles.Interpreter.WaitingPerActor = 2
+Alles.Interpreter.WaitingGlobal = 10
+Alles.Interpreter.BytesPerActor = 49152
+Alles.Interpreter.BytesGlobal = 245760
+# Empty uses TrialLedger + ".policy.json". Durable runtime overrides win over the startup defaults.
+Alles.Interpreter.PolicyFile = ""
+# Separate private 32-128 byte token, different from Worker.TokenFile. Empty disables dashboard controls/interviews.
+Alles.Interpreter.ControlTokenFile = ""
+# Observer evidence only; room for the worker prompt and live quest/intentions snapshot is reserved separately.
+Alles.Interview.EvidenceBytes = 6144

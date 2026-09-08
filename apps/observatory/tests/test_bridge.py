@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import io
 import os
 from pathlib import Path
 import re
@@ -1053,68 +1054,106 @@ class MemoryInspection(unittest.TestCase):
         with self.assertRaisesRegex(bridge.Unavailable, 'no settings'):
             unavailable.overview()
 
-    def test_talk_sends_a_bounded_context_and_answers_one_question_at_a_time(self):
+    def test_talk_uses_shared_admission_and_bounded_evidence(self):
         requests = []
 
-        def opener(request, timeout):
-            requests.append((request, timeout))
-            return FakeResponse({'model': 'qwen3:8b-q8_0', 'choices': [{'finish_reason': 'stop', 'message': {
-                'content': '  I remember a wolf.\nIt died.  '}}], 'usage': {'prompt_tokens': 300,
-                                                                            'completion_tokens': 12}})
+        class FixtureAdmission:
+            busy = threading.Lock()
 
-        provider = bridge.TalkProvider('http://gpu:11434/v1/', 'qwen3:8b-q8_0', timeout=7, opener=opener)
+            def describe(self):
+                return {'model': 'fixture', 'admission': 'shared interpreter scheduler'}
+
+            def complete(self, owner, context):
+                requests.append((owner, context))
+                return {'text': 'I remember a wolf.', 'model': 'fixture', 'promptTokens': 300,
+                        'completionTokens': 12, 'latencyMs': 5, 'finish': 'stop'}
+
+        provider = FixtureAdmission()
         inspector, _ = self.inspector(provider)
         answer = inspector.talk({'owner': 'player:1176', 'message': '  What about  the wolf? ',
-                                 'history': [{'role': 'observer', 'text': 'hi'}, {'role': 'character', 'text': 'hello'}]})
-        self.assertEqual(answer['text'], 'I remember a wolf. It died.')
-        self.assertEqual((answer['name'], answer['message'], answer['promptTokens'], answer['completionTokens']),
-                         ('Humana', 'What about the wolf?', 300, 12))
-        self.assertEqual((answer['memoriesOffered'], answer['memoriesCommitted'], answer['committedRevision']),
-                         ([7, 5], 2, 42))
-        request, timeout = requests[0]
-        self.assertEqual((request.full_url, timeout, request.get_method()), ('http://gpu:11434/v1/chat/completions', 7,
-                                                                             'POST'))
-        body = json.loads(request.data)
-        self.assertEqual((body['model'], body['temperature'], body['reasoning_effort']), ('qwen3:8b-q8_0', 0.2, 'none'))
-        self.assertEqual(body['messages'][0]['content'], bridge.TALK_CONTRACT)
-        context = json.loads(body['messages'][1]['content'])
+                                 'history': [{'role': 'character', 'text': 'I am heading to an invented place.'}]})
+        self.assertEqual(answer['text'], 'I remember a wolf.')
+        self.assertEqual(answer['memoriesOffered'], [7, 5])
+        self.assertTrue(answer['retrieval']['storeWide'])
+        owner, context = requests[0]
+        self.assertEqual(owner, 'player:1176')
         self.assertEqual(context['character'], 'Humana, level 7 Human Priest')
-        self.assertEqual(context['place'], 'Elwynn Forest')
-        self.assertEqual(context['history'], ['Observer: hi', 'Humana: hello'])
         self.assertEqual(context['message'], 'What about the wolf?')
-        self.assertTrue(context['memories'][0].startswith('I saw that Mangy Wolf died after being attacked by Humana '
-                                                          '(confidence 0.90, salience 0.75, '))
-        self.assertLessEqual(len(body['messages'][1]['content']) + len(bridge.TALK_CONTRACT), bridge.TALK_CONTEXT_BYTES)
+        self.assertNotIn('invented place', ' '.join(context['memories']))
+        self.assertLessEqual(len(json.dumps(context).encode()), bridge.TALK_EVIDENCE_BYTES)
         for bad in ({'owner': 'player:1176', 'message': ''}, {'owner': 'player:1176', 'message': 'x' * 501},
                     {'owner': 'player:1176', 'message': 'hi', 'history': [{'role': 'bot', 'text': 'x'}]},
                     {'owner': 'player:1176', 'message': 'hi', 'history': 'no'}, 'not an object'):
             with self.assertRaises(ValueError):
                 inspector.talk(bad)
-        with self.assertRaises(KeyError):
-            inspector.talk({'owner': 'player:9', 'message': 'hi'})
         with provider.busy:
             with self.assertRaises(BlockingIOError):
                 inspector.talk({'owner': 'player:1176', 'message': 'hi'})
         self.assertEqual(len(requests), 1)
-        silent, _ = self.inspector()
-        with self.assertRaisesRegex(bridge.Unavailable, 'worker'):
-            silent.talk({'owner': 'player:1176', 'message': 'hi'})
 
-    def test_talk_provider_failures_become_os_errors(self):
-        def failing(request, timeout):
-            raise bridge.urllib.error.URLError('connection refused')
+    def test_entity_prefix_search_uses_only_owned_evidence(self):
+        memories = [
+            {'id': 1, 'text': 'I saw a wolf.', 'salience': 1, 'subject': {'name': 'Wolf'}},
+            {'id': 2, 'text': 'I met Humane.', 'salience': 0.1, 'subject': {'name': 'Humane'}},
+            {'id': 3, 'text': 'Humana mentioned work.', 'salience': 0.2, 'source': {'name': 'Humana'}},
+        ]
+        self.assertEqual(bridge.rank_memories(memories, 'Do you know Humane?')[0]['id'], 2)
+        self.assertEqual([m['id'] for m in bridge.rank_memories(memories, 'Who are human*?', limit=2)], [3, 2])
+        self.assertNotIn('Humanb', json.dumps(bridge.rank_memories(memories, 'human*')))
+        self.assertTrue(bridge.memory_name_matches('Mangy Wolf', 'Have you met Mangy Wolf?'))
+        self.assertFalse(bridge.memory_name_matches('Humane', 'Humanely speaking'))
+        self.assertTrue(bridge.memory_name_matches('Humane', 'Who are human*?'))
 
-        provider = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=failing)
-        with self.assertRaisesRegex(OSError, 'unreachable'):
-            provider.complete('s', 'u')
-        empty = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=lambda *_, **__: FakeResponse({'choices': []}))
-        with self.assertRaisesRegex(OSError, 'no completion'):
-            empty.complete('s', 'u')
-        blank = bridge.TalkProvider('http://gpu:11434/v1', 'm', opener=lambda *_, **__: FakeResponse(
-            {'choices': [{'message': {'content': ' '}}]}))
-        inspector, _ = self.inspector(blank)
-        with self.assertRaisesRegex(OSError, 'empty reply'):
-            inspector.talk({'owner': 'player:1176', 'message': 'hi'})
+    def test_control_transport_authenticates_and_bounds_frames(self):
+        with tempfile.TemporaryDirectory() as temp:
+            token_file = Path(temp) / 'token'
+            token_file.write_text('x' * 32)
+            replies = []
+
+            class Connection:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    pass
+
+                def sendall(self, data):
+                    request = json.loads(data)
+                    self.request_id = request['id']
+                    self.op = request['op']
+                    replies.append(request)
+                    self_test.assertEqual(request['token'], 'x' * 32)
+
+                def makefile(self, mode):
+                    return io.BytesIO((json.dumps({'id': self.request_id, 'result':
+                        {'policy': {'run': 'run-1', 'revision': 7}}}) + '\n').encode())
+
+            self_test = self
+            control = bridge.InterpreterControl('127.0.0.1:8779', token_file, connector=lambda *a, **k: Connection())
+            self.assertEqual(control.call('interpreter_status', {})['policy']['revision'], 7)
+            self.assertEqual(replies[0]['op'], 'interpreter_status')
+            self.assertNotIn('x' * 32, json.dumps(control.describe()))
+            with self.assertRaises(ValueError):
+                control.call('interview_submit', {'context': 'x' * 65536})
+
+    def test_shared_interview_does_not_present_unknown_usage_as_zero(self):
+        control = bridge.InterpreterControl('127.0.0.1:8779', '/unused')
+        operations = []
+
+        def call(op, args):
+            operations.append(op)
+            if op == 'interpreter_status':
+                return {'policy': {'run': 'run-one'}}
+            if op == 'interview_submit':
+                return {'status': 'queued'}
+            return {'status': 'success', 'response': {'text': 'I do not know.'}, 'model': 'fixture',
+                    'latencyMs': 10, 'promptTokens': 0, 'completionTokens': 0, 'usageKnown': False}
+
+        control.call = call
+        result = control.complete('player:1176', {'message': 'What next?'})
+        self.assertIsNone(result['promptTokens'])
+        self.assertIsNone(result['completionTokens'])
+        self.assertEqual(operations, ['interpreter_status', 'interview_submit', 'interview_status'])
 
     def test_settings_come_from_the_world_and_worker_configuration(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1128,7 +1167,8 @@ class MemoryInspection(unittest.TestCase):
             self.assertIsNone(bridge.conf_value(world, 'SOAP.Enabled'))
             self.assertIsNone(bridge.conf_value(path / 'missing.conf', 'X'))
             alles = path / 'alles.conf'
-            alles.write_text(f'Alles.Worker.TokenFile = "{path / "setup" / "bridge-token"}"\n')
+            alles.write_text(f'Alles.Worker.TokenFile = "{path / "setup" / "bridge-token"}"\n'
+                             f'Alles.Interpreter.ControlTokenFile = "{path / "control-token"}"\n')
             self.assertIsNone(bridge.worker_config(None, alles))
             (path / 'setup').mkdir()
             (path / 'setup' / 'worker.json').write_text(json.dumps({'base_url': 'http://gpu:11434/v1', 'model': 'm',
@@ -1152,6 +1192,67 @@ class MemoryInspection(unittest.TestCase):
             self.assertIn('nope.json', inspector.reasons['talk'])
             args.no_memory = True
             self.assertIn('--no-memory', bridge.memory_inspector(args, None).reasons['talk'])
+
+
+class InterpreterAutoSpeed(unittest.TestCase):
+    def test_interpreter_pressure_slows_without_tick_debt_and_uses_cooldown(self):
+        controller = bridge.MaxSpeed('fixture', 1000, 1, 0)
+        frame = {'run': 'fixture', 'requestedSpeed': 10, 'backlogMs': 0, 'ready': True, 'controlSeq': 1,
+                 'interpreter': {'waitingJobs': 10, 'oldestWaitingMs': 19000, 'activeJobs': 1,
+                     'policy': {'waitingGlobal': 10, 'maxWaitMs': 20000, 'effectiveConcurrentJobs': 1}}}
+        choices = []
+        for now in range(1, 11):
+            choices.append(controller.choose({**frame, 'seq': now}, now))
+        self.assertEqual(choices[-1], 5)
+        self.assertIsNone(controller.choose({**frame, 'seq': 11, 'requestedSpeed': 5}, 11))
+        self.assertGreater(controller.pressure, 0.7)
+
+
+class InterpreterHTTP(unittest.TestCase):
+    def test_dedicated_policy_route_authentication_and_persistence_status(self):
+        calls = []
+
+        class Control:
+            def call(self, op, args):
+                calls.append((op, args))
+                if args.get('expectedRevision') == 1:
+                    raise ValueError('Stale policy revision')
+                if args.get('command') == 'disk-failure':
+                    return {'revision': 2, 'pending': False, 'error': 'Policy persistence failed'}
+                return {'revision': 2, 'pending': True, 'run': 'fixture', 'command': args.get('command')}
+
+        server = bridge.ThreadingHTTPServer(('127.0.0.1', 0), bridge.Handler)
+        server.spool = SimpleNamespace(token='fixture-token')
+        server.memory = SimpleNamespace(provider=Control())
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            base = f'http://127.0.0.1:{server.server_port}'
+            def post(command, token='fixture-token'):
+                request = bridge.urllib.request.Request(base + '/api/interpreter/policy',
+                    data=json.dumps(command).encode(), headers={'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token}, method='POST')
+                return bridge.urllib.request.urlopen(request)
+            with self.assertRaises(bridge.urllib.error.HTTPError) as denied:
+                post({}, 'wrong')
+            self.assertEqual(denied.exception.code, 401)
+            self.assertEqual(calls, [])
+            command = {'run': 'fixture', 'command': 'save', 'expectedRevision': 2, 'policy': {'mode': 'unlimited'}}
+            with post(command) as response:
+                self.assertEqual(response.status, 202)
+                result = json.load(response)
+                self.assertEqual(result['revision'], 2)
+                self.assertTrue(result['pending'])
+            self.assertEqual(calls[-1], ('interpreter_policy', command))
+            with self.assertRaises(bridge.urllib.error.HTTPError) as stale:
+                post({**command, 'expectedRevision': 1})
+            self.assertEqual(stale.exception.code, 400)
+            with post({**command, 'command': 'disk-failure'}) as response:
+                self.assertEqual(json.load(response)['error'], 'Policy persistence failed')
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
 
 if __name__ == '__main__':

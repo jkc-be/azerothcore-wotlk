@@ -1,8 +1,11 @@
-# Alles Ollama pilot
+# Alles agent worker
 
 A Go worker interprets the configured characters' bounded perceptions and private memory context.
 Worldserver owns leases, evidence validation, memory changes and speech. The worker has no database
 connection or control of bot movement. The existing playerbot AI continues playing normally.
+
+See [the runtime contract](RUNTIME.md) for actor scheduling, live policy controls, shared interviews,
+the optional native AI SDK adapter, profile migration and the remaining live acceptance gates.
 
 Build and test with Go 1.26 or newer:
 
@@ -35,22 +38,22 @@ Select `Alles.Worker.Mode = "bridge"`. Configuration is fixed for a world boot. 
 prompt contract or worker profile requires a new recorded trial and matching world configuration.
 The default `inprocess-fake` remains available for deterministic C++ tests.
 
-The external pilot has **one fleet slot and one HTTP attempt per job**. Connections are authenticated
-loopback JSON lines, bounded to four sockets, 64 KiB per frame and bounded mailboxes. Responses carry
+The version-2 worker negotiates concurrency; provisional defaults allow one job/call across the fleet,
+with one active job per actor. Each job permits one HTTP attempt. Connections are authenticated
+loopback JSON lines, bounded to sixteen sockets, 64 KiB per frame and bounded mailboxes. Responses carry
 request IDs and can arrive out of order. Workers renew 15-second leases independently of HTTP work.
 Lost leases, expired permits and previous-boot tokens cannot change memory. A pre-attempt release
 can reassign a job without resetting admission time; provider failures fall back without retrying.
 
 Each permit is appended and synced by an I/O thread before authorization. Pending and uncertain
 attempts remain charged. The private ledger has a process lock and a pinned profile; reopening it
-preserves the trial's request count. The default trial limit is 100, with no reset on worker or world
-restart. At exhaustion the worker polls every five seconds but receives no new job or HTTP permit. The allowance
-does not refill with time. Pending perceptions reach their admission deadline (45 real seconds or 120 game
-seconds, whichever expires first) and are consumed through template fallback; they are not kept for later model
-replay. Normal gameplay and memory retelling continue. Provider outcomes, token usage
-and latency are logged to the world and worker logs; the ledger retains reservations. This pilot
-has no paid-provider configuration, fleet expansion, token-rate governor, retries, or strict lab mode.
-Those parts of the broader implementation plan remain separate work.
+preserves the cumulative request count and recent reservations. The ordinary default is Limited at 30 model
+calls per real minute. Unlimited removes RPM gating; explicit trial mode retains a finite reservation budget
+(default 100). No restart refunds usage. Queue waiting expires after at most 20 real seconds; memory inputs also
+retain their original admission deadlines (45 real seconds or 120 game seconds, whichever expires first).
+Rejected memory work uses the original template fallback or retains its bounded ingress if fallback is unavailable.
+Normal gameplay and memory retelling continue. Provider outcomes, token usage and latency are logged to the world
+and worker logs; the ledger retains reservations. There are no automatic retries, model tools or token-rate governor.
 
 Offline fixtures use the same HTTP client and parser:
 
@@ -72,8 +75,9 @@ startup settings does. Stop cancels worker intake before requesting normal world
 Set `Alles.Telemetry.Directory` to an existing private directory and point the existing Observatory
 bridge's `--spool` at it. Worldserver samples live configured bots once per second after map workers
 finish, then publishes immutable JSON through the I/O thread. The dashboard shows live positions,
-health, equipment, bags, quests, memory counts and worker request counters. Its controls stay disabled
-on an ordinary realm; simulation mode remains off. Samples older than ten seconds are explicitly stale.
+health, equipment, bags, quests, memory counts and worker request counters. Interpreter policy controls require
+a separate private control token; gameplay/simulation controls stay disabled on an ordinary realm. Samples older
+than ten seconds are explicitly stale.
 Old simulation spools are retained independently.
 
 The world also keeps the two Observatory journals beside `latest.json`. `events.ndjson` receives the
@@ -103,10 +107,10 @@ The dashboard's Memory region inspects the stores themselves. It lists every own
 in `alles_actor`, shows the selected character's committed memories (the rendered sentence, kind, source and
 attribution, confidence, salience, formation mode, formed and recalled times) with a filter and sort, its
 pending perceptions, and the committed revision beside the live store's revision, since the table lags the
-store by one save interval. "Talk to memory" asks the worker's own Ollama model to answer an observer's
-question in the character's voice from those committed memories: an out-of-game interview that the world
-never hears, that forms no memory or speech, and that does not draw on the interpreter budget (it does share
-the GPU, so one question is answered at a time). The bridge reads the tables through the `mysql` client with
+store by one save interval. "Talk to memory" submits a lower-priority, read-only interview through the shared
+worker scheduler and model allowance. It combines selected committed memories with fresh personal state and current
+intentions supplied by the world, and forms no memory or speech. There is no direct provider bypass. Configure
+`Alles.Interpreter.ControlTokenFile` to enable admission. The bridge reads the tables through the `mysql` client with
 the `CharacterDatabaseInfo` of its checkout's `worldserver.conf` and finds the worker model in `worker.json`
 beside `Alles.Worker.TokenFile`; `--world-conf`, `--worker-config`, `--mysql` and `--no-memory` override
 that. See `apps/observatory/docs/INTERFACE.md` for the `/api/memory` endpoints.
@@ -319,16 +323,17 @@ they can assist a visible member's engaged creature. Normal disbanding does not 
 Existing unagreed parties cannot acquire quest execution through these gates. Source/unit checks do not
 establish live party formation or completion; those acceptance gates remain outstanding.
 
-Memory, objective planning and conversation jobs each get a turn when waiting in the shared single GPU slot.
-Workers opt in with `planningVersion: 1`; planning uses `submit_planning` and a closed versioned response.
+Memory, objective planning, conversation and interview jobs share fair per-actor scheduling with bounded waiting.
+Workers negotiate protocol 2 and `planningVersion: 1`; planning uses `submit_planning` and a closed versioned response.
 The worker profile fingerprint includes this contract, so deployment requires the matching world profile and
 its corresponding ledger; existing runtime configuration and ledgers are not rewritten automatically.
-For continuous local play set `Alles.Interpreter.BudgetMode="rolling"` and `Alles.Interpreter.RequestsPerMinute=30` (range 1–120).
+Continuous local play defaults to `Alles.Interpreter.BudgetMode="limited"` and
+`Alles.Interpreter.RequestsPerMinute=30` (range 1–100000; `rolling` remains an accepted legacy spelling).
 Reservations count against a trailing one-minute window and replenish as they age out; failures are not refunded.
 Timestamps and cumulative request count survive a worker/world restart. The private ledger is compacted into a
-synced checkpoint before 1 MiB, keeping the cumulative count and recent timestamps under a stable lock file.
+synced checkpoint before 1 MiB, keeping the cumulative count and recent time buckets under a stable lock file.
 Old trial ledgers remain valid in trial mode and do not reset themselves. A changed prompt/profile needs a new
-recorded ledger. The dashboard and `./server status` distinguish rolling allowance from lifetime trial counts.
+recorded ledger. The dashboard distinguishes Limited, Unlimited and lifetime trial counts.
 
 `cmd/alles-fixture-provider` supplies deterministic responses for exclusive acceptance trials through the normal
 interpreter's HTTP provider adapter. It never connects to a model, bridge, database or world itself. It serves

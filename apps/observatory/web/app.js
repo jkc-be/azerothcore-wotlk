@@ -364,6 +364,10 @@ function isAlles() {
   return state?.source === "alles-live";
 }
 
+function hasInterpreter() {
+  return isAlles() || Boolean(state?.interpreter?.policy);
+}
+
 function isReadOnly() {
   return isPython() || Boolean(state?.readOnly);
 }
@@ -391,7 +395,7 @@ function renderHeader() {
     notice(
       `Live world telemetry · ${worker.model || "no model"} · ` +
         `${worker.connected ? "worker connected" : "worker disconnected"} · ` +
-        (rolling
+        (worker.budgetMode === "unlimited" ? "Unlimited model call rate" : rolling
           ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute`
           : `${used} of ${max} pilot requests used`) +
         ` · ${formatNumber(worker.modelMemories)} model memories, ${formatNumber(worker.fallbackMemories)} by fallback` +
@@ -1965,10 +1969,80 @@ function renderEventMix() {
 
 // ------------------------------------------------------------------------------------------- interpreter
 
+let interpreterPolicy = null;
+const policyFields = [
+  "mode",
+  "modelRpm",
+  "concurrentJobs",
+  "concurrentCalls",
+  "waitingPerActor",
+  "waitingGlobal",
+  "bytesPerActor",
+  "bytesGlobal",
+  "maxWaitMs",
+  "trialMaxCalls",
+];
+
+function renderInterpreterPolicy(worker) {
+  const form = $("interpreter-policy"),
+    policy = worker.policy;
+  form.hidden = !policy?.controls;
+  if (!policy) return;
+  if (!interpreterPolicy || interpreterPolicy.run !== policy.run || interpreterPolicy.revision !== policy.revision) {
+    interpreterPolicy = policy;
+    for (const name of policyFields) form.elements[name].value = policy[name] || (name === "trialMaxCalls" ? 100 : 30);
+  }
+  form.querySelector("button").disabled = Boolean(policy.pending);
+  $("interpreter-policy-status").textContent =
+    policy.error ||
+    (policy.pending
+      ? "Persisting settings; current policy remains active"
+      : `Active revision ${policy.revision}; effective concurrent jobs ${policy.effectiveConcurrentJobs}`);
+  const table = $("interpreter-queues");
+  table.hidden = false;
+  const body = table.querySelector("tbody");
+  body.replaceChildren();
+  for (const row of worker.actors || []) {
+    const tr = document.createElement("tr");
+    for (const value of [row.owner, row.waiting, row.bytes, row.active, `${row.oldestMs} ms`]) tr.append(cell(value));
+    body.append(tr);
+  }
+}
+
+$("interpreter-policy").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!interpreterPolicy) return;
+  const form = event.currentTarget;
+  const policy = { schema: 1 };
+  for (const name of policyFields)
+    policy[name] = name === "mode" ? form.elements[name].value : Number(form.elements[name].value);
+  try {
+    const command = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+      (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const response = await fetch("/api/interpreter/policy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        run: interpreterPolicy.run,
+        command,
+        expectedRevision: interpreterPolicy.revision,
+        policy,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result.error || "Policy request failed");
+    $("interpreter-policy-status").textContent = result.pending
+      ? "Persisting settings…"
+      : `Active revision ${result.revision}`;
+  } catch (error) {
+    $("interpreter-policy-status").textContent = error.message;
+  }
+});
+
 function allesLamps() {
   const worker = state.interpreter || {};
   const journal = state.journal?.events;
-  const trial = worker.budgetMode !== "rolling";
+  const trial = !worker.budgetMode || worker.budgetMode === "trial";
   const exhausted = trial && worker.maxRequests != null && (worker.usedRequests ?? 0) >= worker.maxRequests;
   return [
     [
@@ -2009,14 +2083,18 @@ function renderInterpreterFigures() {
   const worker = state.interpreter || {};
   const rolling = worker.budgetMode === "rolling";
   const used = worker.usedRequests ?? 0;
-  const max = rolling ? (worker.requestsPerMinute ?? 0) : (worker.maxRequests ?? 0);
+  const max = worker.budgetMode === "unlimited" ? 0
+    : rolling ? (worker.requestsPerMinute ?? 0) : (worker.maxRequests ?? 0);
   const remaining = worker.remainingRequests ?? Math.max(0, max - used);
   const exhausted = Boolean(max) && (rolling ? remaining === 0 : used >= max);
-  $("requests-value").textContent = rolling ? `${remaining} / ${max}` : `${used} / ${max}`;
+  $("requests-value").textContent = worker.budgetMode === "unlimited" ? "Unlimited"
+    : rolling ? `${remaining} / ${max}` : `${used} / ${max}`;
   $("requests-sub").textContent = worker.ledgerFault
     ? "provider ledger fault"
+    : worker.budgetMode === "unlimited"
+      ? `${formatNumber(used)} calls reserved; concurrency and queue bounds apply`
     : rolling
-      ? `left this minute, ${formatNumber(used)} charged since boot`
+      ? `left this minute, ${formatNumber(used)} reservations in the durable ledger`
       : exhausted
         ? "trial budget used; template fallback"
         : "trial requests used";
@@ -2048,11 +2126,11 @@ function cell(text, className) {
 }
 
 function renderInterpreter() {
-  const alles = isAlles();
-  $("interpreter-region").hidden = !alles;
-  $("memory-region").hidden = !alles;
-  if (!alles) return;
+  $("interpreter-region").hidden = !hasInterpreter();
+  $("memory-region").hidden = !hasInterpreter();
+  if (!hasInterpreter()) return;
   const worker = state.interpreter || {};
+  renderInterpreterPolicy(worker);
   const stats = worker.stats || {};
   const rolling = worker.budgetMode === "rolling";
   $("interpreter-note").textContent = `${worker.mode || "provider"} mode, ${worker.model || "no model"}`;
@@ -2061,10 +2139,10 @@ function renderInterpreter() {
     ["Model", worker.model || "unknown"],
     ["Profile", worker.profile ? `${worker.profile.slice(0, 16)}…` : "unknown"],
     [
-      "Budget",
-      rolling
+      "Model call rate",
+      worker.budgetMode === "unlimited" ? "Unlimited (concurrency and queues remain bounded)" : rolling
         ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute, ` +
-          `${formatNumber(worker.usedRequests)} charged since boot`
+          `${formatNumber(worker.usedRequests)} reservations in the durable ledger`
         : `${formatNumber(worker.usedRequests)} of ${formatNumber(worker.maxRequests)} trial requests used`,
     ],
     ["Ledger", worker.ledgerFault ? "fault: no further model requests" : "healthy"],
@@ -2272,7 +2350,7 @@ $("alles-kind").onchange = renderAllesFeed;
 // ------------------------------------------------------------------------------------------- memory
 
 // The committed memory stores (mod-alles tables in the characters database) and out-of-game questions to a
-// character, both served by the bridge. Nothing here reaches the world: no perception, memory or speech.
+// character, both served by the bridge. Interviews use the shared scheduler and create no memory or speech.
 let memoryOwners = null,
   memoryDetail = null,
   memoryLoading = false,
@@ -2284,7 +2362,7 @@ function memoryOwner() {
 }
 
 async function loadMemoryOwners() {
-  if (!token || !isAlles()) return;
+  if (!token || !hasInterpreter()) return;
   try {
     const response = await api("/api/memory");
     const payload = await response.json();
@@ -2474,7 +2552,8 @@ function renderTalk() {
     : !memoryOwners.talk
       ? memoryOwners.reasons?.talk || "Questions are unavailable."
       : `Out-of-game interview through ${memoryOwners.talk.model}: the question is not heard in the world, ` +
-        "forms no memory and uses no interpreter budget. Answers draw on the committed memories shown here.";
+        "forms no memory and uses shared interpreter capacity. " +
+        "Answers use personal state, intentions and committed memories.";
 }
 
 async function askMemory(event) {
@@ -2560,7 +2639,7 @@ setInterval(async () => {
   } catch {
     /* freshness is shown above */
   }
-  if (isAlles() && pollCount % 2 === 0) {
+  if (hasInterpreter() && pollCount % 2 === 0) {
     try {
       workerLog = await (await api("/api/worker-log")).json();
     } catch {
@@ -2569,8 +2648,8 @@ setInterval(async () => {
     renderInterpreter();
   }
   // The committed stores change once per save, so they are re-read more slowly than the live sample.
-  if (isAlles() && pollCount % 10 === 1) loadMemoryOwners();
-  if (isAlles() && pollCount % 5 === 3) loadMemory();
+  if (hasInterpreter() && pollCount % 10 === 1) loadMemoryOwners();
+  if (hasInterpreter() && pollCount % 5 === 3) loadMemory();
   if (pollCount % 2 === 1) {
     try {
       eventStats = await (await api("/api/event-stats")).json();

@@ -133,6 +133,9 @@ struct CoordinatorStats
     uint64_t invalidatedJobs = 0;
     uint64_t staleResults = 0;
     uint64_t expiredJobs = 0;
+    uint64_t gameDeadlineExpiries = 0;
+    uint64_t realDeadlineExpiries = 0;
+    uint64_t leaseExpiries = 0;
     uint64_t contextOverflows = 0;
     uint64_t resultDrops = 0;
     uint64_t modelMemories = 0;
@@ -158,7 +161,10 @@ public:
     CoordinatorStats const& Stats() const;
 
     void EnableExternal();
-    std::optional<JobSnapshot> Claim(std::string worker, std::string profile, uint64_t gameMs, uint64_t realMs);
+    std::optional<JobSnapshot> Claim(std::string worker, std::string profile, uint64_t gameMs, uint64_t realMs,
+        std::optional<ActorKey> selected = {});
+    std::vector<JobSnapshot> Ready(uint64_t gameMs, uint64_t realMs) const;
+    void RejectQueued(std::string const& token, uint64_t gameMs, uint64_t realMs);
     bool Heartbeat(std::string const& token, std::string const& worker, uint64_t lease, uint64_t realMs);
     bool Authorize(std::string const& token, std::string const& worker, uint64_t lease,
         std::string permit, uint64_t gameMs, uint64_t realMs);

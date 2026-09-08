@@ -1094,7 +1094,8 @@ struct ObjectiveRuntime::Impl
             if (!job)
                 continue;
             auto id = "advice-" + std::to_string(owner.id) + "-" + std::to_string(++nextAdviceId);
-            if (bridge->QueuePlanning(id, job->context, realMs))
+            if (bridge->QueuePlanning(id, job->context, realMs, owner,
+                job->issued.actorGeneration))
             {
                 state.advice = PendingAdvice{std::move(id), std::move(*job), realMs + 45000, {}};
                 break;
@@ -1706,7 +1707,8 @@ struct ObjectiveRuntime::Impl
         if (!job)
             return;
         auto id = "decision-" + std::to_string(owner.id) + "-" + std::to_string(++nextAdviceId);
-        if (bridge->QueuePlanning(id, job->context, realMs))
+        if (bridge->QueuePlanning(id, job->context, realMs, owner,
+                job->issued.actorGeneration, "decision:" + std::to_string(job->issued.objective)))
         {
             state.lastPlannedSignal = signal;
             state.decision = PendingDecision{std::move(id), std::move(*job), realMs + 45000, {}};
@@ -2430,6 +2432,22 @@ void ObjectiveRuntime::Stop(uint64_t gameMs, uint64_t realMs)
 {
     for (auto const& [owner, state] : _impl->states)
         _impl->Detach(owner, gameMs, realMs);
+}
+
+boost::json::object ObjectiveRuntime::InterviewIntentions(ActorKey owner) const
+{
+    auto found = _impl->states.find(owner);
+    if (found == _impl->states.end())
+        return {};
+    auto const* current = found->second.book.Current();
+    boost::json::object result{{"engine", found->second.availability},
+        {"revision", found->second.planningRevision},
+        {"current", current ? Describe(*current) : boost::json::object{}}};
+    if (current)
+        if (auto place = found->second.knowledge.Places().find(current->place);
+            place != found->second.knowledge.Places().end())
+            result["destination"] = place->second.name;
+    return result;
 }
 
 boost::json::object ObjectiveRuntime::Status(ActorKey owner) const

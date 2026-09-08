@@ -34,14 +34,21 @@ type Usage struct {
 	Total      int64 `json:"total_tokens"`
 }
 type Result struct {
-	Raw      string
-	Proposal protocol.Proposal
-	Usage    Usage
-	Latency  time.Duration
+	CallCount  int
+	UsageKnown bool
+	Raw        string
+	Proposal   protocol.Proposal
+	Usage      Usage
+	Latency    time.Duration
 }
 type Client struct {
-	BaseURL, Model string
-	HTTP           *http.Client
+	Limits *CallLimits
+	Policy func(context.Context) (CallPolicy, error)
+
+	BaseURL, Model         string
+	ExpectedBackendProfile string
+	APIKey                 string
+	HTTP                   *http.Client
 }
 
 func New(base, model string) *Client {
@@ -56,6 +63,9 @@ func New(base, model string) *Client {
 }
 func (c *Client) Ready(ctx context.Context) error {
 	req, _ := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/models", nil)
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	r, e := c.HTTP.Do(req)
 	if e != nil {
 		return e
@@ -69,12 +79,16 @@ func (c *Client) Ready(ctx context.Context) error {
 		return errors.New("model listing size")
 	}
 	var v struct {
-		Data []struct {
+		BackendProfile string `json:"backendProfile"`
+		Data           []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
 	if e = json.Unmarshal(b, &v); e != nil {
 		return e
+	}
+	if c.ExpectedBackendProfile != "" && v.BackendProfile != c.ExpectedBackendProfile {
+		return errors.New("backend profile mismatch")
 	}
 	for _, m := range v.Data {
 		if m.ID == c.Model {
@@ -176,27 +190,50 @@ func (c *Client) complete(ctx context.Context, contract string, data []byte, for
 	if e != nil {
 		return result, e
 	}
+	var uncertainUntil time.Time
+	if c.Limits != nil && c.Policy != nil {
+		if err := c.Limits.Acquire(ctx, c.Policy); err != nil {
+			return result, err
+		}
+		defer func() {
+			if delay := time.Until(uncertainUntil); delay > 0 {
+				time.AfterFunc(delay, c.Limits.Release)
+			} else {
+				c.Limits.Release()
+			}
+		}()
+	}
 	req.Header.Set("Content-Type", "application/json")
+	result.CallCount = 1
 	start := time.Now()
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	r, e := c.HTTP.Do(req)
 	result.Latency = time.Since(start)
 	if e != nil {
+		uncertainUntil = start.Add(25 * time.Second)
 		return result, e
 	}
 	defer r.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(r.Body, 65537))
 	result.Latency = time.Since(start)
 	if e != nil {
+		uncertainUntil = start.Add(25 * time.Second)
 		return result, e
 	}
 	if len(b) > 65536 {
 		return result, errors.New("provider response too large")
 	}
 	if r.StatusCode != 200 {
+		if r.StatusCode >= 500 {
+			uncertainUntil = start.Add(25 * time.Second)
+		}
 		return result, fmt.Errorf("provider HTTP %d", r.StatusCode)
 	}
 	var envelope struct {
-		Choices []struct {
+		BackendProfile string `json:"backendProfile"`
+		Choices        []struct {
 			Message struct {
 				Content   string `json:"content"`
 				Reasoning string `json:"reasoning"`
@@ -213,7 +250,15 @@ func (c *Client) complete(ctx context.Context, contract string, data []byte, for
 	if e = json.Unmarshal(b, &envelope); e != nil {
 		return result, e
 	}
+	if c.ExpectedBackendProfile != "" && envelope.BackendProfile != c.ExpectedBackendProfile {
+		return result, errors.New("backend profile changed during execution")
+	}
 	result.Usage = envelope.Usage
+	var usage map[string]json.RawMessage
+	if json.Unmarshal(raw["usage"], &usage) == nil {
+		result.UsageKnown = usage["prompt_tokens"] != nil && string(usage["prompt_tokens"]) != "null" &&
+			usage["completion_tokens"] != nil && string(usage["completion_tokens"]) != "null"
+	}
 	if len(envelope.Choices) != 1 || envelope.Choices[0].Finish != "stop" {
 		return result, errors.New("incomplete provider output")
 	}

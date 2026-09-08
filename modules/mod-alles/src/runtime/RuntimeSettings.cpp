@@ -70,8 +70,10 @@ RuntimeSettings ReadRuntimeSettings()
     for (auto const owner : settings.owners)
         if (owner.kind != ActorKind::Player || owner.id > std::numeric_limits<uint32_t>::max())
             throw std::invalid_argument("First-light runtime supports player owners; NPC registration follows in W7");
-    if (sConfigMgr->GetOption<bool>("Observatory.Enable", false))
-        throw std::invalid_argument("Alles pilot requires an ordinary realm; pause-safe lab maintenance follows in W9");
+    auto const scheduling = sConfigMgr->GetOption<std::string>("Alles.SchedulingProfile", "pilot");
+    bool const simulation = sConfigMgr->GetOption<bool>("Observatory.Enable", false);
+    if ((simulation && scheduling != "simulation") || (!simulation && scheduling != "pilot"))
+        throw std::invalid_argument("Use the simulation scheduling profile only with isolated Observatory mode");
     auto const mode = sConfigMgr->GetOption<std::string>("Alles.Worker.Mode", "inprocess-fake");
     if (mode != "inprocess-fake" && mode != "bridge")
         throw std::invalid_argument("Alles.Worker.Mode must be inprocess-fake or bridge");
@@ -84,16 +86,18 @@ RuntimeSettings ReadRuntimeSettings()
         settings.bridge.model = sConfigMgr->GetOption<std::string>("Alles.Worker.Model", "");
         settings.bridge.ledger = sConfigMgr->GetOption<std::string>("Alles.Interpreter.TrialLedger", "");
         settings.bridge.maxRequests = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.TrialMaxRequests", 100);
-        auto budgetMode = sConfigMgr->GetOption<std::string>("Alles.Interpreter.BudgetMode", "trial");
-        if (budgetMode != "trial" && budgetMode != "rolling")
-            throw std::invalid_argument("Alles.Interpreter.BudgetMode must be trial or rolling");
-        if (budgetMode == "rolling")
+        auto budgetMode = sConfigMgr->GetOption<std::string>("Alles.Interpreter.BudgetMode", "limited");
+        if (budgetMode != "trial" && budgetMode != "rolling" && budgetMode != "limited" && budgetMode != "unlimited")
+            throw std::invalid_argument(
+                "Alles.Interpreter.BudgetMode must be limited, unlimited or trial (rolling is a legacy alias)");
+        settings.bridge.budgetMode = budgetMode;
+        if (budgetMode == "rolling" || budgetMode == "limited")
         {
             settings.bridge.maxRequests = 0;
             settings.bridge.requestsPerMinute =
                 sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.RequestsPerMinute", 30);
-            if (!settings.bridge.requestsPerMinute || settings.bridge.requestsPerMinute > 120)
-                throw std::invalid_argument("Alles.Interpreter.RequestsPerMinute must be 1-120");
+            if (!settings.bridge.requestsPerMinute || settings.bridge.requestsPerMinute > 100000)
+                throw std::invalid_argument("Alles.Interpreter.RequestsPerMinute must be 1-100000");
         }
         settings.conversation = sConfigMgr->GetOption<bool>("Alles.Conversation.Enable", false);
         auto tokenFile = sConfigMgr->GetOption<std::string>("Alles.Worker.TokenFile", "");
@@ -102,20 +106,46 @@ RuntimeSettings ReadRuntimeSettings()
         if (!port || port > 65535 || settings.bridge.profile.size() != 64 || settings.bridge.model.empty() ||
             settings.bridge.model.size() > 128 || settings.bridge.token.size() < 32 ||
             settings.bridge.token.size() > 128 || settings.bridge.ledger.empty() ||
-            (!settings.bridge.requestsPerMinute && !settings.bridge.maxRequests) || settings.bridge.maxRequests > 100)
+            (budgetMode == "trial" && !settings.bridge.maxRequests))
             throw std::invalid_argument("Invalid Alles bridge port, profile, token file, model or trial ledger");
         settings.bridge.port = uint16_t(port);
+        if (budgetMode == "unlimited")
+            settings.bridge.maxRequests = 0;
+        settings.bridge.policyFile = sConfigMgr->GetOption<std::string>(
+            "Alles.Interpreter.PolicyFile", "");
+        if (settings.bridge.policyFile.empty())
+            settings.bridge.policyFile = settings.bridge.ledger + ".policy.json";
+        auto controlFile = sConfigMgr->GetOption<std::string>("Alles.Interpreter.ControlTokenFile", "");
+        if (!controlFile.empty())
+        {
+            std::ifstream control(controlFile);
+            std::getline(control, settings.bridge.controlToken);
+            if (settings.bridge.controlToken.size() < 32 || settings.bridge.controlToken.size() > 128 ||
+                settings.bridge.controlToken == settings.bridge.token)
+                throw std::invalid_argument("Interpreter controls need a separate 32-128 byte token");
+        }
+        auto& policy = settings.bridge.policy;
+        policy.concurrentJobs = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.ConcurrentJobs", 1);
+        policy.waitingPerActor = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.WaitingPerActor", 2);
+        policy.waitingGlobal = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.WaitingGlobal", 10);
+        policy.bytesPerActor = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.BytesPerActor", 49152);
+        policy.bytesGlobal = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.BytesGlobal", 245760);
+        settings.bridge.concurrentCalls = sConfigMgr->GetOption<uint32_t>("Alles.Interpreter.ConcurrentCalls", 1);
+        if (!Interpreter::ValidPolicy(policy) || !settings.bridge.concurrentCalls ||
+            settings.bridge.concurrentCalls > 32)
+            throw std::invalid_argument("Invalid interpreter queue or concurrency bounds");
 
     }
     settings.telemetryDirectory = sConfigMgr->GetOption<std::string>("Alles.Telemetry.Directory", "");
+    if (simulation && !settings.telemetryDirectory.empty())
+        throw std::invalid_argument("Simulation uses Observatory.Directory; leave Alles.Telemetry.Directory empty");
     if (!settings.telemetryDirectory.empty() && !std::filesystem::is_directory(settings.telemetryDirectory))
         throw std::invalid_argument("Alles telemetry directory must already exist and be private");
     settings.telemetrySegmentBytes =
         sConfigMgr->GetOption<uint32_t>("Alles.Telemetry.JournalSegmentBytes", 64u * 1024 * 1024);
     if (settings.telemetrySegmentBytes && settings.telemetrySegmentBytes < 1024 * 1024)
         throw std::invalid_argument("Alles.Telemetry.JournalSegmentBytes must be 0 or at least 1 MiB");
-    if (sConfigMgr->GetOption<std::string>("Alles.SchedulingProfile", "pilot") != "pilot")
-        throw std::invalid_argument("Only Alles.SchedulingProfile=pilot is implemented for first light");
+
     settings.limits.memories = sConfigMgr->GetOption<uint32_t>("Alles.Memory.MaxMemories", 256);
     settings.limits.perceptions = sConfigMgr->GetOption<uint32_t>("Alles.Memory.MaxPerceptions", 128);
     auto const hearsay = sConfigMgr->GetOption<std::string>("Alles.Memory.HearsayCap", "0.6");
