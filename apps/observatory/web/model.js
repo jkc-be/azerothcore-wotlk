@@ -555,9 +555,11 @@ export function attention(snapshot, { stalledMs = 10000, noProgressMs = 60000, s
 // non-rolling mode as a trial reports a spent budget and a template fallback that are not happening.
 export function budgetState(worker = {}) {
   const mode = worker.budgetMode === "rolling" ? "rolling" : worker.budgetMode === "unlimited" ? "unlimited" : "trial";
-  const max = Number(worker.maxRequests) || 0;
   const used = Number(worker.usedRequests) || 0;
-  const remaining = worker.remainingRequests;
+  // The cap lives in a different field per mode: a rolling budget refills to requestsPerMinute every minute
+  // while maxRequests may not be published at all, and a trial budget stops at maxRequests.
+  const max = mode === "rolling" ? Number(worker.requestsPerMinute) || 0 : Number(worker.maxRequests) || 0;
+  const remaining = worker.remainingRequests ?? Math.max(0, max - used);
   const capped = mode !== "unlimited" && max > 0;
   return {
     mode,

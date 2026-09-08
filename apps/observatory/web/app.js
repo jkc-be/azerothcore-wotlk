@@ -2312,12 +2312,9 @@ function allesLamps() {
 
 function renderInterpreterFigures() {
   const worker = state.interpreter || {};
-  const rolling = worker.budgetMode === "rolling";
-  const used = worker.usedRequests ?? 0;
-  const max = rolling ? (worker.requestsPerMinute ?? 0) : (worker.maxRequests ?? 0);
-  const remaining = worker.remainingRequests ?? Math.max(0, max - used);
   const budget = budgetState(worker);
-  const exhausted = budget.exhausted;
+  const { mode, used, max, remaining, exhausted } = budget;
+  const rolling = mode === "rolling";
   // An unlimited world enforces no cap, so its count is a running total rather than a fraction of a budget.
   $("requests-value").textContent = !budget.capped
     ? formatNumber(used)

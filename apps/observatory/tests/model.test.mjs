@@ -611,10 +611,21 @@ test("a trial budget is spent once the count reaches its cap", () => {
 });
 
 test("a rolling budget is spent when nothing is left this minute, not when the total is high", () => {
-  const spent = budgetState({ budgetMode: "rolling", usedRequests: 9000, maxRequests: 60, remainingRequests: 0 });
-  const free = budgetState({ budgetMode: "rolling", usedRequests: 9000, maxRequests: 60, remainingRequests: 12 });
-  assert.equal(spent.exhausted, true);
-  assert.equal(free.exhausted, false);
+  const rolling = { budgetMode: "rolling", usedRequests: 9000, requestsPerMinute: 60 };
+  assert.equal(budgetState({ ...rolling, remainingRequests: 0 }).exhausted, true);
+  assert.equal(budgetState({ ...rolling, remainingRequests: 12 }).exhausted, false);
+});
+
+test("a rolling budget takes its cap from requestsPerMinute, which is the only field the world fills", () => {
+  // maxRequests is absent on a rolling world; reading it would report an uncapped budget and hide the meter.
+  const budget = budgetState({ budgetMode: "rolling", usedRequests: 9000, requestsPerMinute: 60, remainingRequests: 5 });
+  assert.equal(budget.max, 60);
+  assert.equal(budget.capped, true);
+});
+
+test("a missing remaining count is derived from the cap rather than read as unspent", () => {
+  assert.equal(budgetState({ budgetMode: "rolling", usedRequests: 60, requestsPerMinute: 60 }).remaining, 0);
+  assert.equal(budgetState({ budgetMode: "rolling", usedRequests: 60, requestsPerMinute: 60 }).exhausted, true);
 });
 
 test("an unlimited world raises no budget alert while the model is still answering", () => {
