@@ -66,6 +66,26 @@ button {
   padding: 5px 8px;
   border-radius: 3px;
 }
+/* The platform select breaks the instrument look at every width; the chevron is drawn instead. */
+select {
+  appearance: none;
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ash) 50%),
+    linear-gradient(135deg, var(--ash) 50%, transparent 50%);
+  background-position:
+    right 13px center,
+    right 8px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+select:hover,
+input:hover:not(:disabled) {
+  border-color: var(--ash);
+}
+input::placeholder {
+  color: var(--ash);
+  opacity: 0.7;
+}
 input[type="range"] {
   padding: 0;
   border: 0;
@@ -140,6 +160,14 @@ header {
 #token {
   width: 240px;
 }
+#connect.collapsed > label,
+#connect.collapsed > button:not(.link) {
+  display: none;
+}
+#change-token {
+  font-size: 13px;
+  color: var(--ash);
+}
 .link-state {
   font-size: 13px;
   color: var(--ash);
@@ -177,6 +205,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 3;
+  transition: box-shadow 0.2s;
   display: grid;
   grid-template-columns: auto auto auto auto minmax(0, 1fr);
   gap: 8px 32px;
@@ -305,6 +334,38 @@ header {
   align-items: center;
   gap: 8px;
 }
+/* These carry their own display, so the plain [hidden] rule would not take on a read-only feed. */
+#max-speed-settings[hidden],
+#population[hidden],
+#observer-group[hidden],
+#speed-control[hidden],
+#no-controls[hidden] {
+  display: none;
+}
+/* Hold is the one deck control every feed has; held reads as a caution, not as a healthy state. */
+.hold {
+  min-width: 88px;
+}
+button.toggle.hold[aria-pressed="true"] {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--ground);
+  font-weight: 600;
+}
+#hold-status {
+  font-size: 13px;
+  color: var(--brass);
+}
+#no-controls {
+  flex-basis: 100%;
+  max-width: 520px;
+  margin-top: 0;
+}
+body.held .bench {
+  box-shadow:
+    inset 0 0 0 1px var(--brass),
+    0 1px 0 var(--rule);
+}
 #backlog-limit,
 #bot-count {
   width: 72px;
@@ -395,10 +456,47 @@ header {
 .lamp[data-on="danger"]::before {
   background: var(--ember);
 }
+body.scrolled .bench {
+  box-shadow:
+    0 1px 0 var(--rule),
+    0 10px 20px -12px rgba(0, 0, 0, 0.8);
+}
+
+/* Eight regions on one very long scroll: the strip says where they are and which one is being read. */
+.region-nav {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+}
+.region-nav:empty {
+  display: none;
+}
+.region-nav a {
+  color: var(--ash);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.region-nav a:hover {
+  color: var(--parchment);
+  border-color: var(--rule);
+}
+.region-nav a[aria-current="true"] {
+  color: var(--brass);
+  border-color: var(--rule);
+  background: var(--ground);
+}
 
 /* Regions: a serif title with a hairline, no boxes. */
 .region {
   margin-top: 32px;
+  /* The bench measures itself into --bench-height, so a jump link never lands underneath it. */
+  scroll-margin-top: calc(var(--bench-height, 180px) + 16px);
 }
 .region-head {
   display: flex;
@@ -434,6 +532,7 @@ header {
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-auto-rows: auto;
   gap: 24px;
 }
 
@@ -492,6 +591,15 @@ h3.spaced {
   border-bottom: 1px solid rgba(42, 57, 64, 0.6);
   overflow-wrap: anywhere;
 }
+/* Objective records carry their whole payload. Three lines keeps the feed scannable; the title holds the rest. */
+#alles-feed li > span:last-child,
+#feed li > span:last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
 #alles-feed time {
   color: var(--ash);
 }
@@ -504,8 +612,16 @@ h3.spaced {
 }
 .metric {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  /* Subgrid so a two-line caption in one tile does not push its sparkline below its neighbours'. */
+  grid-row: span 4;
+  grid-template-rows: subgrid;
   min-width: 0;
+}
+@supports not (grid-template-rows: subgrid) {
+  .metric {
+    grid-row: auto;
+    grid-template-rows: auto auto auto 1fr;
+  }
 }
 .metric span {
   color: var(--ash);
@@ -827,7 +943,8 @@ canvas {
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-bottom: 8px;
 }
 .panel-head h3 {
@@ -876,8 +993,13 @@ table.data td:not(:first-child),
 table.data th:not(:first-child) {
   text-align: right;
 }
+/* A bar under the figure reads as a proportion at any row height; a filled cell reads as a block. */
 table.data td.share {
-  background: linear-gradient(to right, rgba(212, 162, 72, 0.14) var(--share, 0%), transparent var(--share, 0%));
+  background-image: linear-gradient(to right, var(--brass) var(--share, 0%), transparent var(--share, 0%));
+  background-repeat: no-repeat;
+  background-size: 100% 2px;
+  /* Under the first line, so the bar stays with its figure however tall the row's other cells are. */
+  background-position: 0 20px;
 }
 table.data tr.group td {
   color: var(--ash);
@@ -1032,9 +1154,18 @@ table.data td.text {
 }
 table.memory td {
   vertical-align: top;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
-table.memory td.text {
+/* Only the memory text is long enough to need breaking inside a word; a kind broken as "stateme nt" is a bug. */
+table.memory td:first-child {
   overflow-wrap: anywhere;
+}
+table.memory th:nth-child(2),
+table.memory td:nth-child(2),
+table.memory th:nth-child(n + 4),
+table.memory td:nth-child(n + 4) {
+  white-space: nowrap;
 }
 .talk {
   font: inherit;
@@ -1042,6 +1173,9 @@ table.memory td.text {
   color: var(--parchment);
   min-height: 160px;
   max-height: 440px;
+}
+.talk:empty {
+  min-height: 0;
 }
 .talk li {
   padding: 4px 0;
@@ -1067,6 +1201,151 @@ table.memory td.text {
   flex: 1;
   min-width: 0;
 }
+/* World state: what the cohort is working on, what looks wrong, and how far the run has got. */
+.analytics.world > .wide {
+  grid-column: span 2;
+}
+.analytics.world .table-scroll {
+  max-height: 300px;
+}
+.world-talk {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  margin-top: 24px;
+}
+.world-talk[hidden] {
+  display: none;
+}
+table.objectives tr {
+  cursor: pointer;
+}
+table.objectives tr:hover td {
+  background: rgba(233, 223, 199, 0.04);
+}
+table.objectives tr.selected td {
+  color: var(--brass);
+}
+table.objectives td.blocked {
+  color: var(--brass);
+}
+table.objectives td:nth-child(3),
+table.objectives td:nth-child(4),
+table.objectives td:nth-child(5) {
+  color: var(--ash);
+}
+
+/* A bot named in a note or a row is a way to reach it, so it is a control rather than a label. */
+.chip {
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--rule);
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chip:hover,
+.chip:focus-visible {
+  color: var(--brass);
+  border-bottom-color: var(--brass);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.attention {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.attention li {
+  display: grid;
+  gap: 2px;
+  padding-left: 14px;
+  position: relative;
+}
+.attention li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ash);
+}
+.attention li[data-level="warn"] {
+  color: var(--brass);
+}
+.attention li[data-level="warn"]::before {
+  background: var(--brass);
+}
+.attention li[data-level="danger"] {
+  color: var(--ember-text);
+}
+.attention li[data-level="danger"]::before {
+  background: var(--ember);
+}
+.attention li[data-level="ok"] {
+  color: var(--ash);
+}
+.attention li[data-level="ok"]::before {
+  background: var(--moss);
+}
+
+/* The objective block in the inspector: the sentence the planner wrote about what it decided to do. */
+.objective {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: rgba(233, 223, 199, 0.04);
+  border-left: 2px solid var(--rule);
+  border-radius: 0 3px 3px 0;
+}
+.objective[hidden] {
+  display: none;
+}
+.objective b {
+  font-weight: 600;
+}
+.objective-state {
+  color: var(--ash);
+  font-size: 12px;
+}
+.objective-state[data-blocked="true"] {
+  color: var(--brass);
+}
+.objective-reason {
+  color: var(--ash);
+  font-size: 12px;
+}
+
+/* Counters a build reports at zero, folded away from the ones that moved. */
+details.folded {
+  margin-top: 8px;
+}
+details.folded[hidden] {
+  display: none;
+}
+details.folded > summary {
+  font-size: 13px;
+}
+details.folded .facts {
+  margin-top: 8px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .lamp::before {
     transition: background 0.3s;
@@ -1075,6 +1354,12 @@ table.memory td.text {
 @media (max-width: 1400px) {
   .bench {
     grid-template-columns: auto auto auto auto;
+  }
+  .analytics.world {
+    grid-template-columns: 1fr 1fr;
+  }
+  .analytics.world > .wide {
+    grid-column: 1 / -1;
   }
   .deck {
     grid-column: 1 / -1;
@@ -1102,7 +1387,11 @@ table.memory td.text {
   .analytics {
     grid-template-columns: 1fr 1fr;
   }
-  .feed-row {
+  .analytics.world > .wide {
+    grid-column: 1 / -1;
+  }
+  .feed-row,
+  .world-talk {
     grid-template-columns: 1fr 1fr;
   }
   .feed-row > .feed {
@@ -1119,8 +1408,15 @@ table.memory td.text {
   }
   .metrics,
   .analytics,
-  .feed-row {
+  .feed-row,
+  .world-talk {
     grid-template-columns: 1fr 1fr;
+  }
+  .analytics.world > .wide {
+    grid-column: 1 / -1;
+  }
+  .region {
+    scroll-margin-top: 16px;
   }
   main {
     display: block;

@@ -15,6 +15,7 @@
       <form id="connect">
         <label>Access token <input id="token" type="password" required autocomplete="off" /></label>
         <button>Connect</button>
+        <button id="change-token" type="button" class="link" hidden>Change token</button>
         <span id="link-state" class="link-state" data-state="off">not connected</span>
       </form>
     </header>
@@ -82,7 +83,7 @@
           <button id="set-bots" disabled>Set bots</button>
         </form>
         <span id="population-status" role="status"></span>
-        <div class="observer-mode">
+        <div class="observer-mode" id="observer-group">
           <span class="label">GM observer</span>
           <div id="observer-mode" class="segmented" role="group" aria-label="GM observer control level">
             <button data-mode="0" disabled title="Spectator only: /pov, no movement, no commands">Locked</button>
@@ -91,17 +92,96 @@
           </div>
         </div>
         <span id="observer-status" role="status"></span>
+        <button id="hold" class="toggle hold" type="button" aria-pressed="false">Hold</button>
+        <span id="hold-status" role="status"></span>
+        <p id="no-controls" class="caption" hidden></p>
       </div>
       <div class="status-line">
         <span id="notice" role="status">Enter the access token to connect to a run or a Python observation feed.</span>
         <ul id="alerts" class="alerts" aria-label="Simulation alerts"></ul>
         <div class="lamps" id="lamps" aria-label="Run state"></div>
       </div>
+      <nav id="region-nav" class="region-nav" aria-label="Jump to a region"></nav>
     </section>
 
     <section class="region" aria-label="Progression">
       <div class="region-head"><h2>Progression</h2></div>
       <div class="metrics" id="metrics"></div>
+    </section>
+
+    <section class="region" aria-label="World state">
+      <div class="region-head">
+        <h2>World state <span class="region-note" id="world-note"></span></h2>
+      </div>
+      <div class="analytics world">
+        <div class="wide">
+          <div class="panel-head">
+            <h3>What each bot is working on</h3>
+            <span class="region-note" id="objective-tally"></span>
+          </div>
+          <div class="table-scroll short">
+            <table id="objective-table" class="data objectives">
+              <thead>
+                <tr>
+                  <th class="text">Bot</th>
+                  <th class="text">Working towards</th>
+                  <th class="text">Approach</th>
+                  <th class="text">Step</th>
+                  <th class="text">Obstruction</th>
+                  <th>Tries</th>
+                  <th>Stuck</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="caption" id="objective-status">Waiting for a snapshot.</p>
+        </div>
+        <div>
+          <h3>Needs attention</h3>
+          <ul id="attention" class="attention"></ul>
+        </div>
+        <div>
+          <h3>Run so far</h3>
+          <table id="run-stats" class="data">
+            <thead>
+              <tr>
+                <th class="text">Measure</th>
+                <th>Total</th>
+                <th>Per hour</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p class="caption" id="run-stats-note"></p>
+        </div>
+      </div>
+      <div class="feed-row world-talk" id="world-talk" hidden>
+        <div>
+          <div class="panel-head">
+            <h3>Leads the bots have passed on</h3>
+            <span class="region-note" id="lead-count"></span>
+          </div>
+          <div class="table-scroll short">
+            <table id="lead-table" class="data">
+              <thead>
+                <tr>
+                  <th class="text">Lead</th>
+                  <th class="text">From</th>
+                  <th class="text">Held by</th>
+                  <th>Confidence</th>
+                  <th>Paid off</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h3>Questions still open</h3>
+          <ol id="ask-list" class="log talk"></ol>
+        </div>
+      </div>
     </section>
 
     <section class="region" id="interpreter-region" aria-label="Interpreter" hidden>
@@ -112,6 +192,10 @@
         <div>
           <h3>Worker</h3>
           <dl id="worker-status" class="facts"></dl>
+          <details id="worker-idle" class="folded" hidden>
+            <summary></summary>
+            <dl id="worker-idle-facts" class="facts"></dl>
+          </details>
         </div>
         <div>
           <h3>Conversations</h3>
@@ -126,6 +210,7 @@
             </thead>
             <tbody></tbody>
           </table>
+          <p id="coordinator-idle" class="caption" hidden></p>
         </div>
         <div>
           <h3>Memory owners</h3>
@@ -312,6 +397,7 @@
             <p id="bot-empty" class="caption">Pick one from the list or click a marker on the map.</p>
             <div id="bot-bars" class="bars" hidden></div>
             <canvas id="bot-spark" class="bot-spark" aria-hidden="true" hidden></canvas>
+            <div id="bot-objective" class="objective" hidden></div>
             <div id="bot-details" hidden></div>
             <h4 id="events-title" hidden>Recent events</h4>
             <ol id="events" hidden></ol>

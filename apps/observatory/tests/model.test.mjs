@@ -28,6 +28,13 @@ import {
   isAllesEvent,
   filterMemories,
   relativeTime,
+  currentObjective,
+  objectiveTable,
+  objectiveTally,
+  worldTalk,
+  runStatistics,
+  attention,
+  budgetState,
 } from "../web/model.js";
 const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
@@ -452,4 +459,209 @@ test("relative time is coarse and never negative", () => {
   assert.equal(relativeTime(now - 5 * 60 * 1000, now), "5 min ago");
   assert.equal(relativeTime(now - (3 * 3600 + 7 * 60) * 1000, now), "3 h 7 min ago");
   assert.equal(relativeTime(now - (2 * 86400 + 5 * 3600) * 1000, now), "2 d 5 h ago");
+});
+
+// ------------------------------------------------------------------------------------------- world state
+
+const planner = (name, objectives, extra = {}) => ({
+  id: name,
+  name,
+  health: 100,
+  maxHealth: 100,
+  planning: { engine: "new_rpg", objectives, reports: [] },
+  ...extra,
+});
+const objective = (id, state, extra = {}) => ({
+  id,
+  state,
+  step: "travel",
+  approach: "pursue_quest",
+  obstruction: "none",
+  attempts: 1,
+  ...extra,
+});
+
+test("the objective a bot is working on outranks the ones it has finished", () => {
+  const bot = planner("a", [objective(1, "completed"), objective(2, "active"), objective(3, "proposed")]);
+  assert.equal(currentObjective(bot).id, 2);
+});
+
+test("with nothing active the newest proposal says what a bot is about to do", () => {
+  const bot = planner("a", [objective(1, "completed"), objective(4, "proposed"), objective(7, "proposed")]);
+  assert.equal(currentObjective(bot).id, 7);
+});
+
+test("a world build without planning has no objective to report", () => {
+  assert.equal(currentObjective({ id: "a", name: "a" }), null);
+  assert.deepEqual(objectiveTable([{ id: "a", name: "a" }]), []);
+});
+
+test("obstructed objectives sort above stuck ones, and stuck above the rest", () => {
+  const rows = objectiveTable([
+    planner("calm", [objective(1, "active")]),
+    planner("stuck", [objective(2, "active", { activeWithoutProgressMs: 90000 })]),
+    planner("blocked", [objective(3, "active", { obstruction: "navigation" })]),
+  ]);
+  assert.deepEqual(
+    rows.map((row) => row.bot.name),
+    ["blocked", "stuck", "calm"],
+  );
+});
+
+test("the tally counts every objective a bot has held, commonest state first", () => {
+  const tally = objectiveTally([
+    planner("a", [objective(1, "completed"), objective(2, "completed"), objective(3, "active")]),
+    planner("b", [objective(4, "completed")]),
+  ]);
+  assert.equal(tally.total, 4);
+  assert.deepEqual(tally.states, [
+    ["completed", 3],
+    ["active", 1],
+  ]);
+});
+
+test("identical advice from one source is a single lead held by several bots", () => {
+  const report = { source: "Humanb", text: "Try Goldshire.", confidence: 0.4, receivedMs: 10, usefulVisits: 1 };
+  const bots = [
+    planner("a", [], { planning: { objectives: [], reports: [report] } }),
+    planner("b", [], { planning: { objectives: [], reports: [{ ...report, receivedMs: 20, usefulVisits: 0 }] } }),
+  ];
+  const { leads } = worldTalk(bots);
+  assert.equal(leads.length, 1);
+  assert.deepEqual(leads[0].holders, ["a", "b"]);
+  assert.equal(leads[0].useful, 1);
+  assert.equal(leads[0].receivedMs, 20);
+});
+
+test("a question a bot is still waiting on is listed with its status", () => {
+  const asking = planner("a", [
+    objective(1, "active", { information: { status: "lead_received", attempts: 2, question: "Where is it?" } }),
+  ]);
+  const quiet = planner("b", [objective(2, "active", { information: { status: "none", question: "" } })]);
+  const { asks } = worldTalk([asking, quiet]);
+  assert.deepEqual(asks, [{ id: "a", name: "a", status: "lead_received", question: "Where is it?", attempts: 2 }]);
+});
+
+test("run statistics rate flows by elapsed time and leave standing figures alone", () => {
+  const rows = runStatistics({
+    simMs: 1800000,
+    runTotals: { xp: 600, quests: 4, deaths: 1 },
+    bots: [{ actions: 10, memoryCount: 100, money: 50 }],
+  });
+  const row = (label) => rows.find((entry) => entry.label === label);
+  assert.equal(row("XP earned").value, 600);
+  assert.equal(row("XP earned").perHour, 1200);
+  assert.equal(row("Memories held").value, 100);
+  assert.equal(row("Memories held").perHour, null);
+  assert.equal(row("AI updates"), undefined);
+});
+
+test("a healthy run needs no attention", () => {
+  const notes = attention({
+    simMs: 1000,
+    expectedBots: 1,
+    onlineBots: 1,
+    bots: [{ id: "a", name: "a", health: 100, maxHealth: 100, memoryState: "ready" }],
+    interpreter: { connected: true },
+  });
+  assert.deepEqual(notes, []);
+});
+
+test("attention names the bots each note is about, most serious first", () => {
+  const notes = attention({
+    simMs: 1000,
+    expectedBots: 2,
+    onlineBots: 2,
+    bots: [
+      { id: "a", name: "a", health: 0, maxHealth: 100, saveFailed: true },
+      { id: "b", name: "b", health: 100, maxHealth: 100, droppedPerceptions: 3 },
+    ],
+    interpreter: {},
+  });
+  assert.equal(notes[0].level, "danger");
+  assert.ok(notes.every((note) => note.bots.every((bot) => bot.id && bot.name)));
+  const dropped = notes.find((note) => note.text.includes("dropping perceptions"));
+  assert.deepEqual(dropped.bots, [{ id: "b", name: "b" }]);
+});
+
+test("a short cohort and a spent request budget are notes about the run, not about a bot", () => {
+  const notes = attention({
+    simMs: 1000,
+    expectedBots: 5,
+    onlineBots: 3,
+    bots: [],
+    interpreter: { connected: true, usedRequests: 200, maxRequests: 100 },
+  });
+  assert.ok(notes.some((note) => note.text === "3 of 5 bots online" && !note.bots.length));
+  assert.ok(notes.some((note) => note.text.includes("budget spent") && !note.bots.length));
+});
+
+// -------------------------------------------------------------------------------------- request budget
+
+test("an unlimited world enforces no cap, however far the request count runs past maxRequests", () => {
+  const budget = budgetState({ budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 });
+  assert.equal(budget.mode, "unlimited");
+  assert.equal(budget.capped, false);
+  assert.equal(budget.exhausted, false);
+});
+
+test("a trial budget is spent once the count reaches its cap", () => {
+  assert.equal(budgetState({ budgetMode: "trial", usedRequests: 99, maxRequests: 100 }).exhausted, false);
+  assert.equal(budgetState({ budgetMode: "trial", usedRequests: 100, maxRequests: 100 }).exhausted, true);
+});
+
+test("a rolling budget is spent when nothing is left this minute, not when the total is high", () => {
+  const rolling = { budgetMode: "rolling", usedRequests: 9000, requestsPerMinute: 60 };
+  assert.equal(budgetState({ ...rolling, remainingRequests: 0 }).exhausted, true);
+  assert.equal(budgetState({ ...rolling, remainingRequests: 12 }).exhausted, false);
+});
+
+test("a rolling budget takes its cap from requestsPerMinute, which is the only field the world fills", () => {
+  // maxRequests is absent on a rolling world; reading it would report an uncapped budget and hide the meter.
+  const budget = budgetState({ budgetMode: "rolling", usedRequests: 9000, requestsPerMinute: 60, remainingRequests: 5 });
+  assert.equal(budget.max, 60);
+  assert.equal(budget.capped, true);
+});
+
+test("a missing remaining count is derived from the cap rather than read as unspent", () => {
+  assert.equal(budgetState({ budgetMode: "rolling", usedRequests: 60, requestsPerMinute: 60 }).remaining, 0);
+  assert.equal(budgetState({ budgetMode: "rolling", usedRequests: 60, requestsPerMinute: 60 }).exhausted, true);
+});
+
+test("an unlimited world raises no budget alert while the model is still answering", () => {
+  const list = alerts({
+    source: "alles-live",
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 },
+  });
+  assert.equal(
+    list.some((alert) => alert.text.includes("budget")),
+    false,
+  );
+});
+
+test("a spent trial budget is still reported", () => {
+  const list = alerts({
+    source: "alles-live",
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "trial", usedRequests: 100, maxRequests: 100 },
+  });
+  assert.ok(list.some((alert) => alert.text.includes("Pilot request budget used (100 of 100)")));
+});
+
+test("attention does not warn about a budget the world is not enforcing", () => {
+  const uncapped = attention({
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 },
+  });
+  const capped = attention({
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "trial", usedRequests: 100, maxRequests: 100 },
+  });
+  assert.deepEqual(uncapped, []);
+  assert.ok(capped.some((note) => note.text.includes("budget spent")));
 });
