@@ -312,15 +312,15 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
   if (state.controlError) list.push({ level: "warn", text: `Control rejected: ${state.controlError}` });
   if (state.source === "alles-live") {
     const worker = state.interpreter || {};
-    const trial = worker.budgetMode !== "rolling";
+    const budget = budgetState(worker);
     if (worker.connected === false)
       list.push({ level: "warn", text: "Interpreter worker not connected: perceptions form by template fallback." });
     if (worker.ledgerFault)
       list.push({ level: "danger", text: "Provider ledger fault: no further model requests are permitted." });
-    else if (trial && worker.maxRequests != null && (worker.usedRequests ?? 0) >= worker.maxRequests)
+    else if (budget.exhausted && budget.mode === "trial")
       list.push({
         level: "info",
-        text: `Pilot request budget used (${worker.usedRequests} of ${worker.maxRequests}); memories form by template fallback.`,
+        text: `Pilot request budget used (${budget.used} of ${budget.max}); memories form by template fallback.`,
       });
     if (state.alles?.lifecycleFault)
       list.push({ level: "danger", text: "Lifecycle ingress overflow: interpretation and speech are suspended." });
@@ -529,7 +529,8 @@ export function attention(snapshot, { stalledMs = 10000, noProgressMs = 60000, s
   if (expected != null && online != null && online < expected) flag("warn", `${online} of ${expected} bots online`);
   if (worker.ledgerFault) flag("danger", "Interpreter ledger fault: no further model requests");
   if (worker.connected === false) flag("warn", "Interpreter worker disconnected");
-  if (worker.maxRequests && worker.usedRequests >= worker.maxRequests)
+  const budget = budgetState(worker);
+  if (budget.exhausted && budget.mode === "trial")
     flag("warn", "Interpreter request budget spent; memories form by template fallback");
   if (worker.oldestWaitingMs > 10000)
     flag("warn", `Interpreter jobs waiting up to ${(worker.oldestWaitingMs / 1000).toFixed(0)} s`);
@@ -546,6 +547,26 @@ export function attention(snapshot, { stalledMs = 10000, noProgressMs = 60000, s
     flag("warn", `${snapshot.journal.liveDropped} live records dropped before the journal`);
   const severity = { danger: 0, warn: 1 };
   return notes.sort((a, b) => severity[a.level] - severity[b.level]);
+}
+
+// How the interpreter's request budget should be read. The world publishes three modes and only two of them
+// cap anything: "rolling" refills every minute, "trial" stops at a fixed count, and "unlimited" ignores the
+// count entirely — `usedRequests` then runs past `maxRequests` while the model keeps answering, so treating a
+// non-rolling mode as a trial reports a spent budget and a template fallback that are not happening.
+export function budgetState(worker = {}) {
+  const mode = worker.budgetMode === "rolling" ? "rolling" : worker.budgetMode === "unlimited" ? "unlimited" : "trial";
+  const max = Number(worker.maxRequests) || 0;
+  const used = Number(worker.usedRequests) || 0;
+  const remaining = worker.remainingRequests;
+  const capped = mode !== "unlimited" && max > 0;
+  return {
+    mode,
+    max,
+    used,
+    remaining,
+    capped,
+    exhausted: capped && (mode === "rolling" ? remaining === 0 : used >= max),
+  };
 }
 
 export function visibleBots(snapshot, map, zone, instance = "all") {

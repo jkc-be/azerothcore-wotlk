@@ -2,6 +2,7 @@ import {
   ACTIVITIES,
   TRACE_KINDS,
   attention,
+  budgetState,
   currentObjective,
   objectiveTable,
   objectiveTally,
@@ -444,17 +445,17 @@ function renderHeader() {
   }
   if (isAlles()) {
     const worker = state.interpreter || {};
-    const rolling = worker.budgetMode === "rolling";
-    const used = worker.usedRequests ?? 0,
-      max = worker.maxRequests ?? 0;
+    const budget = budgetState(worker);
     const conversation = state.conversation || {};
     $("run-label").textContent = `Live realm, run ${state.run}`;
     notice(
       `Live world telemetry · ${worker.model || "no model"} · ` +
         `${worker.connected ? "worker connected" : "worker disconnected"} · ` +
-        (rolling
+        (budget.mode === "rolling"
           ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute`
-          : `${used} of ${max} pilot requests used`) +
+          : budget.capped
+            ? `${budget.used} of ${budget.max} pilot requests used`
+            : `${formatNumber(budget.used)} requests charged, no cap`) +
         ` · ${formatNumber(worker.modelMemories)} model memories, ${formatNumber(worker.fallbackMemories)} by fallback` +
         (conversation.enabled
           ? ` · ${formatNumber(conversation.replies)} replies, ${formatNumber(conversation.pendingReplies)} pending, ` +
@@ -462,7 +463,7 @@ function renderHeader() {
           : "") +
         (worker.ledgerFault
           ? " · provider ledger fault"
-          : !rolling && max && used >= max
+          : budget.exhausted && budget.mode === "trial"
             ? " · budget used; template fallback active"
             : ""),
     );
@@ -2266,8 +2267,8 @@ function renderEventMix() {
 function allesLamps() {
   const worker = state.interpreter || {};
   const journal = state.journal?.events;
-  const trial = worker.budgetMode !== "rolling";
-  const exhausted = trial && worker.maxRequests != null && (worker.usedRequests ?? 0) >= worker.maxRequests;
+  const budget = budgetState(worker);
+  const exhausted = budget.exhausted;
   return [
     [
       state.telemetryStale ? "danger" : "ok",
@@ -2281,7 +2282,13 @@ function allesLamps() {
     ],
     [
       worker.ledgerFault ? "danger" : exhausted ? "warn" : "ok",
-      worker.ledgerFault ? "Ledger fault" : exhausted ? "Request budget used" : "Requests available",
+      worker.ledgerFault
+        ? "Ledger fault"
+        : exhausted
+          ? "Request budget used"
+          : budget.capped
+            ? "Requests available"
+            : "Requests uncapped",
       !worker.ledgerFault && !exhausted,
     ],
     [
@@ -2309,21 +2316,29 @@ function renderInterpreterFigures() {
   const used = worker.usedRequests ?? 0;
   const max = rolling ? (worker.requestsPerMinute ?? 0) : (worker.maxRequests ?? 0);
   const remaining = worker.remainingRequests ?? Math.max(0, max - used);
-  const exhausted = Boolean(max) && (rolling ? remaining === 0 : used >= max);
-  $("requests-value").textContent = rolling ? `${remaining} / ${max}` : `${used} / ${max}`;
+  const budget = budgetState(worker);
+  const exhausted = budget.exhausted;
+  // An unlimited world enforces no cap, so its count is a running total rather than a fraction of a budget.
+  $("requests-value").textContent = !budget.capped
+    ? formatNumber(used)
+    : rolling
+      ? `${remaining} / ${max}`
+      : `${used} / ${max}`;
   $("requests-sub").textContent = worker.ledgerFault
     ? "provider ledger fault"
-    : rolling
-      ? `left this minute, ${formatNumber(used)} charged since boot`
-      : exhausted
-        ? "trial budget used; template fallback"
-        : "trial requests used";
+    : !budget.capped
+      ? "charged since boot, no cap"
+      : rolling
+        ? `left this minute, ${formatNumber(used)} charged since boot`
+        : exhausted
+          ? "trial budget used; template fallback"
+          : "trial requests used";
   requestAnimationFrame(() => {
     const { ctx, width, height } = surface($("requests-bar"));
-    speedBar(ctx, width, height, max ? (rolling ? remaining / max : used / max) : 0, {
+    speedBar(ctx, width, height, budget.capped ? (rolling ? remaining / max : used / max) : 0, {
       color: worker.ledgerFault || exhausted ? palette.ember : palette.moss,
       requested: "",
-      empty: !max,
+      empty: !budget.capped,
     });
   });
   const last = history.at(-1);
@@ -2363,7 +2378,9 @@ function renderInterpreter() {
       rolling
         ? `${worker.remainingRequests ?? "?"} of ${worker.requestsPerMinute} requests left this minute, ` +
           `${formatNumber(worker.usedRequests)} charged since boot`
-        : `${formatNumber(worker.usedRequests)} of ${formatNumber(worker.maxRequests)} trial requests used`,
+        : budgetState(worker).capped
+          ? `${formatNumber(worker.usedRequests)} of ${formatNumber(worker.maxRequests)} trial requests used`
+          : `unlimited: ${formatNumber(worker.usedRequests)} requests charged since boot, no cap enforced`,
     ],
     ["Ledger", worker.ledgerFault ? "fault: no further model requests" : "healthy"],
     [

@@ -65,6 +65,15 @@ the two cases apart, and start the bridge with `--worker-log env/dist/logs/alles
 Interpreter panel can show the worker's own job outcomes. Every boot is a new run in the same directory;
 the world archives the previous run's files into `archive/<run>/` and the bridge restarts its tiers.
 
+The interpreter reports one of three budget modes and only two of them cap anything: `rolling` refills every
+minute, `trial` stops at `maxRequests`, and `unlimited` ignores the count, so `usedRequests` runs far past
+`maxRequests` while the model keeps answering. Read the mode before believing a "budget used" figure: check
+`interpreter.modelMemories` against `fallbackMemories` to see whether memories are actually forming by
+fallback. The dashboard has no control over the budget — the running world's `interpreter_policy` command
+(guarded by `Alles.Interpreter.ControlTokenFile` and `PolicyFile`, and reported as `policy.controls`) is not
+reachable from the observatory bridge, and the whole mechanism lives on `feat/alles-agent-runtime` rather than
+on `main`, so a deployed worldserver can be ahead of this checkout's `modules/mod-alles`.
+
 The World state region reads the per-bot `planning` block the module publishes in each snapshot: with a world build
 that does not publish it, the objective and lead panels are empty and only *Needs attention* and *Run so far* carry
 figures. It is the first place to look when a cohort is online but appears to be doing nothing — an objective stuck on

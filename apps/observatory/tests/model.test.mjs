@@ -34,6 +34,7 @@ import {
   worldTalk,
   runStatistics,
   attention,
+  budgetState,
 } from "../web/model.js";
 const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
@@ -593,4 +594,63 @@ test("a short cohort and a spent request budget are notes about the run, not abo
   });
   assert.ok(notes.some((note) => note.text === "3 of 5 bots online" && !note.bots.length));
   assert.ok(notes.some((note) => note.text.includes("budget spent") && !note.bots.length));
+});
+
+// -------------------------------------------------------------------------------------- request budget
+
+test("an unlimited world enforces no cap, however far the request count runs past maxRequests", () => {
+  const budget = budgetState({ budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 });
+  assert.equal(budget.mode, "unlimited");
+  assert.equal(budget.capped, false);
+  assert.equal(budget.exhausted, false);
+});
+
+test("a trial budget is spent once the count reaches its cap", () => {
+  assert.equal(budgetState({ budgetMode: "trial", usedRequests: 99, maxRequests: 100 }).exhausted, false);
+  assert.equal(budgetState({ budgetMode: "trial", usedRequests: 100, maxRequests: 100 }).exhausted, true);
+});
+
+test("a rolling budget is spent when nothing is left this minute, not when the total is high", () => {
+  const spent = budgetState({ budgetMode: "rolling", usedRequests: 9000, maxRequests: 60, remainingRequests: 0 });
+  const free = budgetState({ budgetMode: "rolling", usedRequests: 9000, maxRequests: 60, remainingRequests: 12 });
+  assert.equal(spent.exhausted, true);
+  assert.equal(free.exhausted, false);
+});
+
+test("an unlimited world raises no budget alert while the model is still answering", () => {
+  const list = alerts({
+    source: "alles-live",
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 },
+  });
+  assert.equal(
+    list.some((alert) => alert.text.includes("budget")),
+    false,
+  );
+});
+
+test("a spent trial budget is still reported", () => {
+  const list = alerts({
+    source: "alles-live",
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "trial", usedRequests: 100, maxRequests: 100 },
+  });
+  assert.ok(list.some((alert) => alert.text.includes("Pilot request budget used (100 of 100)")));
+});
+
+test("attention does not warn about a budget the world is not enforcing", () => {
+  const uncapped = attention({
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "unlimited", usedRequests: 2196, maxRequests: 100 },
+  });
+  const capped = attention({
+    simMs: 1000,
+    bots: [],
+    interpreter: { connected: true, budgetMode: "trial", usedRequests: 100, maxRequests: 100 },
+  });
+  assert.deepEqual(uncapped, []);
+  assert.ok(capped.some((note) => note.text.includes("budget spent")));
 });
