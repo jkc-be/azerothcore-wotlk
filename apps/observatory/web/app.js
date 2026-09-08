@@ -66,6 +66,18 @@ const SCALE_STEPS = [50, 100, 250, 500, 1000, 2500, 5000];
 // Above this many bots only the hovered and selected names are drawn; below it every name that finds room is.
 const MAP_LABEL_LIMIT = 12;
 const MAP_LABEL_HEIGHT = 19;
+// The simulation controls only exist on a run the world lets the dashboard drive. A read-only feed — an
+// ordinary realm publishing through mod-alles, or a recorded run — keeps Hold and loses the rest.
+const SIMULATION_CONTROLS = [
+  "pause",
+  "speed-control",
+  "max-speed-settings",
+  "max-speed-status",
+  "population",
+  "population-status",
+  "observer-group",
+  "observer-status",
+];
 const continentNames = {
   0: "Eastern Kingdoms",
   1: "Kalimdor (western continent)",
@@ -95,6 +107,9 @@ let view = { x: 0, y: 0, scale: 0.03 },
   ingestTimes = [],
   chartHover = null,
   feedFrozen = null,
+  held = false,
+  heldAt = null,
+  heldSamples = 0,
   hovered = null,
   shownCount = null;
 const trails = new Map();
@@ -324,6 +339,9 @@ function resetRun() {
   feedFrozen = null;
   eventStats = null;
   workerLog = null;
+  held = false;
+  heldSamples = 0;
+  renderHold();
 }
 
 // ------------------------------------------------------------------------------------------------ ingest
@@ -349,6 +367,17 @@ function ingest(snapshot, restoring = false) {
       entry.error = state.controlSeq === entry.sequence ? state.controlError || "" : "";
     }
   }
+  // A held view keeps ingesting — history, trails and the journal stay complete — and simply stops redrawing,
+  // so a moment can be read without it scrolling away. Releasing shows everything that arrived meanwhile.
+  if (held) {
+    heldSamples += 1;
+    renderHold();
+    return;
+  }
+  renderAll(previousTarget);
+}
+
+function renderAll(previousTarget) {
   updateMaps();
   renderHeader();
   renderInstruments(previousTarget);
@@ -364,6 +393,28 @@ function ingest(snapshot, restoring = false) {
   renderInterpreter();
   loadManifest();
 }
+
+function renderHold() {
+  const button = $("hold");
+  button.setAttribute("aria-pressed", String(held));
+  button.textContent = held ? "Release" : "Hold";
+  document.body.classList.toggle("held", held);
+  if (!held) {
+    $("hold-status").textContent = "";
+    return;
+  }
+  const samples = `${formatNumber(heldSamples)} sample${heldSamples === 1 ? "" : "s"} behind`;
+  const behind = heldSamples ? samples : "up to date";
+  $("hold-status").textContent = `View held at ${heldAt} · ${behind}`;
+}
+
+$("hold").onclick = () => {
+  held = !held;
+  heldSamples = 0;
+  heldAt = state ? (isPython() ? duration(state.simMs) : formatClock(state.simMs)) : "";
+  renderHold();
+  if (!held && state) renderAll(state.expectedBots);
+};
 
 function isPython() {
   return state?.source === "python-api";
@@ -503,7 +554,17 @@ function renderInstruments(previousTarget) {
   }
   if (alles) renderInterpreterFigures();
 
-  $("deck").hidden = Boolean(readOnly);
+  // The deck is never emptied: Hold works on any feed, and a feed without simulation control says so rather
+  // than leaving a blank space where the buttons used to be.
+  const controllable = !readOnly;
+  for (const id of SIMULATION_CONTROLS) $(id).hidden = !controllable;
+  $("no-controls").hidden = controllable;
+  if (!controllable)
+    $("no-controls").textContent = isAlles()
+      ? "This realm runs at real time: an ordinary world has no fixed-step clock to pause or accelerate. " +
+        "Hold freezes the view while the bridge keeps recording."
+      : "This feed is read-only, so pause, speed and population cannot be set from here. " +
+        "Hold freezes the view while the bridge keeps recording.";
   const locked = Boolean(readOnly || state.fault || state.completed || state.baseline || state.observers);
   $("pause").disabled = locked;
   $("pause").textContent = state.paused ? "Resume" : "Pause";
@@ -1114,6 +1175,11 @@ function drawScaleBar(ctx, height) {
 }
 
 function drawMap() {
+  // Returning before the surface is cleared leaves the last frame on the canvas, which is what a hold means.
+  if (held) {
+    requestAnimationFrame(drawMap);
+    return;
+  }
   const { ctx, width, height } = surface(canvas);
   ctx.fillStyle = palette.ground;
   ctx.fillRect(0, 0, width, height);
@@ -2797,8 +2863,9 @@ setInterval(async () => {
       notice("No snapshot for 3 s. Check the bridge.");
       linkState("stale");
     }
-    renderAlerts();
+    if (!held) renderAlerts();
   }
+  if (held) return;
   renderRoster();
   if (!token) return;
   pollCount += 1;
@@ -2889,5 +2956,6 @@ document.addEventListener("scroll", () => document.body.classList.toggle("scroll
 
 renderLegend();
 renderControlLog();
+renderHold();
 refreshRegionNav();
 drawMap();

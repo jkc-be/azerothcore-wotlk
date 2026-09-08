@@ -18,8 +18,16 @@ equivalence and population benchmarks remain pending.
 
 The dashboard is a simulation control panel. A sticky instrument bench carries the simulated-time clock, a linear
 achieved-versus-requested speed instrument, backlog and longest-tick figures with sparklines, pause/resume,
-1/2/5/10×/Max speed with a backlog target, target-population controls, and one status line with alerts and run-state
-lamps that appear only when a state is not the default. Progression figures cover XP, quests and deaths with
+1/2/5/10×/Max speed with a backlog target, target-population controls, a **Hold** toggle, and one status line with
+alerts and run-state lamps that appear only when a state is not the default.
+
+Pause, speed and population drive the world, so they appear only on a run the world lets the dashboard control. A
+read-only feed — an ordinary realm publishing through `mod-alles`, which runs at real time and has no fixed-step clock,
+or a recorded run — keeps Hold and says why the rest is absent rather than leaving the deck empty. **Hold** freezes the
+view on any feed: history, trails and the journal keep being recorded while nothing redraws, the button reports how
+many samples have arrived meanwhile, and releasing shows all of them.
+
+Progression figures cover XP, quests and deaths with
 per-simulated-hour rates over a trailing ten-minute window, mean level and mean health.
 
 The **World state** region is the debugging view. *What each bot is working on* lists every planning bot's current

@@ -83,7 +83,7 @@
           <button id="set-bots" disabled>Set bots</button>
         </form>
         <span id="population-status" role="status"></span>
-        <div class="observer-mode">
+        <div class="observer-mode" id="observer-group">
           <span class="label">GM observer</span>
           <div id="observer-mode" class="segmented" role="group" aria-label="GM observer control level">
             <button data-mode="0" disabled title="Spectator only: /pov, no movement, no commands">Locked</button>
@@ -92,6 +92,9 @@
           </div>
         </div>
         <span id="observer-status" role="status"></span>
+        <button id="hold" class="toggle hold" type="button" aria-pressed="false">Hold</button>
+        <span id="hold-status" role="status"></span>
+        <p id="no-controls" class="caption" hidden></p>
       </div>
       <div class="status-line">
         <span id="notice" role="status">Enter the access token to connect to a run or a Python observation feed.</span>

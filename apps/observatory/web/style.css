@@ -334,6 +334,38 @@ header {
   align-items: center;
   gap: 8px;
 }
+/* These carry their own display, so the plain [hidden] rule would not take on a read-only feed. */
+#max-speed-settings[hidden],
+#population[hidden],
+#observer-group[hidden],
+#speed-control[hidden],
+#no-controls[hidden] {
+  display: none;
+}
+/* Hold is the one deck control every feed has; held reads as a caution, not as a healthy state. */
+.hold {
+  min-width: 88px;
+}
+button.toggle.hold[aria-pressed="true"] {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--ground);
+  font-weight: 600;
+}
+#hold-status {
+  font-size: 13px;
+  color: var(--brass);
+}
+#no-controls {
+  flex-basis: 100%;
+  max-width: 520px;
+  margin-top: 0;
+}
+body.held .bench {
+  box-shadow:
+    inset 0 0 0 1px var(--brass),
+    0 1px 0 var(--rule);
+}
 #backlog-limit,
 #bot-count {
   width: 72px;
