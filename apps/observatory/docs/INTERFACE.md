@@ -278,3 +278,28 @@ observer's sight to a bot, movement is disabled in every mode; `/pov stop` resto
 The observer can load extra grids and affect visibility/workload: disable admission during scientific comparisons
 and benchmarks. These remain disposable databases: provision observer accounts/characters in the clean fixture
 if they must survive a future run reset. Never resume virtual-time database output to retain an observer character.
+
+### Alles simulation and race quotas
+
+An Alles-enabled isolated run publishes `source: "alles-simulation"`, per-bot `planning` and memory fields, and
+`interpreter` alongside the normal core clock, movement and progression counters. Pause continues external worker
+polling and persistence without world movement. Ordinary `alles-live` feeds remain read-only.
+
+A prepared race roster publishes `racePopulation: [{race, target, capacity}, ...]`. POST `/api/control` accepts
+`raceCounts`, a mapping of playable race IDs (string keys) to integer counts. Omitted races have target zero;
+`bots`, if supplied, must equal the sum. Counts cannot exceed each race's prepared capacity. The existing global
+slider preserves the selected races and adds unspecified increases as Humans; the expandable race form sets exact targets.
+Bots removed from the active roster log out normally and retain progress. Their classes are selected when the pool
+is prepared. Trolls in the Alles experiment are labelled as the control group and excluded from `Alles.Owners`.
+
+`llmQueueLimit` accepts 1–64 and accompanies a Max request. `llmQueued` counts admitted memory, planning and conversation
+jobs, including leased work. Admission shares this limit; `queueHeld` means the world is waiting for it to drain to half
+capacity while continuing real-time worker I/O. A newly lowered limit can temporarily be below previously admitted
+work. Numeric speed disables the Max guard. The mailbox extends the existing six fields with queue limit, guard 0/1,
+and (when a race roster exists) ten counts in race ID order 1,2,3,4,5,6,7,8,10,11. Older total-only runs remain compatible.
+
+Population inputs share one draft: editing a race count updates the total and slider immediately. Both **Set bots**
+and **Apply race counts** submit that draft, and telemetry refreshes do not overwrite unapplied edits. **Auto** total
+increases preserve the existing race mix and assign additional slots to Humans. Decreases remove Humans first,
+then other races in race ID order. The preview shows the exact allocation before applying it. Total-only API requests
+use the same rule. Capacity errors stay beside the controls rather than disappearing on the next snapshot.

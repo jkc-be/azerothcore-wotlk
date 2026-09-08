@@ -177,6 +177,10 @@ adds nothing useful. There are at most 128 threads, histories and recent-answer 
 Recruitment allows one attempt each from up to four distinct eligible responders, processed one at a time.
 Their identically worded offers remain distinct evidence. The same per-bot, audience and total attempt limits apply.
 
+The optional [Alles brain/body controller](BRAIN.md) (`Alles.Brain.Enable=1`) gives these intentions exclusive
+noncombat execution through interruptible Playerbots skills. It preserves the existing worker and persistence
+contracts and defaults to off. Its implementation and validation limits are described in that guide.
+
 With `Alles.Objectives.Enable=1`, an information-blocked deferred objective can ask about missing quest
 information or work elsewhere. It must have an ordinary available audience and an idle opportunity outside
 combat or active quest execution. The question includes only its own quest/place and level. Party, General,

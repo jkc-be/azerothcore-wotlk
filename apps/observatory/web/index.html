@@ -20,7 +20,15 @@
       </form>
     </header>
 
+    <div id="bench-placeholder" aria-hidden="true" hidden></div>
     <section class="bench" aria-label="Simulation clock, load and controls">
+      <div class="compact-strip">
+        <strong id="compact-clock">00:00:00</strong>
+        <span id="compact-speed"></span>
+        <span id="compact-status"></span>
+        <button id="compact-pause" type="button" disabled>Pause</button>
+        <button id="expand-controls" type="button">Controls ↑</button>
+      </div>
       <div class="clock">
         <span class="label" id="clock-label">Simulated time</span>
         <b id="clock-time">00:00:00</b>
@@ -71,10 +79,16 @@
             >Max backlog (ms)
             <input id="backlog-limit" type="number" min="10" max="60000" step="1" value="100" required disabled />
           </label>
+          <label>LLM queue limit
+            <input id="llm-queue-limit" type="number" min="1" max="64" step="1" value="8" required disabled />
+          </label>
           <button id="set-max-speed" disabled>Apply Max</button>
         </form>
         <span id="max-speed-status" role="status"></span>
         <form id="population">
+          <label>Allocation
+            <select id="population-mode"><option value="auto">Auto</option><option value="races">By race</option></select>
+          </label>
           <label
             >Target bots
             <input id="bot-count" type="number" min="0" max="100" step="1" required disabled />
@@ -82,6 +96,17 @@
           <input id="bot-range" type="range" min="0" max="100" step="1" disabled aria-label="Target bots slider" />
           <button id="set-bots" disabled>Set bots</button>
         </form>
+        <details id="race-population" hidden>
+          <summary>Scale bots by race</summary>
+          <form id="race-population-form">
+            <div id="race-counts"></div>
+            <p>Extra slots in Auto are Human. Editing race counts updates the total. Classes are random within each race’s pool. Trolls use the original Playerbots AI as the control group.
+              Reducing a count logs bots out and preserves their progress.</p>
+            <button id="set-races">Apply race counts</button>
+          </form>
+        </details>
+        <span id="population-draft-status" role="status"></span>
+        <span id="population-error" role="alert"></span>
         <span id="population-status" role="status"></span>
         <div class="observer-mode" id="observer-group">
           <span class="label">GM observer</span>

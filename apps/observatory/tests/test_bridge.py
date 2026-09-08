@@ -1156,3 +1156,60 @@ class MemoryInspection(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class RaceAndQueueControls(unittest.TestCase):
+    def setUp(self):
+        Controls.setUp(self)
+        self.snapshot.update(requestedSpeed=1, speedStep=0.1, backlogMs=0, seq=1, ready=True,
+                             expectedBots=10, maxBots=50, observerMode=0, llmQueueLimit=8, llmGuard=False,
+                             racePopulation=[{'race': race, 'capacity': 5, 'target': 5 if race in (1, 8) else 0}
+                                             for race in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11)])
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+
+    def test_equal_total_race_swap_and_pending_quota_survive_speed_change(self):
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False,
+                            'raceCounts': {'2': 5, '8': 5}, 'bots': 10})
+        self.spool.control({'run': 'run-a', 'speed': 2, 'paused': False})
+        fields = (self.path / 'control.txt').read_text().split()
+        self.assertEqual(list(map(int, fields[8:])), [0, 5, 0, 0, 0, 0, 0, 5, 0, 0])
+
+    def test_rejects_unprovisioned_race_capacity_and_mismatched_total(self):
+        for extra in ({'raceCounts': {'8': 6}}, {'raceCounts': {'8': 5}, 'bots': 8},
+                      {'raceCounts': {'9': 1}}, {'raceCounts': {'1': True}}):
+            with self.assertRaises(ValueError):
+                self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, **extra})
+
+    def test_max_applies_queue_cap_and_numbered_speed_disables_guard(self):
+        self.spool.control({'run': 'run-a', 'speed': 'max', 'paused': False, 'llmQueueLimit': 3})
+        fields = (self.path / 'control.txt').read_text().split()
+        self.assertEqual(fields[6:8], ['3', '1'])
+        self.spool.control({'run': 'run-a', 'speed': 2, 'paused': False})
+        fields = (self.path / 'control.txt').read_text().split()
+        self.assertEqual(fields[6:8], ['3', '0'])
+        for invalid in (0, 65, True, 1.5):
+            with self.assertRaises(ValueError):
+                self.spool.control({'run': 'run-a', 'speed': 'max', 'paused': False, 'llmQueueLimit': invalid})
+
+    def test_max_backs_off_when_external_queue_holds_gameplay(self):
+        controller = bridge.MaxSpeed('run-a', 100, 5, 0)
+        state = dict(self.snapshot, requestedSpeed=4, llmQueueLimit=3, llmQueued=3, queueHeld=True)
+        self.assertEqual(controller.choose(state, 1), 2)
+        self.assertIn('LLM', controller.status)
+
+class AutoPopulation(unittest.TestCase):
+    def setUp(self):
+        RaceAndQueueControls.setUp(self)
+
+    def test_total_only_increase_defaults_to_humans(self):
+        self.snapshot['racePopulation'][0]['capacity'] = 20
+        self.snapshot['maxBots'] = 65
+        (self.path / 'latest.json').write_text(json.dumps(self.snapshot))
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 12})
+        fields = (self.path / 'control.txt').read_text().split()
+        self.assertEqual(fields[4], '12')
+        self.assertEqual(list(map(int, fields[8:])), [7, 0, 0, 0, 0, 0, 0, 5, 0, 0])
+
+    def test_total_only_reduction_preserves_nonhuman_slots_first(self):
+        self.spool.control({'run': 'run-a', 'speed': 1, 'paused': False, 'bots': 7})
+        fields = (self.path / 'control.txt').read_text().split()
+        self.assertEqual(list(map(int, fields[8:])), [2, 0, 0, 0, 0, 0, 0, 5, 0, 0])

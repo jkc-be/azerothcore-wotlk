@@ -18,6 +18,7 @@ class LocalSurvey
 public:
     void Observe(uint64_t now, uint64_t scan, bool empty, bool active, float x, float y);
     bool Exhausted() const { return _activeMs >= 120000 && _positions.size() >= 3 && _emptyScans >= 3; }
+    bool Stalled() const { return _activeMs >= 60000 && _positions.size() < 3 && _emptyScans >= 3; }
     uint64_t ActiveMs() const { return _activeMs; }
     uint32_t EmptyScans() const { return _emptyScans; }
     std::size_t Positions() const { return _positions.size(); }

@@ -577,6 +577,10 @@ class MaxSpeed:
             return 1 if current['requestedSpeed'] > 1 else None
 
         speed, backlog = current['requestedSpeed'], current['backlogMs']
+        if current.get('queueHeld') or current.get('llmQueued', 0) >= current.get('llmQueueLimit', 65):
+            self.status = 'Waiting for the LLM queue to drain'
+            self.reset_measurement()
+            return max(1, round(speed / 2, 1)) if speed > 1 else None
         speeds = available_speeds(current)
         self.samples.append((now, backlog))
         while len(self.samples) > 1 and self.samples[1][0] <= now - 3:
@@ -756,6 +760,7 @@ class Spool:
             current['speedControl'] = {
                 'mode': 'max' if self.max_speed else 'manual',
                 'backlogLimitMs': self.backlog_limit_ms,
+                'llmQueueLimit': current.get('llmQueueLimit', 8),
                 'status': self.max_speed.status if self.max_speed else self.speed_status,
             }
             return current
@@ -805,7 +810,7 @@ class Spool:
 
     def control(self, request):
         required = {'run', 'speed', 'paused'}
-        if (not required <= set(request) or set(request) - required - {'bots', 'backlogLimitMs', 'observerMode'}
+        if (not required <= set(request) or set(request) - required - {'bots', 'backlogLimitMs', 'observerMode', 'llmQueueLimit', 'raceCounts'}
                 or not (request['speed'] == 'max'
                         or valid_speed(request['speed']))
                 or type(request['paused']) is not bool):
@@ -813,6 +818,14 @@ class Spool:
         if 'backlogLimitMs' in request and (request['speed'] != 'max'
                 or type(request['backlogLimitMs']) is not int or not 10 <= request['backlogLimitMs'] <= 60000):
             raise ValueError('backlogLimitMs requires Max and must be an integer from 10 to 60000')
+        if 'llmQueueLimit' in request and (type(request['llmQueueLimit']) is not int
+                                            or not 1 <= request['llmQueueLimit'] <= 64):
+            raise ValueError('llmQueueLimit must be an integer from 1 to 64')
+        if 'raceCounts' in request and (not isinstance(request['raceCounts'], dict)
+                or any(key not in {'1', '2', '3', '4', '5', '6', '7', '8', '10', '11'}
+                       or type(value) is not int or not 0 <= value <= 100
+                       for key, value in request['raceCounts'].items())):
+            raise ValueError('raceCounts must map playable race IDs to integer counts')
         if 'bots' in request and (type(request['bots']) is not int or not 0 <= request['bots'] <= 100):
             raise ValueError('bots must be an integer from 0 to 100')
         if 'observerMode' in request and (type(request['observerMode']) is not int
@@ -820,6 +833,7 @@ class Spool:
             raise ValueError('observerMode must be 0 (locked), 1 (roam) or 2 (full GM)')
         with self.lock:
             numeric = dict(request)
+            numeric['_maxMode'] = request['speed'] == 'max'
             numeric.pop('backlogLimitMs', None)
             if request['speed'] != 'max':
                 numeric['speed'] = round(request['speed'], 1)
@@ -857,6 +871,9 @@ class Spool:
             if current['fault']:
                 raise ValueError('Run is invalid; inspect server and start a fresh run')
             bots = current.get('expectedBots', 100)
+            race_counts = {str(row['race']): row['target'] for row in current.get('racePopulation', [])}
+            llm_limit = current.get('llmQueueLimit', 8)
+            llm_guard = current.get('llmGuard', False)
             observer_mode = current.get('observerMode', 0)
             try:
                 fields = (self.directory / 'control.txt').read_text().split()
@@ -866,10 +883,39 @@ class Spool:
                     bots = int(fields[4])
                     if len(fields) >= 6:
                         observer_mode = int(fields[5])
+                    if len(fields) >= 8 and 'llmQueueLimit' in current:
+                        llm_limit, llm_guard = int(fields[6]), bool(int(fields[7]))
+                    if len(fields) == 18 and race_counts:
+                        race_counts = dict(zip(('1', '2', '3', '4', '5', '6', '7', '8', '10', '11'),
+                                               map(int, fields[8:])))
                 if run == current['run']:
                     self.sequence = max(self.sequence, int(sequence))
             except (OSError, ValueError):
                 pass
+            if 'llmQueueLimit' in request and 'llmQueueLimit' not in current:
+                raise ValueError('Update the worldserver before setting an LLM queue limit')
+            llm_limit = request.get('llmQueueLimit', llm_limit)
+            llm_guard = request.get('_maxMode', llm_guard)
+            if 'raceCounts' in request:
+                if not race_counts:
+                    raise ValueError('This run has no race roster')
+                race_counts = {race: request['raceCounts'].get(race, 0) for race in race_counts}
+                bots = sum(race_counts.values())
+            if race_counts and 'bots' in request and 'raceCounts' not in request:
+                delta = request['bots'] - sum(race_counts.values())
+                if delta >= 0:
+                    race_counts['1'] += delta
+                else:
+                    for race in sorted(race_counts, key=int):
+                        remove = min(race_counts[race], -delta)
+                        race_counts[race] -= remove
+                        delta += remove
+            if race_counts:
+                if 'bots' in request and request['bots'] != sum(race_counts.values()):
+                    raise ValueError('Bot total must equal the race counts')
+                for row in current['racePopulation']:
+                    if race_counts[str(row['race'])] > row['capacity']:
+                        raise ValueError(f"Race {row['race']} exceeds its prepared pool of {row['capacity']}")
             bots = request.get('bots', bots)
             if 'bots' in request and 'maxBots' not in current:
                 raise ValueError('Update the worldserver before controlling population')
@@ -887,7 +933,11 @@ class Spool:
                 text += f" {bots}"
             if 'observerMode' in current:
                 text += f" {observer_mode}"
-            text += "\n"
+            if 'llmQueueLimit' in current:
+                text += f" {llm_limit} {int(llm_guard)}"
+                if race_counts:
+                    text += ''.join(f' {race_counts[race]}' for race in ('1', '2', '3', '4', '5', '6', '7', '8', '10', '11'))
+            text += '\n'
             temporary = self.directory / 'control.txt.tmp'
             temporary.write_text(text)
             os.replace(temporary, self.directory / 'control.txt')

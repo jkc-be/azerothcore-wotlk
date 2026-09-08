@@ -1439,3 +1439,43 @@ details.folded .facts {
   text-transform: uppercase;
   opacity: 0.75;
 }
+
+#race-population { flex-basis: 100%; }
+#race-counts { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+#race-counts label { display: flex; align-items: center; gap: 0.5rem; }
+#race-counts input { width: 4rem; }
+
+.bench.alles-simulation { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 16px; }
+.bench.alles-simulation > * { min-width: 0; }
+.bench.alles-simulation .deck { grid-column: 1 / -1; }
+.bench.alles-simulation .figure.speed { grid-template-columns: auto minmax(0, 1fr); }
+.bench.alles-simulation #speed-bar { width: 100%; }
+@media (max-width: 1200px) {
+  .bench.alles-simulation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 800px) {
+  .bench.alles-simulation { grid-template-columns: 1fr; }
+}
+
+.compact-strip { display: none; }
+.bench.compact {
+  position: fixed;
+  top: 0;
+  left: 32px;
+  right: 32px;
+  display: block;
+  padding: 10px 16px;
+}
+.bench.compact > :not(.compact-strip) { display: none !important; }
+.bench.compact .compact-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; }
+#compact-clock { font-size: 22px; font-variant-numeric: tabular-nums; }
+#compact-status { color: var(--ash); font-size: 13px; }
+#expand-controls { margin-left: auto; }
+@media (max-width: 800px) {
+  .bench.compact { left: 16px; right: 16px; }
+  .bench.compact .compact-strip { gap: 6px 12px; }
+}
+
+#population-error { color: var(--ember-text); flex-basis: 100%; }
+#population-error:empty { display: none; }
+#population-draft-status { color: var(--ash); flex-basis: 100%; font-size: 13px; }

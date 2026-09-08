@@ -371,13 +371,16 @@ QuestOpportunity VisibleQuestOpportunity(Player& bot, PlayerbotAI& ai, uint32_t 
     return ClassifyQuestOpportunity(available, tagged, corpses, true);
 }
 
-WorldPosition ResolveArea(Player& bot, uint32_t area)
+WorldPosition ResolveArea(Player& bot, uint32_t area, std::vector<WorldPosition> const& excluded = {})
 {
     // Executor-only routing to an already validated area. None of these coordinates become personal knowledge.
     WorldPosition result;
     float distance = std::numeric_limits<float>::max();
     auto consider = [&](WorldLocation const& point)
     {
+        if (std::any_of(excluded.begin(), excluded.end(), [&point](auto const& failed)
+            { return failed.GetMapId() == point.GetMapId() && failed.GetExactDist(point) < 15.0f; }))
+            return;
         if (point.GetMapId() != bot.GetMapId() || bot.GetDistance(point) >= distance
             || bot.GetDistance(point) > 5000.0f)
             return;
@@ -539,6 +542,7 @@ struct ObjectiveRuntime::Impl
         std::string notifiedRoster;
         std::set<ActorKey> rosterRecipients;
         WorldPosition routeTarget;
+        std::vector<WorldPosition> failedRoutes;
         float nearestRouteDistance = 0;
         uint64_t lastRouteProgressMs = 0;
         std::optional<ActorKey> followedPerson;
@@ -553,11 +557,14 @@ struct ObjectiveRuntime::Impl
         uint64_t merchantReceivedMs = 0;
         uint64_t nextMerchantMs = 0;
         std::string availability = "waiting_for_owner";
+        boost::json::object bodyStatus;
+        std::string bodyEvent;
     };
 
     Impl(ActorStore& value, std::set<ActorKey> const& owners, Telemetry::Recorder* telemetry,
-        ConversationRuntime* dialogue, Bridge::Service* worker, bool planning)
-        : store(value), recorder(telemetry), conversation(dialogue), bridge(worker), autonomousPlanning(planning)
+        ConversationRuntime* dialogue, Bridge::Service* worker, bool planning, bool embodied)
+        : store(value), recorder(telemetry), conversation(dialogue), bridge(worker), autonomousPlanning(planning),
+          brain(embodied)
     {
         capabilities = ObjectiveCapabilities();
         for (auto const owner : owners)
@@ -572,6 +579,12 @@ struct ObjectiveRuntime::Impl
         auto const quest = ai->rpgInfo.objectiveControl.quest;
         auto const place = ai->rpgInfo.objectiveControl.place;
         ai->rpgInfo.objectiveControl.Release(id);
+        if (ai->rpgInfo.body.Attached())
+        {
+            auto& body = ai->rpgInfo.body;
+            body.Issue(body.generation, body.attachment, 0, BodyControl::Skill::Idle, getMSTime());
+            ai->rpgInfo.bodyTravel = {};
+        }
         auto const* task = std::get_if<NewRpgInfo::DoQuest>(&ai->rpgInfo.data);
         if ((task && task->questId == quest) || (place && (std::holds_alternative<NewRpgInfo::GoCamp>(ai->rpgInfo.data)
             || std::holds_alternative<NewRpgInfo::WanderNpc>(ai->rpgInfo.data))))
@@ -584,6 +597,81 @@ struct ObjectiveRuntime::Impl
                 bot->StopMoving();
             }
         }
+    }
+
+    void ObserveBody(ActorKey owner, Owner& state, PlayerbotAI& ai, uint64_t realMs)
+    {
+        auto const& body = ai.rpgInfo.body;
+        auto const& travel = ai.rpgInfo.bodyTravel;
+        auto const end = travel.End();
+        state.bodyStatus = {{"attached", true}, {"objective", body.objective},
+            {"generation", body.generation}, {"attachment", body.attachment},
+            {"skill", std::string(BodyControl::Name(body.skill))},
+            {"state", std::string(BodyControl::Name(body.state))},
+            {"interruption", std::string(BodyControl::Name(body.interruption))},
+            {"route", boost::json::object{{"hasPath", travel.HasPath()}, {"waypoint", travel.Waypoint()},
+                {"advances", travel.Advances()}, {"stalledMs", travel.StalledMs()}, {"failures", travel.failures},
+                {"x", end.x}, {"y", end.y}, {"z", end.z}}}};
+        auto const event = std::to_string(body.objective) + ":" + std::string(BodyControl::Name(body.skill)) + ":"
+            + std::string(BodyControl::Name(body.state)) + ":" + std::string(BodyControl::Name(body.interruption));
+        if (recorder && state.bodyEvent != event)
+        {
+            recorder->Record(owner, "alles_body", body.objective, "skill_state",
+                boost::json::serialize(state.bodyStatus), realMs);
+            state.bodyEvent = event;
+        }
+    }
+
+    void SyncBody(ActorKey owner, Owner& state, uint64_t realMs)
+    {
+        if (!brain)
+            return;
+        auto* bot = Find(owner);
+        auto* ai = bot ? sPlayerbotsMgr.GetPlayerbotAI(bot) : nullptr;
+        auto const status = store.Status(owner);
+        if (!ai || !Autonomous(*bot, *ai) || !ai->rpgInfo.objectiveControl.plannerAttached
+            || !status || status->state != ActorState::Ready || state.generation != status->generation
+            || state.attachment != status->attachment)
+        {
+            state.bodyStatus = {{"attached", false}};
+            return;
+        }
+        auto& body = ai->rpgInfo.body;
+        auto const now = getMSTime();
+        if (!body.Attach(state.generation, state.attachment, now))
+        {
+            state.availability = "body_owned_by_other_attachment";
+            return;
+        }
+        auto skill = BodyControl::Skill::Idle;
+        uint64_t token = 0;
+        auto const& control = ai->rpgInfo.objectiveControl;
+        if (auto const* following = state.book.Following())
+        {
+            skill = BodyControl::Skill::Follow;
+            token = following->id;
+        }
+        else if (auto const* preparing = state.book.Preparing())
+        {
+            skill = preparing->preparation->kind == PreparationKind::RepairEquipment
+                ? BodyControl::Skill::Repair : BodyControl::Skill::Supplies;
+            token = preparing->id;
+        }
+        else if (control.cooperationHold)
+        {
+            token = control.token ? control.token : state.partyInstanceObjective;
+            skill = token ? BodyControl::Skill::Rendezvous : BodyControl::Skill::Idle;
+        }
+        else if (auto const* current = state.book.Current(); current && current->state == ObjectiveState::Active
+            && current->id == control.token)
+        {
+            token = current->id;
+            skill = current->quest ? BodyControl::Skill::Quest
+                : std::holds_alternative<NewRpgInfo::GoCamp>(ai->rpgInfo.data)
+                    ? BodyControl::Skill::Travel : BodyControl::Skill::Investigate;
+        }
+        body.Issue(state.generation, state.attachment, token, skill, now);
+        ObserveBody(owner, state, *ai, realMs);
     }
 
     bool Publish(ActorKey owner, Owner& state, uint64_t realMs)
@@ -1748,6 +1836,8 @@ struct ObjectiveRuntime::Impl
             }
             if (auto* ai = sPlayerbotsMgr.GetPlayerbotAI(bot))
             {
+                if (ai->rpgInfo.body.Detach(found->second.generation, found->second.attachment))
+                    ai->rpgInfo.bodyTravel = {};
                 ai->rpgInfo.objectiveControl.plannerAttached = false;
                 ai->rpgInfo.objectiveControl.cooperativeQuest = 0;
                 ai->rpgInfo.objectiveControl.partyMembers = 0;
@@ -1764,6 +1854,7 @@ struct ObjectiveRuntime::Impl
                 "Execution detached; reconcile on return", now);
         }
         found->second.routeTarget = WorldPosition();
+        found->second.failedRoutes.clear();
         found->second.merchant.reset();
         found->second.lastMerchant.Clear();
         found->second.merchantReceivedMs = 0;
@@ -2071,8 +2162,11 @@ struct ObjectiveRuntime::Impl
                     "Repeated local searches from different positions found no useful work; try another known area",
                     now);
             }
+            else if (brain && investigating && state.survey.Stalled())
+                book.Block(current->id, Obstruction::Navigation,
+                    "Local searches could not cover distinct positions; no conclusion about available work", now);
         }
-        if (current && current->state == ObjectiveState::Active && current->step == ObjectiveStep::Travel)
+        if (!brain && current && current->state == ObjectiveState::Active && current->step == ObjectiveStep::Travel)
         {
             auto const* task = std::get_if<NewRpgInfo::DoQuest>(&ai->rpgInfo.data);
             auto const* travel = std::get_if<NewRpgInfo::GoCamp>(&ai->rpgInfo.data);
@@ -2094,6 +2188,26 @@ struct ObjectiveRuntime::Impl
         }
         else
             state.routeTarget = WorldPosition();
+        if (current && control.token == current->id && control.failure != QuestObjectiveControl::Failure::None)
+        {
+            if (brain && !current->quest && control.failure == QuestObjectiveControl::Failure::Navigation)
+                if (auto const* leg = std::get_if<NewRpgInfo::GoCamp>(&ai->rpgInfo.data))
+                {
+                    state.failedRoutes.push_back(leg->pos);
+                    if (state.failedRoutes.size() < 3)
+                        if (auto const next = ResolveArea(*bot, current->place, state.failedRoutes);
+                            next != WorldPosition())
+                        {
+                            control.failure = QuestObjectiveControl::Failure::None;
+                            ai->rpgInfo.ChangeToGoCamp(next);
+                            ai->rpgInfo.bodyTravel = {};
+                            ai->rpgInfo.body.state = BodyControl::State::Running;
+                            if (recorder)
+                                recorder->Record(owner, "alles_body", current->id, "alternate_route",
+                                    "Retry the same known area through another destination anchor", realMs);
+                        }
+                }
+        }
         if (current && control.token == current->id && control.failure != QuestObjectiveControl::Failure::None)
         {
             bool const missing = control.failure == QuestObjectiveControl::Failure::MissingLocation;
@@ -2243,6 +2357,7 @@ struct ObjectiveRuntime::Impl
                     }
                     else if (control.ClaimPlace(current->id, current->place))
                     {
+                        state.failedRoutes.clear();
                         if (auto const known = state.knowledge.Places().find(state.currentArea);
                             known != state.knowledge.Places().end())
                             state.knowledge.Visit(known->first, known->second.name, now, false);
@@ -2311,6 +2426,7 @@ struct ObjectiveRuntime::Impl
     ConversationRuntime* conversation;
     Bridge::Service* bridge;
     bool autonomousPlanning;
+    bool brain;
     std::optional<WaveEmission> wave;
     std::optional<MerchantReceipt> merchantReceipt;
     uint64_t nextAdviceId = 0;
@@ -2319,8 +2435,8 @@ struct ObjectiveRuntime::Impl
 };
 
 ObjectiveRuntime::ObjectiveRuntime(ActorStore& store, std::set<ActorKey> owners, Telemetry::Recorder* recorder,
-    ConversationRuntime* conversation, Bridge::Service* bridge, bool autonomousPlanning)
-    : _impl(std::make_unique<Impl>(store, owners, recorder, conversation, bridge, autonomousPlanning))
+    ConversationRuntime* conversation, Bridge::Service* bridge, bool autonomousPlanning, bool brain)
+    : _impl(std::make_unique<Impl>(store, owners, recorder, conversation, bridge, autonomousPlanning, brain))
 {
     if (conversation)
         conversation->SetObjectives(this);
@@ -2399,9 +2515,9 @@ std::size_t ObjectiveRuntime::FollowingCount() const
 
 void ObjectiveRuntime::Update(uint64_t gameMs, uint64_t realMs)
 {
-    if (realMs < _impl->nextSampleMs)
+    if (gameMs < _impl->nextSampleMs)
         return;
-    _impl->nextSampleMs = realMs + 1000;
+    _impl->nextSampleMs = gameMs + 1000;
     if (_impl->bridge)
         for (auto& result : _impl->bridge->TakePlanning())
             for (auto& [owner, state] : _impl->states)
@@ -2418,7 +2534,14 @@ void ObjectiveRuntime::Update(uint64_t gameMs, uint64_t realMs)
                 }
             }
     for (auto& [owner, state] : _impl->states)
+    {
+        if (_impl->brain)
+            if (auto* bot = Find(owner))
+                if (auto* ai = sPlayerbotsMgr.GetPlayerbotAI(bot); ai && ai->rpgInfo.body.Attached())
+                    _impl->ObserveBody(owner, state, *ai, realMs);
         _impl->Tick(owner, state, gameMs, realMs);
+        _impl->SyncBody(owner, state, realMs);
+    }
 }
 
 void ObjectiveRuntime::Detach(ActorKey owner, uint64_t gameMs, uint64_t realMs)
@@ -2454,6 +2577,7 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"confidence", report.confidence}, {"usefulVisits", report.usefulVisits},
             {"unsuccessfulVisits", report.unsuccessfulVisits}});
     return {{"engine", found->second.availability}, {"objectives", std::move(objectives)},
+        {"body", found->second.bodyStatus},
         {"survey", boost::json::object{{"activeMs", found->second.survey.ActiveMs()},
             {"emptyScans", found->second.survey.EmptyScans()}, {"positions", found->second.survey.Positions()}}},
         {"planningRevision", found->second.planningRevision}, {"seedVersion", found->second.knowledge.SeedVersion()},

@@ -380,6 +380,12 @@ changing the harness pin or disabling Warden.
 
 ### alles memory coverage
 
+P1, source-only, uncompiled and unrun: the `brain` variant of `TestAlles_ExplorationAcquiresWork` requires
+Alles body ownership, route advancement, client-visible ordinary travel and a saved newly acquired quest.
+Its optional `travelStarted` fixture starts at the committed journey; `combatInterruption` additionally requires
+combat followed by resumption of that same travel intention. See `suites/alles/README.md`. Live acceptance and
+body-mode regression runs for reward/preparation/cooperation/handoff remain pending.
+
 P1, compiled but not run: `suites/alles/TestAlles_ExplorationAcquiresWork` observes local investigation,
 deferral, ordinary travel and an actual saved newly accepted quest. `TestAlles_ObjectiveEarnsQuestReward`
 requires new quest credit and an authoritative saved reward. Both require an exclusive disposable objective

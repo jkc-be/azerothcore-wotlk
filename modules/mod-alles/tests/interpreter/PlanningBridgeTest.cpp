@@ -218,3 +218,26 @@ TEST_F(AllesPlanningBridgeTest, MemoryPlanningAndChatEachGetATurnAndFailuresReta
     EXPECT_EQ(Number(service->Status(), "usedRequests"), 3u);
 }
 }
+
+namespace Alles::Bridge
+{
+TEST_F(AllesPlanningBridgeTest, PlanningAndConversationShareTheQueueAdmissionLimit)
+{
+    service->SetQueueLimit(2);
+    ASSERT_TRUE(service->QueuePlanning("plan", {}, now));
+    ASSERT_TRUE(service->QueueConversation("chat", {}, now));
+    EXPECT_EQ(service->PendingJobs(), 2u);
+    EXPECT_FALSE(service->QueuePlanning("extra", {}, now));
+    service->SetQueueLimit(1);
+    EXPECT_EQ(service->PendingJobs(), 2u); // Existing work drains; a lower limit does not discard it.
+    EXPECT_FALSE(service->QueueConversation("another", {}, now));
+    service->CancelPlanning("plan");
+    service->Update(now, now);
+    EXPECT_EQ(service->PendingJobs(), 1u);
+    EXPECT_FALSE(service->QueuePlanning("still-full", {}, now));
+    service->CancelConversation("chat");
+    service->Update(now, now);
+    EXPECT_EQ(service->PendingJobs(), 0u);
+    EXPECT_TRUE(service->QueuePlanning("next", {}, now));
+}
+}

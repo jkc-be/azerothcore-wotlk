@@ -23,8 +23,11 @@ TEST(AllesExploration, ExhaustionRequiresActualRepeatedSearchAndSpatialInvestiga
         searching.Observe(now, scan, true, true, x, 0);
     }
     EXPECT_FALSE(stationary.Exhausted());
+    EXPECT_TRUE(stationary.Stalled());
     EXPECT_FALSE(travelling.Exhausted());
+    EXPECT_FALSE(travelling.Stalled());
     EXPECT_TRUE(searching.Exhausted());
+    EXPECT_FALSE(searching.Stalled());
 }
 
 TEST(AllesExploration, AStaleScanOfflineGapOrAvailableWorkCannotEstablishExhaustion)

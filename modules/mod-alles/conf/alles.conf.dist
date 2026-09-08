@@ -59,3 +59,8 @@ Alles.Interpreter.RequestsPerMinute = 30
 # Objective execution is opt-in while exploration, cooperation and persistence are being integrated.
 # Uses the active New RPG engine; incompatible strategy sets suspend objective execution.
 Alles.Objectives.Enable = 0
+
+# Optional Alles-owned body controller. Requires Objectives.Enable. Reuses the saved objective book and
+# worker protocol; runs practiced skills and class maintenance instead of the legacy noncombat planner.
+# Combat and death recovery retain their existing engines. Route/skill state is transient across relog.
+Alles.Brain.Enable = 0

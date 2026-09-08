@@ -47,6 +47,9 @@ public:
         return transport;
     }
     boost::json::object Status() const;
+    std::size_t PendingJobs() const { return workerJobs.size() + coordinator.PendingJobs(); }
+    void SetQueueLimit(std::size_t limit) { queueLimit = limit; }
+    std::size_t WorkerJobs() const { return workerJobs.size(); }
     bool QueueConversation(std::string id, boost::json::object context, uint64_t realMs);
     void CancelConversation(std::string const& id);
     std::vector<ConversationResult> TakeConversations();
@@ -105,6 +108,7 @@ private:
     uint64_t lastWorkerMs = 0;
     uint64_t nowMs = 0;
     bool fault = false;
+    std::size_t queueLimit = 64;
     uint8_t nextPurpose = 0; // Round robin: memory, objective planning, conversation.
 };
 } // namespace Alles::Bridge

@@ -28,7 +28,8 @@ class ObjectiveRuntime
 {
 public:
     ObjectiveRuntime(ActorStore& store, std::set<ActorKey> owners, Telemetry::Recorder* recorder,
-        ConversationRuntime* conversation = nullptr, Bridge::Service* bridge = nullptr, bool autonomousPlanning = true);
+        ConversationRuntime* conversation = nullptr, Bridge::Service* bridge = nullptr, bool autonomousPlanning = true,
+        bool brain = false);
     ~ObjectiveRuntime();
     void Update(uint64_t gameMs, uint64_t realMs);
     void Detach(ActorKey owner, uint64_t gameMs, uint64_t realMs);

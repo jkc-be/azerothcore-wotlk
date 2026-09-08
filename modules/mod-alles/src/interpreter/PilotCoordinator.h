@@ -153,6 +153,8 @@ public:
     bool Forget(ActorKey owner);
     void Update(uint64_t gameTimeMs, uint64_t realTimeMs, std::size_t itemBudget = 32);
     bool Submit(ProposalEnvelope result);
+    void SetJobLimit(std::size_t limit);
+    std::size_t PendingJobs() const;
     void SetFakeBehavior(FakeBehavior behavior);
     std::optional<JobSnapshot> Inspect(ActorKey owner) const;
     CoordinatorStats const& Stats() const;
