@@ -108,7 +108,8 @@ public:
     void RequestFlush(ActorKey owner);
     // A planning revision is independent of memory/decay revisions. Publish atomically into the same owner snapshot.
     std::optional<uint64_t> UpdatePlanning(ActorKey owner, uint64_t generation, uint64_t expectedRevision,
-        ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs);
+        ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs,
+        std::optional<SatisfactionSnapshot> satisfaction = std::nullopt);
 
     // During Loading this only accepts a bounded ingress value; merge admission can still drop it
     // if persisted inputs fill the pending cap. Such drops are exposed in OwnerStatus.

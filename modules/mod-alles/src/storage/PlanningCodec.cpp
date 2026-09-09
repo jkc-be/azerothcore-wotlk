@@ -32,6 +32,40 @@ object Actor(ActorKey owner)
     return {{"kind", uint8_t(owner.kind)}, {"id", owner.id}};
 }
 
+object EncodeSatisfaction(SatisfactionSnapshot const& state)
+{
+    array dimensions;
+    for (auto const& [id, dimension] : state.dimensions)
+        dimensions.emplace_back(object{{"id", id}, {"weight", dimension.weight},
+            {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
+            {"satiation", dimension.satiation}});
+    return {{"revision", state.revision}, {"observedMs", state.observedMs}, {"dimensions", std::move(dimensions)}};
+}
+
+SatisfactionSnapshot ReadSatisfaction(object const& object)
+{
+    Fields(object, {"revision", "observedMs", "dimensions"});
+    SatisfactionSnapshot result;
+    result.revision = UInt<uint64_t>(object, "revision");
+    result.observedMs = UInt<uint64_t>(object, "observedMs");
+    auto const& dimensions = object.at("dimensions").as_array();
+    if (dimensions.empty() || dimensions.size() > 32)
+        throw std::invalid_argument("invalid satisfaction dimensions");
+    for (auto const& value : dimensions)
+    {
+        auto const& dimension = value.as_object();
+        Fields(dimension, {"id", "weight", "fulfillment", "depletionPerHour", "satiation"});
+        SatisfactionDimension item{dimension.at("weight").to_number<double>(),
+            dimension.at("fulfillment").to_number<double>(), dimension.at("depletionPerHour").to_number<double>(),
+            dimension.at("satiation").to_number<double>()};
+        if (!result.dimensions.emplace(String(dimension, "id", 32), item).second)
+            throw std::invalid_argument("duplicate satisfaction dimension");
+    }
+    if (!IsValidSatisfaction(result))
+        throw std::invalid_argument("invalid satisfaction state");
+    return result;
+}
+
 value MaybeActor(std::optional<ActorKey> actor)
 {
     return actor ? value(Actor(*actor)) : value(nullptr);
@@ -234,7 +268,7 @@ object EncodeObjective(Objective const& objective)
     array evidence;
     for (auto id : objective.evidence)
         evidence.push_back(id);
-    return {{"id", objective.id}, {"revision", objective.revision}, {"parent", objective.parent},
+    object result{{"id", objective.id}, {"revision", objective.revision}, {"parent", objective.parent},
         {"quest", objective.quest}, {"place", objective.place}, {"person", MaybeActor(objective.person)},
         {"state", uint8_t(objective.state)}, {"step", uint8_t(objective.step)},
         {"obstruction", uint8_t(objective.obstruction)}, {"outcome", objective.outcome}, {"reason", objective.reason},
@@ -248,6 +282,10 @@ object EncodeObjective(Objective const& objective)
         {"information", EncodeInformation(objective.information)}, {"plannedMs", objective.plannedMs},
         {"cooperation", EncodeCooperation(objective.cooperation)}, {"request", EncodeRequest(objective.request)},
         {"preparation", EncodePreparation(objective.preparation)}};
+    if (objective.purpose != PlacePurpose::Work)
+        result["activity"] = object{{"purpose", uint8_t(objective.purpose)}, {"observedMs", objective.activityMs},
+            {"completedMs", objective.completedMs}};
+    return result;
 }
 
 Objective ReadObjective(object const& object, uint32_t version)
@@ -277,6 +315,12 @@ Objective ReadObjective(object const& object, uint32_t version)
             "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
             "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
             "arrivedMs", "discoveredQuest", "information", "plannedMs", "cooperation", "request"});
+    else if (version >= 11 && object.contains("activity"))
+        Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
+            "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
+            "nextReconsiderationMs", "circumstances", "attempts", "attemptsInCircumstances", "deaths", "gainedCredit",
+            "arrivedMs", "discoveredQuest", "information", "plannedMs", "cooperation", "request", "preparation",
+            "activity"});
     else
         Fields(object, {"id", "revision", "parent", "quest", "place", "person", "state", "step", "obstruction",
             "outcome", "reason", "approach", "evidence", "checkpoint", "lastProgressMs", "activeWithoutProgressMs",
@@ -321,6 +365,16 @@ Objective ReadObjective(object const& object, uint32_t version)
         objective.plannedMs = UInt<uint64_t>(object, "plannedMs");
     if (version >= 2)
         objective.information = ReadInformation(object.at("information").as_object());
+    if (version >= 11 && object.contains("activity"))
+    {
+        auto const& activity = object.at("activity").as_object();
+        Fields(activity, {"purpose", "observedMs", "completedMs"});
+        objective.purpose = PlacePurpose(UInt<uint8_t>(activity, "purpose"));
+        objective.activityMs = UInt<uint64_t>(activity, "observedMs");
+        objective.completedMs = UInt<uint64_t>(activity, "completedMs");
+        if (objective.purpose == PlacePurpose::Work)
+            throw std::invalid_argument("work cannot carry non-work activity evidence");
+    }
     return objective;
 }
 
@@ -411,11 +465,11 @@ std::string EncodePlanning(PlanningSnapshot const& snapshot)
         places.push_back(EncodePlace(place));
     for (auto const& [id, report] : snapshot.knowledge.reports)
         reports.push_back(EncodeReport(report));
-    auto encoded = boost::json::serialize(object{{"version", 10}, {"owner", Actor(snapshot.owner)},
+    auto encoded = boost::json::serialize(object{{"version", 11}, {"owner", Actor(snapshot.owner)},
         {"revision", snapshot.revision}, {"nextObjectiveId", snapshot.objectives.nextId},
         {"objectives", std::move(objectives)}, {"seedVersion", snapshot.knowledge.seedVersion},
         {"nextReportId", snapshot.knowledge.nextReport}, {"places", std::move(places)},
-        {"reports", std::move(reports)}});
+        {"reports", std::move(reports)}, {"satisfaction", EncodeSatisfaction(snapshot.satisfaction)}});
     if (encoded.size() > MaxPlanningBytes)
         throw std::invalid_argument("planning snapshot exceeds bounds");
     return encoded;
@@ -428,12 +482,18 @@ std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey e
         // Share the strict duplicate-key/depth parser; the bridge's default 64 KiB frame limit is unchanged.
         auto const decoded = Bridge::Parse(text, MaxPlanningBytes);
         auto const& object = decoded.as_object();
-        Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",
-            "nextReportId", "places", "reports"});
         auto const version = UInt<uint32_t>(object, "version");
-        if (version < 1 || version > 10)
+        if (version < 1 || version > 11)
             return std::nullopt;
+        if (version >= 11)
+            Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",
+                "nextReportId", "places", "reports", "satisfaction"});
+        else
+            Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",
+                "nextReportId", "places", "reports"});
         PlanningSnapshot snapshot;
+        if (version >= 11)
+            snapshot.satisfaction = ReadSatisfaction(object.at("satisfaction").as_object());
         snapshot.owner = ReadActor(object.at("owner"));
         snapshot.revision = UInt<uint64_t>(object, "revision");
         snapshot.objectives.nextId = UInt<uint64_t>(object, "nextObjectiveId");

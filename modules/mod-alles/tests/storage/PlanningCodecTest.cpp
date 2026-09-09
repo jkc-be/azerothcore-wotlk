@@ -56,6 +56,46 @@ TEST(AllesPlanningCodec, RoundTripRetainsSemanticIntentPrivateProvenanceAndSixty
     EXPECT_EQ(knowledge.Capture(), snapshot.knowledge);
 }
 
+TEST(AllesPlanningCodec, SatisfactionRoundTripLegacyDefaultsAndMalformedRejection)
+{
+    auto snapshot = Fixture();
+    SatisfactionModel model;
+    ASSERT_TRUE(model.SetDimension("craftsmanship", {2.5, 0.1, 0.4, 0.5}));
+    ASSERT_TRUE(model.Observe(1000, 0, {{"companionship", 0.2}}));
+    snapshot.satisfaction = model.Capture();
+    auto const encoded = EncodePlanning(snapshot);
+    auto decoded = DecodePlanning(encoded, Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    SatisfactionModel restored;
+    ASSERT_TRUE(restored.Restore(decoded->satisfaction));
+    EXPECT_FALSE(restored.Observe(1000, 0, {{"companionship", 0.2}}));
+    auto older = Bridge::Parse(encoded).as_object();
+    older["version"] = 10;
+    EXPECT_FALSE(DecodePlanning(boost::json::serialize(older), Owner));
+    older.erase("satisfaction");
+    decoded = DecodePlanning(boost::json::serialize(older), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded->satisfaction, DefaultSatisfaction());
+    for (unsigned invalid = 0; invalid < 6; ++invalid)
+    {
+        auto value = Bridge::Parse(encoded).as_object();
+        auto& state = value.at("satisfaction").as_object();
+        auto& dimensions = state.at("dimensions").as_array();
+        auto& dimension = dimensions.front().as_object();
+        switch (invalid)
+        {
+            case 0: state["revision"] = 0; break;
+            case 1: dimension["weight"] = -1; break;
+            case 2: dimension["fulfillment"] = 1.1; break;
+            case 3: dimension["id"] = "invalid id"; break;
+            case 4: dimensions.push_back(dimensions.front()); break;
+            case 5: state["rewardOverride"] = 1; break;
+        }
+        EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
+    }
+}
+
 TEST(AllesPlanningCodec, RepairLocationsRoundTripWithoutInventingLegacyKnowledgeOrLiveAuthority)
 {
     auto snapshot = Fixture();
@@ -66,6 +106,7 @@ TEST(AllesPlanningCodec, RepairLocationsRoundTripWithoutInventingLegacyKnowledge
     EXPECT_EQ(*decoded, snapshot);
     auto older = Bridge::Parse(encoded).as_object();
     older["version"] = 9;
+    older.erase("satisfaction");
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(older), Owner));
     for (auto& place : older.at("places").as_array())
         place.as_object().erase("repair");
@@ -111,6 +152,7 @@ TEST(AllesPlanningCodec, ResourcePreparationRetainsDeadlineChargeAndRejectsPrivi
     EXPECT_EQ(restored.Preparing()->preparation->deadlineMs, 123000u);
     auto legacy = Bridge::Parse(encoded).as_object();
     legacy["version"] = 7;
+    legacy.erase("satisfaction");
     auto& oldPreparation = legacy.at("objectives").as_array()[0].as_object().at("preparation").as_object();
     for (auto field : {"kind", "item", "count", "attemptsInCircumstances", "ownMoney", "fundsAtAttempt", "fundsKnown",
         "earnedMoney"})
@@ -133,6 +175,7 @@ TEST(AllesPlanningCodec, ResourcePreparationRetainsDeadlineChargeAndRejectsPrivi
     }
     auto older = Bridge::Parse(EncodePlanning(Fixture())).as_object();
     older["version"] = 6;
+    older.erase("satisfaction");
     for (auto& value : older.at("objectives").as_array())
         value.as_object().erase("preparation");
     decoded = DecodePlanning(boost::json::serialize(older), Owner);
@@ -160,6 +203,7 @@ TEST(AllesPlanningCodec, SupplyIntentRetainsRequiredItemAndFundsWithoutSavingLiv
     EXPECT_EQ(encoded.find("price"), std::string::npos);
     auto legacy = Bridge::Parse(encoded).as_object();
     legacy["version"] = 8;
+    legacy.erase("satisfaction");
     auto& oldPreparation = legacy.at("objectives").as_array()[0].as_object().at("preparation").as_object();
     oldPreparation.erase("earnedMoney");
     auto upgraded = DecodePlanning(boost::json::serialize(legacy), Owner);
@@ -185,9 +229,9 @@ TEST(AllesPlanningCodec, RejectsForeignOwnersUnknownVersionsFieldsAndDuplicateKe
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::CreatureSpawn, Owner.id}));
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::Player, Owner.id + 1}));
     auto value = Bridge::Parse(encoded).as_object();
-    value["version"] = 11;
+    value["version"] = 12;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
-    value["version"] = 10;
+    value["version"] = 11;
     value["movementHandle"] = 123;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
     EXPECT_FALSE(DecodePlanning("{\"version\":1," + encoded.substr(1), Owner));
@@ -331,6 +375,7 @@ TEST(AllesPlanningCodec, QuestionStateRoundTripsAndVersionOneUpgradesWithoutInve
     EXPECT_EQ(*decoded, snapshot);
     auto old = Bridge::Parse(encoded).as_object();
     old["version"] = 1;
+    old.erase("satisfaction");
     for (auto& value : old.at("objectives").as_array())
     {
         value.as_object().erase("information");
@@ -345,6 +390,7 @@ TEST(AllesPlanningCodec, QuestionStateRoundTripsAndVersionOneUpgradesWithoutInve
     EXPECT_EQ(upgraded->objectives.objectives.at(id).checkpoint, objective.checkpoint);
     EXPECT_EQ(upgraded->knowledge, snapshot.knowledge);
     old["version"] = 2;
+    old.erase("satisfaction");
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(old), Owner));
     auto invalid = Bridge::Parse(encoded).as_object();
     invalid.at("objectives").as_array()[0].as_object().at("information").as_object()["attempts"] = 3;
@@ -361,6 +407,7 @@ TEST(AllesPlanningCodec, PreferenceRoundTripsAndVersionTwoUpgradesWithoutInventi
     EXPECT_EQ(*decoded, snapshot);
     auto previous = Bridge::Parse(encoded).as_object();
     previous["version"] = 2;
+    previous.erase("satisfaction");
     for (auto& value : previous.at("objectives").as_array())
     {
         value.as_object().erase("plannedMs");
@@ -373,6 +420,7 @@ TEST(AllesPlanningCodec, PreferenceRoundTripsAndVersionTwoUpgradesWithoutInventi
     EXPECT_EQ(decoded->objectives.objectives.begin()->second.plannedMs, 0u);
     EXPECT_EQ(decoded->objectives.objectives.begin()->second.checkpoint, objective.checkpoint);
     previous["version"] = 3;
+    previous.erase("satisfaction");
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(previous), Owner));
 }
 
@@ -407,6 +455,7 @@ TEST(AllesPlanningCodec, HumanRequestsRetainSourceAndDeadlineWithoutInventingAnE
     }
     auto older = Bridge::Parse(EncodePlanning(Fixture())).as_object();
     older["version"] = 5;
+    older.erase("satisfaction");
     for (auto& objective : older.at("objectives").as_array())
     {
         objective.as_object().erase("request");

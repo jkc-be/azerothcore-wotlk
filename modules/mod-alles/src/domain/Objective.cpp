@@ -4,6 +4,7 @@
  */
 
 #include "Objective.h"
+#include <tuple>
 #include <algorithm>
 #include <limits>
 #include <set>
@@ -54,13 +55,27 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
         || snapshot.objectives.size() > policy.maxObjectives)
         return false;
     std::set<uint32_t> unfinishedQuests;
-    std::set<uint32_t> unfinishedPlaces;
+    std::set<std::tuple<uint32_t, PlacePurpose, std::optional<ActorKey>>> unfinishedPlaces;
     unsigned current = 0;
     unsigned cooperating = 0;
     unsigned following = 0;
     unsigned preparing = 0;
     for (auto const& [id, objective] : snapshot.objectives)
     {
+        if (objective.purpose > PlacePurpose::Companionship || objective.activityMs > 60000
+            || (objective.purpose == PlacePurpose::Work && (objective.activityMs || objective.completedMs))
+            || (objective.purpose != PlacePurpose::Work && (objective.quest || objective.request
+                || !objective.place || objective.approach != ActivityCapability(objective.purpose)
+                || objective.preparation || objective.cooperation.state != CooperationState::None
+                || objective.checkpoint != QuestProgress{} || objective.discoveredQuest
+                || objective.information != InformationSearch{}
+                || (objective.purpose != PlacePurpose::Rest && objective.activityMs)
+                || (objective.completedMs && (!objective.arrivedMs || objective.completedMs < objective.arrivedMs
+                    || (objective.purpose == PlacePurpose::Rest && objective.activityMs != 60000)))
+                || bool(objective.person) != (objective.purpose == PlacePurpose::Companionship)
+                || (objective.person && objective.person->kind != ActorKind::Player)
+                || (objective.state == ObjectiveState::Completed) != bool(objective.completedMs))))
+            return false;
         if (objective.preparation)
         {
             auto const& preparation = *objective.preparation;
@@ -144,7 +159,7 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
             return false;
         if (!Terminal(objective.state) && !objective.request
             && !(objective.quest ? unfinishedQuests.insert(objective.quest).second
-            : unfinishedPlaces.insert(objective.place).second))
+            : unfinishedPlaces.emplace(objective.place, objective.purpose, objective.person).second))
             return false;
         if ((objective.state == ObjectiveState::Active || objective.state == ObjectiveState::Waiting
             || objective.state == ObjectiveState::Blocked) && ++current > 1)
@@ -165,7 +180,7 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
 bool ObjectiveBook::CanAsk(uint64_t id, uint64_t now) const
 {
     auto const* objective = Find(id);
-    if (!objective || objective->state != ObjectiveState::Deferred
+    if (!objective || objective->purpose != PlacePurpose::Work || objective->state != ObjectiveState::Deferred
         || (objective->obstruction != Obstruction::Information && objective->obstruction != Obstruction::Companions)
         || objective->information.attempts >= 2 || objective->revision >= std::numeric_limits<uint64_t>::max() - 2
         || now > std::numeric_limits<uint64_t>::max() - 120000)
@@ -393,6 +408,101 @@ Objective const* ObjectiveBook::ProposePlace(uint32_t place, std::string outcome
     return place ? Propose(0, place, std::move(outcome), std::move(reason)) : nullptr;
 }
 
+Objective const* ObjectiveBook::ProposeActivity(uint32_t place, PlacePurpose purpose, std::string outcome,
+    std::string reason, std::optional<ActorKey> companion)
+{
+    if (!place || purpose == PlacePurpose::Work || purpose > PlacePurpose::Companionship
+        || bool(companion) != (purpose == PlacePurpose::Companionship)
+        || (companion && (!IsValidActor(*companion) || companion->kind != ActorKind::Player)))
+        return nullptr;
+    // Retain the completed activity and its cooldown. Repeated candidate generation cannot farm interactions.
+    for (auto const& [id, objective] : _objectives)
+        if (objective.place == place && objective.purpose == purpose && objective.person == companion
+            && objective.state != ObjectiveState::Cancelled)
+            return &objective;
+    return Propose(0, place, std::move(outcome), std::move(reason), purpose, companion);
+}
+
+bool ObjectiveBook::ObserveActivity(uint64_t id, ActivityObservation const& observation, uint64_t now)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || found->second.purpose == PlacePurpose::Work
+        || found->second.state != ObjectiveState::Active || !now || now < found->second.lastSampleMs
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return false;
+    auto& objective = found->second;
+    bool const present = observation.available && observation.area == objective.place;
+    uint64_t const elapsed = objective.lastSampleMs && now - objective.lastSampleMs <= 2000
+        ? now - objective.lastSampleMs : 0;
+    objective.lastSampleMs = now;
+    if (!present)
+    {
+        if (objective.step != ObjectiveStep::Wait)
+        {
+            objective.step = ObjectiveStep::Wait;
+            ++objective.revision;
+        }
+        return true;
+    }
+    if (!objective.arrivedMs)
+        objective.arrivedMs = now;
+    if (objective.purpose == PlacePurpose::Rest && observation.resting && objective.step == ObjectiveStep::Attempt)
+        objective.activityMs = std::min(uint64_t(60000), objective.activityMs + elapsed);
+    objective.step = observation.resting || objective.purpose != PlacePurpose::Rest
+        ? ObjectiveStep::Attempt : ObjectiveStep::Wait;
+    bool const complete = objective.purpose == PlacePurpose::Discovery ? observation.discovered
+        : objective.purpose == PlacePurpose::Companionship
+            ? observation.interaction && observation.person == objective.person : objective.activityMs >= 60000;
+    if (complete)
+    {
+        objective.state = ObjectiveState::Completed;
+        objective.completedMs = objective.lastProgressMs = now;
+        objective.reason = objective.purpose == PlacePurpose::Discovery ? "Observed a new part of my surroundings"
+            : objective.purpose == PlacePurpose::Companionship ? "An ordinary interaction reached my companion"
+            : "Observed a minute of stationary rest";
+    }
+    ++objective.revision;
+    return true;
+}
+
+bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || found->second.purpose == PlacePurpose::Work
+        || found->second.purpose == PlacePurpose::Discovery || found->second.state != ObjectiveState::Completed
+        || now < found->second.completedMs || now - found->second.completedMs < 600000
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return false;
+    auto& objective = found->second;
+    objective.state = ObjectiveState::Proposed;
+    objective.activityMs = objective.completedMs = objective.arrivedMs = objective.lastSampleMs = 0;
+    objective.step = ObjectiveStep::Select;
+    objective.reason = "Reconsider this activity after the previous observed outcome and cooldown";
+    ++objective.revision;
+    return true;
+}
+
+bool ObjectiveBook::Replan(uint64_t id, std::string reason, uint64_t now)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || found->second.request || found->second.preparation
+        || found->second.cooperation.state != CooperationState::None
+        || (found->second.state != ObjectiveState::Active && found->second.state != ObjectiveState::Waiting)
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2
+        || now > std::numeric_limits<uint64_t>::max() - 30000
+        || reason.empty() || !IsBoundedText(reason, 512))
+        return false;
+    auto& objective = found->second;
+    objective.state = ObjectiveState::Deferred;
+    objective.step = ObjectiveStep::Wait;
+    objective.reason = std::move(reason);
+    objective.nextReconsiderationMs = now + 30000;
+    objective.lastSampleMs = 0;
+    objective.attemptsInCircumstances = 0;
+    ++objective.revision;
+    return true;
+}
+
 Objective const* ObjectiveBook::Following() const
 {
     for (auto const& [id, objective] : _objectives)
@@ -482,12 +592,14 @@ bool ObjectiveBook::ObserveRequest(uint64_t id, RequestObservation const& observ
     return true;
 }
 
-Objective const* ObjectiveBook::Propose(uint32_t quest, uint32_t place, std::string outcome, std::string reason)
+Objective const* ObjectiveBook::Propose(uint32_t quest, uint32_t place, std::string outcome, std::string reason,
+    PlacePurpose purpose, std::optional<ActorKey> companion)
 {
     if (outcome.empty() || !IsBoundedText(outcome, 512) || !IsBoundedText(reason, 512))
         return nullptr;
     for (auto const& [id, objective] : _objectives)
-        if ((quest || place) && objective.quest == quest && (quest || objective.place == place)
+        if ((quest || place) && objective.quest == quest && (quest || (objective.place == place
+            && objective.purpose == purpose && objective.person == companion))
             && !Terminal(objective.state))
             return &objective;
     if (_objectives.size() >= _policy.maxObjectives)
@@ -509,7 +621,9 @@ Objective const* ObjectiveBook::Propose(uint32_t quest, uint32_t place, std::str
     objective.id = _nextId++;
     objective.quest = quest;
     objective.place = place;
-    objective.approach = quest ? "pursue_quest" : "discover_work";
+    objective.purpose = purpose;
+    objective.person = companion;
+    objective.approach = quest ? "pursue_quest" : ActivityCapability(purpose);
     objective.outcome = std::move(outcome);
     objective.reason = std::move(reason);
     return &_objectives.emplace(objective.id, std::move(objective)).first->second;
@@ -691,7 +805,8 @@ bool ObjectiveBook::Observe(uint64_t id, QuestProgress const& observed, Objectiv
 bool ObjectiveBook::ObservePlace(uint64_t id, uint32_t area, uint32_t newQuest, ObjectiveStep step, uint64_t now)
 {
     auto found = _objectives.find(id);
-    if (found == _objectives.end() || found->second.quest || Terminal(found->second.state)
+    if (found == _objectives.end() || found->second.quest || found->second.purpose != PlacePurpose::Work
+        || Terminal(found->second.state)
         || step > ObjectiveStep::Wait)
         return false;
     auto& objective = found->second;
@@ -732,7 +847,7 @@ bool ObjectiveBook::ObservePlace(uint64_t id, uint32_t area, uint32_t newQuest, 
 bool ObjectiveBook::ReconcilePlace(uint64_t id, bool discoveredQuestStillKnown, uint64_t now)
 {
     auto found = _objectives.find(id);
-    if (found == _objectives.end() || found->second.quest)
+    if (found == _objectives.end() || found->second.quest || found->second.purpose != PlacePurpose::Work)
         return false;
     auto& objective = found->second;
     if (objective.state == ObjectiveState::Completed && !discoveredQuestStillKnown)
@@ -1178,6 +1293,30 @@ Objective const* ObjectiveBook::Current() const
             || objective.state == ObjectiveState::Blocked)
             return &objective;
     return nullptr;
+}
+
+char const* Name(PlacePurpose value)
+{
+    switch (value)
+    {
+        case PlacePurpose::Work: return "work";
+        case PlacePurpose::Discovery: return "discovery";
+        case PlacePurpose::Rest: return "rest";
+        case PlacePurpose::Companionship: return "companionship";
+    }
+    return "invalid";
+}
+
+char const* ActivityCapability(PlacePurpose value)
+{
+    switch (value)
+    {
+        case PlacePurpose::Work: return "discover_work";
+        case PlacePurpose::Discovery: return "explore_place";
+        case PlacePurpose::Rest: return "rest";
+        case PlacePurpose::Companionship: return "visit_companion";
+    }
+    return "invalid";
 }
 
 char const* Name(ObjectiveState value)

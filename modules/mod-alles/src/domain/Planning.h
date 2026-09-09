@@ -8,6 +8,7 @@
 
 #include "Knowledge.h"
 #include "Objective.h"
+#include "Satisfaction.h"
 #include <limits>
 #include <algorithm>
 
@@ -19,6 +20,7 @@ struct PlanningSnapshot
     uint64_t revision = 0;
     ObjectiveSnapshot objectives;
     KnowledgeSnapshot knowledge;
+    SatisfactionSnapshot satisfaction = DefaultSatisfaction();
 
     bool operator==(PlanningSnapshot const&) const = default;
 };
@@ -28,6 +30,7 @@ inline bool IsValidPlanningSnapshot(PlanningSnapshot const& snapshot)
     return IsValidActor(snapshot.owner) && snapshot.revision
         && snapshot.revision < std::numeric_limits<uint64_t>::max()
         && IsValidObjectiveSnapshot(snapshot.objectives) && IsValidKnowledgeSnapshot(snapshot.knowledge)
+        && IsValidSatisfaction(snapshot.satisfaction)
         && std::all_of(snapshot.objectives.objectives.begin(), snapshot.objectives.objectives.end(),
             [&](auto const& item)
             {

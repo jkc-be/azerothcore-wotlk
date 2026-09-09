@@ -149,7 +149,8 @@ bool ActorStore::FinishLoad(ActorKey owner, uint64_t generation, OwnerSnapshot s
 }
 
 std::optional<uint64_t> ActorStore::UpdatePlanning(ActorKey owner, uint64_t generation, uint64_t expectedRevision,
-    ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs)
+    ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs,
+    std::optional<SatisfactionSnapshot> satisfaction)
 {
     auto found = _owners.find(owner);
     if (found == _owners.end() || found->second.state == ActorState::Loading
@@ -161,9 +162,12 @@ std::optional<uint64_t> ActorStore::UpdatePlanning(ActorKey owner, uint64_t gene
     if ((previous ? previous->revision : 0) != expectedRevision)
         return std::nullopt;
     PlanningSnapshot next{owner, expectedRevision + 1, std::move(objectives), std::move(knowledge)};
+    next.satisfaction = satisfaction ? std::move(*satisfaction)
+        : previous ? previous->satisfaction : DefaultSatisfaction();
     if (!IsValidPlanningSnapshot(next))
         return std::nullopt;
-    if (previous && previous->objectives == next.objectives && previous->knowledge == next.knowledge)
+    if (previous && previous->objectives == next.objectives && previous->knowledge == next.knowledge
+        && previous->satisfaction == next.satisfaction)
         return previous->revision;
     entry.snapshot.planning = std::move(next);
     MarkDirty(entry, realTimeMs, 1);
