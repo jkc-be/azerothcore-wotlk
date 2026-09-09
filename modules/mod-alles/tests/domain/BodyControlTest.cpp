@@ -25,6 +25,21 @@ TEST(AllesBody, OldIncarnationsCannotAcquireIssueOrReleaseTheBody)
     EXPECT_EQ(body.objective, 0u);
 }
 
+TEST(AllesBody, PurposeSpecificActivitiesRemainOwnedAndDoNotAuthorizeQuestCombat)
+{
+    BodyControl body;
+    ASSERT_TRUE(body.Attach(1, 2, 1000));
+    EXPECT_FALSE(body.Issue(1, 2, 0, BodyControl::Skill::Activity, 1000));
+    ASSERT_TRUE(body.Issue(1, 2, 10, BodyControl::Skill::Activity, 1000));
+    EXPECT_TRUE(body.Directed());
+    EXPECT_EQ(BodyControl::Name(body.skill), "activity");
+    EXPECT_FALSE(body.MayStartQuestCombat(10, true, 1001));
+    EXPECT_FALSE(body.Issue(2, 2, 11, BodyControl::Skill::Activity, 1001));
+    body.Pause(BodyControl::Interrupt::Combat);
+    EXPECT_EQ(body.objective, 10u);
+    EXPECT_FALSE(body.Fresh(6001));
+}
+
 TEST(AllesBody, CombatAndRecoveryRetainIntentionButDoNotResurrectBlockedWork)
 {
     BodyControl body;

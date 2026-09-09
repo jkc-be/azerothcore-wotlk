@@ -62,7 +62,12 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
     unsigned preparing = 0;
     for (auto const& [id, objective] : snapshot.objectives)
     {
+        if (objective.assessedAttempts > objective.attempts || (objective.satisfactionReceipt
+            && (!objective.quest || objective.satisfactionReceipt->inLog || objective.satisfactionReceipt->failed
+                || objective.satisfactionReceipt->readyToReward)))
+            return false;
         if (objective.purpose > PlacePurpose::Companionship || objective.activityMs > 60000
+            || objective.creditedActivityMs > objective.activityMs
             || (objective.purpose == PlacePurpose::Work && (objective.activityMs || objective.completedMs))
             || (objective.purpose != PlacePurpose::Work && (objective.quest || objective.request
                 || !objective.place || objective.approach != ActivityCapability(objective.purpose)
@@ -475,7 +480,8 @@ bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now)
         return false;
     auto& objective = found->second;
     objective.state = ObjectiveState::Proposed;
-    objective.activityMs = objective.completedMs = objective.arrivedMs = objective.lastSampleMs = 0;
+    objective.activityMs = objective.creditedActivityMs = objective.completedMs = objective.arrivedMs
+        = objective.lastSampleMs = 0;
     objective.step = ObjectiveStep::Select;
     objective.reason = "Reconsider this activity after the previous observed outcome and cooldown";
     ++objective.revision;
@@ -501,6 +507,64 @@ bool ObjectiveBook::Replan(uint64_t id, std::string reason, uint64_t now)
     objective.attemptsInCircumstances = 0;
     ++objective.revision;
     return true;
+}
+
+std::pair<uint32_t, bool> ObjectiveBook::AccountQuestProgress(uint64_t id, QuestProgress const& observed)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || !found->second.quest
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return {};
+    auto& objective = found->second;
+    if (!objective.satisfactionReceipt)
+    {
+        objective.satisfactionReceipt = QuestProgress{};
+        objective.satisfactionReceipt->counters = observed.counters;
+        objective.satisfactionReceipt->rewarded = observed.rewarded;
+        ++objective.revision;
+        return {}; // First attachment establishes evidence; it cannot award previously saved progress.
+    }
+    auto& receipt = *objective.satisfactionReceipt;
+    uint64_t gained = 0;
+    for (std::size_t i = 0; i < receipt.counters.size(); ++i)
+        if (observed.counters[i] > receipt.counters[i])
+        {
+            gained += observed.counters[i] - receipt.counters[i];
+            receipt.counters[i] = observed.counters[i];
+        }
+    bool const rewarded = observed.rewarded && !receipt.rewarded;
+    receipt.rewarded = receipt.rewarded || observed.rewarded;
+    if (gained || rewarded)
+        ++objective.revision;
+    return {uint32_t(std::min(gained, uint64_t(std::numeric_limits<uint32_t>::max()))), rewarded};
+}
+
+bool ObjectiveBook::AssessAttempt(uint64_t id)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || !found->second.attempts
+        || found->second.assessedAttempts >= found->second.attempts
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return false;
+    found->second.assessedAttempts = found->second.attempts;
+    ++found->second.revision;
+    return true;
+}
+
+uint64_t ObjectiveBook::AccountRest(uint64_t id)
+{
+    auto found = _objectives.find(id);
+    if (found == _objectives.end() || found->second.purpose != PlacePurpose::Rest
+        || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return 0;
+    auto& objective = found->second;
+    uint64_t const elapsed = objective.activityMs - objective.creditedActivityMs;
+    if (elapsed)
+    {
+        objective.creditedActivityMs = objective.activityMs;
+        ++objective.revision;
+    }
+    return elapsed;
 }
 
 Objective const* ObjectiveBook::Following() const
@@ -614,6 +678,21 @@ Objective const* ObjectiveBook::Propose(uint32_t quest, uint32_t place, std::str
         });
         if (oldest != _objectives.end())
             _objectives.erase(oldest);
+    }
+    if (_objectives.size() >= _policy.maxObjectives && purpose != PlacePurpose::Work)
+    {
+        // An unstarted work-search suggestion cannot consume the final slot needed for another purpose.
+        // Preserve accepted quests, observed attempts, receipts, relationships and all owned execution.
+        auto const suggestion = std::find_if(_objectives.begin(), _objectives.end(), [this](auto const& entry)
+        {
+            auto const& value = entry.second;
+            return value.state == ObjectiveState::Proposed && value.purpose == PlacePurpose::Work
+                && !value.quest && !value.request && !value.attempts && !value.parent && value.evidence.empty()
+                && std::none_of(_objectives.begin(), _objectives.end(),
+                    [&entry](auto const& child) { return child.second.parent == entry.first; });
+        });
+        if (suggestion != _objectives.end())
+            _objectives.erase(suggestion);
     }
     if (_objectives.size() >= _policy.maxObjectives || _nextId == std::numeric_limits<uint64_t>::max())
         return nullptr;

@@ -462,3 +462,12 @@ P2, conversation telemetry: `suites/alles/TestAlles_ConversationJournal` drives 
 matching delivered replies and action results in the live journal, including actual wave packets to the human.
 The revised wave oracle awaits a fresh live run. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
 moves only the disposable human; see the suite guide for conversation and journal prerequisites.
+
+P1, satisfaction activity keeper: `suites/observatory/TestObservatory_SatisfactionProducesObservedRest` requires
+a fresh exclusive Observatory realm with one managed bot and native GM POV enabled. The offline fixture seeds
+that owner with rest fulfillment 0.1, rest weight 10, other weights zero, default effects and no previous activity
+receipts. Set `E2E_OBSERVATORY_SATISFACTION_FIXTURE` to a private JSON file containing `disposable: true`, `name`
+and `guid`, plus the standard Observatory URL/token and `E2E_*` database settings. Start within 30 simulated
+seconds of boot. The client observes stationary rest, telemetry verifies 60 seconds of observed recovery, and
+the database oracle waits for its durable anti-replay receipt. Run alone with `-timeout=3m`; compilation alone
+does not establish a live pass.

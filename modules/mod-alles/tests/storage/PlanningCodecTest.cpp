@@ -96,6 +96,26 @@ TEST(AllesPlanningCodec, SatisfactionRoundTripLegacyDefaultsAndMalformedRejectio
     }
 }
 
+TEST(AllesPlanningCodec, PersonalContactsAndLearnedActivityOutcomesRemainOwnerBound)
+{
+    auto snapshot = Fixture();
+    PrivateKnowledge knowledge;
+    ASSERT_TRUE(knowledge.Restore(snapshot.knowledge));
+    ActorKey const companion{ActorKind::Player, 43};
+    ASSERT_TRUE(knowledge.RememberContact({{companion, "Companion"}, 9, {0, 1, -8949, -132, 84, 1000}}));
+    EXPECT_FALSE(knowledge.RememberContact({{companion, "Companion"}, 9, {0, 1, 0, 0, 0, 999}}));
+    snapshot.knowledge = knowledge.Capture();
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Learn("visit_companion", false, 120000));
+    ASSERT_TRUE(model.ActivityReceipt("rest", 1000));
+    snapshot.satisfaction = model.Capture();
+    auto const decoded = DecodePlanning(EncodePlanning(snapshot), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    snapshot.knowledge.contacts.emplace(Owner, KnownContact{{Owner, "Self"}, 9, {0, 1, 0, 0, 0, 1000}});
+    EXPECT_FALSE(IsValidPlanningSnapshot(snapshot));
+}
+
 TEST(AllesPlanningCodec, RepairLocationsRoundTripWithoutInventingLegacyKnowledgeOrLiveAuthority)
 {
     auto snapshot = Fixture();
@@ -464,6 +484,38 @@ TEST(AllesPlanningCodec, HumanRequestsRetainSourceAndDeadlineWithoutInventingAnE
     decoded = DecodePlanning(boost::json::serialize(older), Owner);
     ASSERT_TRUE(decoded);
     EXPECT_EQ(*decoded, Fixture());
+}
+
+TEST(AllesPlanningCodec, SatisfactionReceiptsAndAuthoredEffectsSurviveSerialization)
+{
+    auto snapshot = Fixture();
+    auto& objective = snapshot.objectives.objectives.begin()->second;
+    QuestProgress receipt;
+    receipt.counters[0] = 7;
+    receipt.rewarded = true;
+    objective.satisfactionReceipt = receipt;
+    objective.assessedAttempts = objective.attempts;
+    SatisfactionModel model;
+    ASSERT_TRUE(model.SetDimension("purpose", {2, 0, 0, 1}));
+    ASSERT_TRUE(model.SetActivity("visit_companion", {{"companionship", 0.2}, {"purpose", 0.3}}));
+    ASSERT_TRUE(model.Learn("visit_companion", false, 45000));
+    ASSERT_TRUE(model.ActivityReceipt("rest", 10000));
+    snapshot.satisfaction = model.Capture();
+    auto const encoded = EncodePlanning(snapshot);
+    auto decoded = DecodePlanning(encoded, Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    for (unsigned invalid = 0; invalid < 3; ++invalid)
+    {
+        auto malformed = snapshot;
+        switch (invalid)
+        {
+            case 0: malformed.satisfaction.activities["rest"]["absent_dimension"] = 0.2; break;
+            case 1: malformed.satisfaction.experiences["rest"] = {2, 3, 10000}; break;
+            case 2: malformed.objectives.objectives.begin()->second.satisfactionReceipt->inLog = true; break;
+        }
+        EXPECT_FALSE(IsValidPlanningSnapshot(malformed));
+    }
 }
 
 }

@@ -31,6 +31,7 @@ inline bool IsValidPlanningSnapshot(PlanningSnapshot const& snapshot)
         && snapshot.revision < std::numeric_limits<uint64_t>::max()
         && IsValidObjectiveSnapshot(snapshot.objectives) && IsValidKnowledgeSnapshot(snapshot.knowledge)
         && IsValidSatisfaction(snapshot.satisfaction)
+        && !snapshot.knowledge.contacts.contains(snapshot.owner)
         && std::all_of(snapshot.objectives.objectives.begin(), snapshot.objectives.objectives.end(),
             [&](auto const& item)
             {

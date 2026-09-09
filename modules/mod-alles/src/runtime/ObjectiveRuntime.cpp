@@ -15,16 +15,20 @@
 #include "ConversationRuntime.h"
 #include "perception/SpeechRoute.h"
 #include "perception/MerchantInventory.h"
+#include "perception/ChatAudience.h"
+#include "ChatSender.h"
 #include "domain/Capability.h"
 #include "domain/Objective.h"
 #include "domain/Exploration.h"
 #include "telemetry/Recorder.h"
 #include "MotionMaster.h"
+#include "PathGenerator.h"
 #include "DBCStores.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ReputationMgr.h"
 #include "PlayerbotAI.h"
+#include "AiObjectContext.h"
 #include "PlayerbotMgr.h"
 #include "NewRpgBaseAction.h"
 #include "AttackAction.h"
@@ -35,6 +39,7 @@
 #include <boost/json.hpp>
 #include <algorithm>
 #include <limits>
+#include <cmath>
 
 namespace Alles
 {
@@ -428,7 +433,8 @@ boost::json::object Describe(Objective const& objective)
         counters.push_back(count);
     return {{"id", objective.id}, {"revision", objective.revision}, {"quest", objective.quest},
         {"place", objective.place}, {"plannedMs", objective.plannedMs}, {"arrivedMs", objective.arrivedMs},
-        {"discoveredQuest", objective.discoveredQuest},
+        {"discoveredQuest", objective.discoveredQuest}, {"purpose", Name(objective.purpose)},
+        {"activityMs", objective.activityMs}, {"completedMs", objective.completedMs},
         {"state", Name(objective.state)}, {"step", Name(objective.step)}, {"reason", objective.reason},
         {"outcome", objective.outcome}, {"approach", objective.approach},
         {"obstruction", Name(objective.obstruction)}, {"attempts", objective.attempts},
@@ -523,6 +529,24 @@ struct ObjectiveRuntime::Impl
         std::deque<InformationReply> replies;
         ObjectiveBook book;
         PrivateKnowledge knowledge;
+        SatisfactionModel satisfaction;
+        SatisfactionDecision satisfactionDecision;
+        uint64_t satisfactionSampleMs = 0;
+        uint64_t nextContactSampleMs = 0;
+        uint64_t intentionSinceMs = 0;
+        uint64_t intention = 0;
+        uint64_t activityObservedMs = 0;
+        uint32_t discoveredArea = 0;
+        std::map<uint64_t, WorldPosition> destinations;
+        std::map<uint64_t, uint64_t> travelTimes;
+        std::map<uint64_t, std::vector<WorldPosition>> routes;
+        std::vector<WorldPosition> activeRoute;
+        std::size_t routeIndex = 0;
+        uint64_t nextAssessmentMs = 0;
+        uint64_t nextActivityInteractionMs = 0;
+        uint64_t activityArrivalObservedMs = 0;
+        std::map<uint64_t, double> routeRisks;
+        std::map<uint64_t, std::string> routeReasons;
         std::map<uint64_t, uint64_t> emitted;
         uint64_t generation = 0;
         uint64_t attachment = 0;
@@ -583,6 +607,19 @@ struct ObjectiveRuntime::Impl
         if (ai->rpgInfo.body.Attached())
         {
             auto& body = ai->rpgInfo.body;
+            if (body.objective == id && ai->rpgInfo.bodyTravel.HasPath() && Autonomous(*bot, *ai)
+                && bot->IsAlive() && !bot->IsInCombat() && !bot->IsBeingTeleported()
+                && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+            {
+                auto const end = ai->rpgInfo.bodyTravel.End();
+                auto const& last = ai->GetAiObjectContext()->GetValue<LastMovement&>("last movement")->Get();
+                if (last.lastMoveToMapId == bot->GetMapId() && last.lastMoveToX == end.x
+                    && last.lastMoveToY == end.y && last.lastMoveToZ == end.z)
+                {
+                    bot->GetMotionMaster()->Clear();
+                    bot->StopMoving();
+                }
+            }
             body.Issue(body.generation, body.attachment, 0, BodyControl::Skill::Idle, getMSTime());
             ai->rpgInfo.bodyTravel = {};
         }
@@ -667,7 +704,8 @@ struct ObjectiveRuntime::Impl
             && current->id == control.token)
         {
             token = current->id;
-            skill = current->quest ? BodyControl::Skill::Quest
+            skill = current->purpose != PlacePurpose::Work ? BodyControl::Skill::Activity
+                : current->quest ? BodyControl::Skill::Quest
                 : std::holds_alternative<NewRpgInfo::GoCamp>(ai->rpgInfo.data)
                     ? BodyControl::Skill::Travel : BodyControl::Skill::Investigate;
         }
@@ -680,7 +718,7 @@ struct ObjectiveRuntime::Impl
         if (!state.generation)
             return false;
         auto const revision = store.UpdatePlanning(owner, state.generation, state.planningRevision,
-            state.book.Capture(), state.knowledge.Capture(), realMs);
+            state.book.Capture(), state.knowledge.Capture(), realMs, state.satisfaction.Capture());
         if (!revision)
         {
             state.availability = "planning_save_fenced";
@@ -1421,7 +1459,8 @@ struct ObjectiveRuntime::Impl
         if (!objective && state.merchant && now >= state.merchantReceivedMs
             && now - state.merchantReceivedMs < 30000 && CanPrepareResources(bot) && !NeedsEquipmentRepair(bot))
             for (auto const& [id, candidate] : book.All())
-                if (book.CanBuySupplies(id, now) && SupplyPurchase(bot, candidate, *state.merchant, true))
+                if ((!brain || state.satisfactionDecision.selected == id)
+                    && book.CanBuySupplies(id, now) && SupplyPurchase(bot, candidate, *state.merchant, true))
                 {
                     CapabilityContext context{owner, state.generation, id, candidate.revision,
                         true, {candidate.quest}, {}, {}};
@@ -1683,6 +1722,8 @@ struct ObjectiveRuntime::Impl
                 auto* ai = sPlayerbotsMgr.GetPlayerbotAI(&bot);
                 if (!candidate || !ai)
                     continue;
+                if (!candidate->satisfactionReceipt)
+                    state.book.AccountQuestProgress(candidate->id, Sample(bot, quest));
                 auto const readiness = Readiness(bot, *definition, ai->rpgInfo.objectiveControl);
                 auto const obstruction = QuestReadinessObstruction(readiness);
                 if (obstruction == Obstruction::None)
@@ -1702,6 +1743,72 @@ struct ObjectiveRuntime::Impl
                 state.book.ObservePreparationFunds(candidate->id, bot.GetMoney(), now);
             }
         }
+        if (brain && now >= state.nextContactSampleMs)
+        {
+            state.nextContactSampleMs = now + 10000;
+            unsigned scanned = 0;
+            if (auto const* visible = bot.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap())
+                for (auto const& [guid, object] : *visible)
+                {
+                    if (++scanned > 256)
+                        break;
+                    if (auto* person = object ? object->ToPlayer() : nullptr;
+                        person && person != &bot && person->IsInWorld() && person->IsAlive()
+                        && person->IsInMap(&bot) && person->InSamePhase(&bot) && bot.CanSeeOrDetect(person)
+                        && bot.IsFriendlyTo(person) && bot.GetExactDist(person) <= 40)
+                    {
+                        auto const* area = sAreaTableStore.LookupEntry(person->GetAreaId());
+                        if (!area || !state.knowledge.LearnPlace(area->ID, PlayerbotAI::GetLocalizedAreaName(area)))
+                            continue;
+                        state.knowledge.RememberContact({{ActorKey{ActorKind::Player, person->GetGUID().GetRawValue()},
+                            person->GetName()}, area->ID, {person->GetMapId(), person->GetPhaseMask(),
+                            person->GetPositionX(), person->GetPositionY(), person->GetPositionZ(), now}});
+                    }
+                }
+        }
+        if (brain)
+        {
+            for (auto const& [id, objective] : state.book.All())
+                state.book.ReconsiderActivity(id, now);
+            if (state.currentArea && now >= state.satisfaction.Capture().nextRestMs)
+                state.book.ProposeActivity(state.currentArea, PlacePurpose::Rest,
+                    "Rest here", "Consider recovering through observed stationary rest");
+            std::vector<KnownContact const*> contacts;
+            for (auto const& [actor, contact] : state.knowledge.Contacts())
+                if (now >= state.satisfaction.Capture().nextSocialMs && now >= contact.location.observedMs
+                    && now - contact.location.observedMs <= 600000 && contact.location.map == bot.GetMapId()
+                    && (contact.location.phase & bot.GetPhaseMask()))
+                    contacts.push_back(&contact);
+            std::stable_sort(contacts.begin(), contacts.end(), [&](auto const* left, auto const* right)
+            {
+                auto distance = [&](KnownContact const* contact)
+                {
+                    auto const& point = contact->location;
+                    return bot.GetExactDist(point.x, point.y, point.z);
+                };
+                return distance(left) < distance(right);
+            });
+            for (std::size_t index = 0; index < std::min(contacts.size(), std::size_t(2)); ++index)
+            {
+                auto const& contact = *contacts[index];
+                state.book.ProposeActivity(contact.place, PlacePurpose::Companionship,
+                    "Visit " + contact.person.name, "Look for a companion at the personally observed meeting site",
+                    contact.person.actor);
+            }
+            std::vector<std::pair<double, uint32_t>> discoveries;
+            for (auto const& [area, place] : state.knowledge.Places())
+                if (!place.visitedMs)
+                    if (auto const point = ResolveArea(bot, area); point != WorldPosition()
+                        && point.GetMapId() == bot.GetMapId())
+                        discoveries.emplace_back(bot.GetExactDist(point), area);
+            std::sort(discoveries.begin(), discoveries.end());
+            for (std::size_t index = 0; index < std::min(discoveries.size(), std::size_t(2)); ++index)
+            {
+                auto const& place = state.knowledge.Places().at(discoveries[index].second);
+                state.book.ProposeActivity(place.area, PlacePurpose::Discovery,
+                    "Discover " + place.name, "Observe a privately known place I have not visited");
+            }
+        }
         auto choices = state.knowledge.Alternatives(state.currentArea, uint8_t(bot.GetLevel()));
         if (auto const local = state.knowledge.Places().find(state.currentArea);
             local != state.knowledge.Places().end())
@@ -1713,12 +1820,468 @@ struct ObjectiveRuntime::Impl
                 break;
             // Preserve an exhausted/completed area's existing intentions; new knowledge or retries reopen work.
             bool const known = std::any_of(state.book.All().begin(), state.book.All().end(), [&](auto const& item)
-                { return item.second.place == place->area && !item.second.quest; });
+                { return item.second.place == place->area && !item.second.quest
+                    && item.second.purpose == PlacePurpose::Work; });
             if (!known)
                 state.book.ProposePlace(place->area, "Discover work in " + place->name,
                     place->area == state.currentArea ? "Investigate local opportunities before leaving"
                         : "Consider a suitable place from my private geography");
         }
+    }
+
+    struct ActivityRoute
+    {
+        uint64_t durationMs = 0;
+        double risk = 0;
+        std::vector<WorldPosition> stops;
+    };
+
+    struct PerceivedThreat
+    {
+        G3D::Vector3 position;
+        double risk;
+    };
+
+    std::vector<PerceivedThreat> PerceivedThreats(Player& bot) const
+    {
+        std::vector<PerceivedThreat> result;
+        unsigned scanned = 0;
+        if (auto const* visible = bot.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap())
+            for (auto const& [guid, object] : *visible)
+            {
+                if (++scanned > 256 || result.size() >= 16)
+                    break;
+                auto const* creature = object ? object->ToCreature() : nullptr;
+                if (creature && creature->IsAlive() && bot.IsHostileTo(creature)
+                    && bot.CanSeeOrDetect(creature) && creature->InSamePhase(&bot) && bot.GetExactDist(creature) <= 80)
+                    result.push_back({{creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ()},
+                        creature->GetLevel() > bot.GetLevel() + 2 ? 0.3 : 0.08});
+            }
+        return result;
+    }
+
+    std::optional<ActivityRoute> RouteEstimate(Player& bot, std::vector<WorldPosition> const& stops,
+        std::vector<PerceivedThreat> const& threats) const
+    {
+        ActivityRoute result;
+        result.stops = stops;
+        auto from = WorldPosition(&bot);
+        double length = 0;
+        std::set<std::size_t> encountered;
+        for (auto const& destination : stops)
+        {
+            if (destination == WorldPosition() || destination.GetMapId() != bot.GetMapId())
+                return std::nullopt;
+            PathGenerator path(&bot);
+            path.SetUseStraightPath(true);
+            if (!path.CalculatePath(from.GetPositionX(), from.GetPositionY(), from.GetPositionZ(),
+                destination.GetPositionX(), destination.GetPositionY(), destination.GetPositionZ(), false)
+                || (path.GetPathType() & ~uint32_t(PATHFIND_NORMAL | PATHFIND_INCOMPLETE)))
+                return std::nullopt;
+            auto const& points = path.GetPath();
+            double legLength = 0;
+            for (std::size_t index = 1; index < points.size(); ++index)
+            {
+                auto const segment = points[index] - points[index - 1];
+                legLength += segment.length();
+                for (std::size_t threat = 0; threat < threats.size(); ++threat)
+                {
+                    // Evaluate the entire corridor segment, including long stretches between navmesh corners.
+                    auto const offset = threats[threat].position - points[index - 1];
+                    float const t = segment.squaredLength() > 0
+                        ? std::clamp(offset.dot(segment) / segment.squaredLength(), 0.0f, 1.0f) : 0;
+                    if ((offset - segment * t).length() < 25)
+                        encountered.insert(threat);
+                }
+            }
+            length += std::max(legLength, double(from.distance(destination)));
+            if (path.GetPathType() & PATHFIND_INCOMPLETE)
+                result.risk = std::max(result.risk, 0.25);
+            from = destination;
+        }
+        // Staying near a personally visible threat also carries risk.
+        if (length < 5)
+            for (std::size_t index = 0; index < threats.size(); ++index)
+                if (bot.GetExactDist(threats[index].position.x, threats[index].position.y,
+                    threats[index].position.z) < 25)
+                    encountered.insert(index);
+        for (auto const index : encountered)
+            result.risk = std::min(0.8, result.risk + threats[index].risk);
+        auto const speed = std::max(1.0f, bot.GetSpeed(MOVE_RUN));
+        result.durationMs = uint64_t(std::min(3600000.0, 1000 * length / speed));
+        return result;
+    }
+
+    void AssessActivities(Owner& state, Player& bot, PlayerbotAI& ai, uint64_t now)
+    {
+        if (!brain)
+            return;
+        auto const* current = state.book.Current();
+        if (now < state.nextAssessmentMs && state.intention == (current ? current->id : 0))
+            return;
+        state.nextAssessmentMs = now + 5000;
+        if (state.intention != (current ? current->id : 0))
+        {
+            state.intention = current ? current->id : 0;
+            state.intentionSinceMs = now;
+            state.activityObservedMs = state.activityArrivalObservedMs = 0;
+        }
+        state.destinations.clear();
+        state.travelTimes.clear();
+        state.routes.clear();
+        state.routeRisks.clear();
+        state.routeReasons.clear();
+        auto const threats = PerceivedThreats(bot);
+        std::vector<SatisfactionCandidate> candidates;
+        auto const circumstances = Circumstances(bot);
+        auto const finances = OwnQuestFinances(bot);
+        for (auto const& [id, objective] : state.book.All())
+        {
+            if (objective.request || (state.partyQuest && objective.quest != state.partyQuest)
+                || (objective.state != ObjectiveState::Proposed && objective.state != ObjectiveState::Active
+                    && objective.state != ObjectiveState::Waiting
+                    && !state.book.Retryable(objective, now, circumstances)))
+                continue;
+            bool const supplies = state.book.CanBuySupplies(id, now) && state.merchant
+                && now >= state.merchantReceivedMs && now - state.merchantReceivedMs < 30000
+                && SupplyPurchase(bot, objective, *state.merchant, true);
+            if (objective.quest && !supplies && !ReadyToAttempt(bot, objective.quest, ai.rpgInfo.objectiveControl))
+                continue;
+            uint64_t travelMs = 0;
+            double risk = 0;
+            WorldPosition destination;
+            if (objective.quest)
+            {
+                if (auto const* task = std::get_if<NewRpgInfo::DoQuest>(&ai.rpgInfo.data);
+                    task && task->questId == objective.quest && task->pos != WorldPosition())
+                    destination = task->pos;
+                else
+                    travelMs = 120000; // Unknown route: a bounded prior, never a free journey.
+            }
+            else if (objective.purpose == PlacePurpose::Rest)
+            {
+                if (objective.place != state.currentArea || now < state.satisfaction.Capture().nextRestMs)
+                    continue;
+                destination = WorldPosition(&bot);
+            }
+            else if (objective.purpose == PlacePurpose::Companionship)
+            {
+                auto const contact = objective.person ? state.knowledge.Contacts().find(*objective.person)
+                    : state.knowledge.Contacts().end();
+                if (contact == state.knowledge.Contacts().end() || now < contact->second.location.observedMs
+                    || now - contact->second.location.observedMs > 600000
+                    || now < state.satisfaction.Capture().nextSocialMs
+                    || !(contact->second.location.phase & bot.GetPhaseMask()))
+                    continue;
+                auto const& location = contact->second.location;
+                destination = WorldPosition(location.map, location.x, location.y, location.z, 0);
+            }
+            else
+            {
+                auto const known = state.knowledge.Places().find(objective.place);
+                if (known == state.knowledge.Places().end()
+                    || (objective.purpose == PlacePurpose::Discovery && known->second.visitedMs
+                        && state.discoveredArea != objective.place))
+                    continue;
+                destination = objective.place == state.currentArea ? WorldPosition(&bot)
+                    : ResolveArea(bot, objective.place);
+                if (destination == WorldPosition())
+                    continue;
+            }
+            if (destination != WorldPosition())
+            {
+                if (destination.GetMapId() != bot.GetMapId())
+                    continue;
+                travelMs = uint64_t(std::min(3600000.0,
+                    double(bot.GetExactDist(destination)) * 1000 / std::max(1.0f, bot.GetSpeed(MOVE_RUN))));
+                state.destinations[id] = destination;
+            }
+            state.travelTimes[id] = travelMs;
+            auto const activity = objective.quest ? "pursue_quest" : ActivityCapability(objective.purpose);
+            auto effects = state.satisfaction.Effects(activity);
+            if (objective.quest && objective.cooperation.state == CooperationState::Working)
+                for (auto const& [dimension, effect] : state.satisfaction.Effects("help_companion"))
+                    effects[dimension] = std::clamp(effects[dimension] + effect, -1.0, 1.0);
+            if (objective.purpose == PlacePurpose::Rest)
+                effects = state.satisfaction.Effects(activity, double(60000 - objective.activityMs) / 60000);
+            if (objective.quest)
+                if (auto const money = finances.money.find(objective.quest); money != finances.money.end())
+                {
+                    auto value = [&](double amount) { return amount / (amount + 1000 * bot.GetLevel()); };
+                    effects["resources"] = value(std::max(0.0, double(finances.ownMoney) + money->second))
+                        - value(finances.ownMoney);
+                }
+            double const prior = objective.purpose == PlacePurpose::Rest ? 1
+                : objective.checkpoint.readyToReward ? 0.95
+                : objective.purpose == PlacePurpose::Discovery ? 0.85
+                : objective.purpose == PlacePurpose::Companionship ? 0.65 : 0.6;
+            double const success = state.satisfaction.SuccessProbability(activity, prior);
+            uint64_t const duration = objective.purpose == PlacePurpose::Rest ? 60000 - objective.activityMs
+                : state.satisfaction.ExpectedDuration(activity, objective.checkpoint.readyToReward ? 10000 : 120000)
+                    + (supplies ? 30000 : 0);
+            candidates.push_back({id, objective.revision,
+                ForecastActivity(travelMs, risk, success, duration, effects)});
+        }
+        // First score all bounded known candidates cheaply. Retain the current intention plus the best of
+        // each purpose before filling the eight pathfinding slots; quests cannot consume every route query.
+        auto const coarse = state.satisfaction.Choose(candidates);
+        std::set<uint64_t> shortlist;
+        if (current)
+            shortlist.insert(current->id);
+        std::set<std::pair<bool, PlacePurpose>> purposes;
+        for (auto const& assessed : coarse.alternatives)
+        {
+            auto const* objective = state.book.Find(assessed.id);
+            if (purposes.insert({bool(objective->quest), objective->purpose}).second)
+                shortlist.insert(assessed.id);
+        }
+        for (auto const& assessed : coarse.alternatives)
+            if (shortlist.size() < 8)
+                shortlist.insert(assessed.id);
+        std::vector<SatisfactionCandidate> routed;
+        for (auto const& candidate : candidates)
+        {
+            if (!shortlist.contains(candidate.id))
+                continue;
+            auto const destination = state.destinations.find(candidate.id);
+            if (destination == state.destinations.end())
+            {
+                // Accepted work without a known executor destination retains its explicit uncertain prior.
+                state.routeReasons[candidate.id] = "unknown route; duration prior";
+                routed.push_back(candidate);
+                continue;
+            }
+            auto const direct = RouteEstimate(bot, {destination->second}, threats);
+            if (!direct)
+            {
+                state.routeReasons[candidate.id] = "no navigable corridor; destination remains privately known";
+                continue;
+            }
+            auto const& effects = candidate.forecast.outcomes.front().stages.back().effects;
+            auto const duration = candidate.forecast.outcomes.front().stages.back().durationMs;
+            auto const probability = candidate.forecast.outcomes.front().probability;
+            auto bestRoute = *direct;
+            auto bestForecast = ForecastActivity(direct->durationMs, direct->risk, probability, duration, effects);
+            auto const assessedRoute = state.satisfaction.Evaluate(bestForecast);
+            if (!assessedRoute)
+                continue;
+            auto bestValue = assessedRoute->total;
+            auto const* objective = state.book.Find(candidate.id);
+            // Bounded alternatives use geometry around a threat the owner can actually perceive. The waypoint
+            // is route policy for this intention, never an invented discovery or a second activity reward.
+            if (!objective->quest && objective->purpose != PlacePurpose::Rest && direct->risk > 0 && !threats.empty())
+            {
+                auto const& threat = threats.front().position;
+                double const angle = std::atan2(destination->second.GetPositionY() - bot.GetPositionY(),
+                    destination->second.GetPositionX() - bot.GetPositionX()) + M_PI / 2;
+                for (int side : {-1, 1})
+                {
+                    float const x = threat.x + side * 40 * std::cos(angle);
+                    float const y = threat.y + side * 40 * std::sin(angle);
+                    float z = threat.z;
+                    bot.UpdateAllowedPositionZ(x, y, z);
+                    auto const detour = RouteEstimate(bot,
+                        {WorldPosition(bot.GetMapId(), x, y, z, 0), destination->second}, threats);
+                    if (!detour)
+                        continue;
+                    auto forecast = ForecastActivity(detour->durationMs, detour->risk, probability, duration, effects);
+                    auto const assessedDetour = state.satisfaction.Evaluate(forecast);
+                    if (!assessedDetour)
+                        continue;
+                    auto const value = assessedDetour->total;
+                    if (value > bestValue + 0.01)
+                    {
+                        bestValue = value;
+                        bestRoute = *detour;
+                        bestForecast = std::move(forecast);
+                    }
+                }
+            }
+            state.routes[candidate.id] = bestRoute.stops;
+            state.routeRisks[candidate.id] = bestRoute.risk;
+            state.travelTimes[candidate.id] = bestRoute.durationMs;
+            state.routeReasons[candidate.id] = bestRoute.stops.size() > 1
+                ? "safer corridor around a perceived threat" : "direct navigable corridor";
+            routed.push_back({candidate.id, candidate.revision, std::move(bestForecast)});
+        }
+        bool const danger = current && (bot.GetHealthPct() < 35
+            || (state.routeRisks.contains(current->id) && state.routeRisks.at(current->id) >= 0.3));
+        bool const committed = current && !danger && now >= state.intentionSinceMs
+            && now - state.intentionSinceMs < 120000;
+        state.satisfactionDecision = state.satisfaction.Choose(routed, current ? current->id : 0, committed);
+        // Preserve the committed corridor across ordinary reevaluation. A newly perceived danger can install
+        // a materially safer route, while the body keeps ownership of the same activity.
+        if (danger && current && state.satisfactionDecision.selected == current->id
+            && state.routes.contains(current->id) && state.activeRoute.size() == 1
+            && state.routes.at(current->id).size() > 1)
+        {
+            Release(&bot, current->id);
+            state.activeRoute = state.routes.at(current->id);
+            state.routeIndex = 0;
+        }
+    }
+
+    void ExecuteActivity(Owner& state, Player& bot, PlayerbotAI& ai, uint64_t now)
+    {
+        auto const* objective = state.book.Current();
+        if (!objective || objective->purpose == PlacePurpose::Work || objective->state != ObjectiveState::Active)
+            return;
+        auto const id = objective->id;
+        ActivityObservation observation;
+        observation.area = state.currentArea;
+        observation.available = Autonomous(bot, ai) && bot.IsAlive() && !bot.IsInCombat()
+            && !bot.IsBeingTeleported() && !bot.IsInFlight() && !bot.IsNonMeleeSpellCast(false)
+            && !bot.IsSitState() && !bot.HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT);
+        if (!observation.available)
+        {
+            state.book.ObserveActivity(id, observation, now);
+            return;
+        }
+        observation.discovered = state.discoveredArea == objective->place;
+        if (objective->purpose == PlacePurpose::Discovery && observation.discovered)
+        {
+            state.book.ObserveActivity(id, observation, now);
+            Release(&bot, id);
+            return;
+        }
+        if (state.activeRoute.empty())
+        {
+            auto const route = state.routes.find(id);
+            if (route == state.routes.end() || route->second.empty())
+            {
+                state.book.Block(id, Obstruction::Navigation, "No feasible route to this activity's destination", now);
+                return;
+            }
+            state.activeRoute = route->second;
+            state.routeIndex = 0;
+        }
+        bool companionNearby = false;
+        if (objective->purpose == PlacePurpose::Companionship && objective->person)
+            if (auto const* visible = bot.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap())
+                if (auto const found = visible->find(ObjectGuid(HighGuid::Player, uint32_t(objective->person->id)));
+                    found != visible->end() && found->second)
+                    companionNearby = bot.CanSeeOrDetect(found->second) && bot.GetExactDist(found->second) <= 20;
+        if (companionNearby && state.routeIndex < state.activeRoute.size())
+        {
+            Release(&bot, id);
+            ai.rpgInfo.objectiveControl.ClaimPlace(id, objective->place);
+            state.routeIndex = state.activeRoute.size();
+        }
+        while (state.routeIndex < state.activeRoute.size()
+            && bot.GetExactDist(state.activeRoute[state.routeIndex]) < 5)
+            ++state.routeIndex;
+        if (state.routeIndex < state.activeRoute.size())
+        {
+            ai.rpgInfo.objectiveControl.phase = QuestObjectiveControl::Phase::Traveling;
+            if (ai.rpgInfo.body.Fresh(getMSTime()) && ai.rpgInfo.body.objective == id)
+                CooperativeMovement(&ai).Walk(state.activeRoute[state.routeIndex]);
+            return;
+        }
+        ai.rpgInfo.objectiveControl.phase = QuestObjectiveControl::Phase::Attempting;
+        observation.resting = objective->purpose == PlacePurpose::Rest && !bot.isMoving()
+            && !bot.IsNonMeleeSpellCast(false);
+        if (objective->purpose == PlacePurpose::Companionship && objective->person
+            && now >= state.nextActivityInteractionMs)
+        {
+            auto const* visible = bot.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap();
+            auto const guid = ObjectGuid(HighGuid::Player, uint32_t(objective->person->id));
+            Player* companion = nullptr;
+            if (visible)
+                if (auto const found = visible->find(guid); found != visible->end() && found->second)
+                    companion = found->second->ToPlayer();
+            if (companion && bot.CanSeeOrDetect(companion) && companion->IsAlive()
+                && companion->InSamePhase(&bot) && companion->IsInMap(&bot) && bot.IsFriendlyTo(companion)
+                && bot.GetExactDist(companion) <= 20)
+            {
+                state.nextActivityInteractionMs = now + 30000;
+                observation.person = objective->person;
+                observation.interaction = SendNormalChat(bot, *companion, SpeechRoute{CHAT_MSG_SAY},
+                    "Hello, " + companion->GetName() + ". It is good to see you.");
+            }
+        }
+        state.book.ObserveActivity(id, observation, now);
+        if (objective->state == ObjectiveState::Completed)
+            Release(&bot, id);
+        else if (objective->purpose != PlacePurpose::Rest && state.activityArrivalObservedMs >= 60000)
+            state.book.Block(id, Obstruction::Information,
+                "The expected observation or companion was not found at the destination", now);
+    }
+
+    void ObserveSatisfaction(ActorKey owner, Owner& state, uint64_t now, uint64_t realMs)
+    {
+        if (!brain || !state.generation)
+            return;
+        auto* bot = Find(owner);
+        auto* ai = bot ? sPlayerbotsMgr.GetPlayerbotAI(bot) : nullptr;
+        if (!ai || !Autonomous(*bot, *ai) || now <= state.satisfaction.Capture().observedMs)
+        {
+            state.satisfactionSampleMs = 0;
+            return;
+        }
+        uint64_t const elapsed = state.satisfactionSampleMs && now >= state.satisfactionSampleMs
+            && now - state.satisfactionSampleMs <= 2000 ? now - state.satisfactionSampleMs : 0;
+        state.satisfactionSampleMs = now;
+        if (elapsed && !bot->IsBeingTeleported() && !bot->IsInFlight())
+        {
+            // Learning estimates execution time separately from the remaining route cost in forecasts.
+            if (auto const* intention = state.book.Find(state.intention);
+                intention && (intention->step == ObjectiveStep::Attempt || bot->IsInCombat()))
+                state.activityObservedMs = std::min(uint64_t(3600000), state.activityObservedMs + elapsed);
+            if (auto const* current = state.book.Current(); current && current->arrivedMs && !bot->isMoving()
+                && bot->IsAlive() && !bot->IsInCombat())
+                state.activityArrivalObservedMs = std::min(uint64_t(60000), state.activityArrivalObservedMs + elapsed);
+        }
+        SatisfactionEffects effects;
+        auto add = [&](SatisfactionEffects const& additions)
+        {
+            for (auto const& [dimension, effect] : additions)
+                effects[dimension] = std::clamp(effects[dimension] + effect, -1.0, 1.0);
+        };
+        if (elapsed && bot->isMoving() && state.satisfaction.Capture().dimensions.contains("rest"))
+            effects["rest"] = -double(elapsed) / 3600000 * 0.2;
+        if (elapsed && state.discoveredArea)
+            add(state.satisfaction.Effects("explore_place"));
+        for (auto const& [id, objective] : state.book.All())
+        {
+            if (objective.quest)
+            {
+                auto const [credit, reward] = state.book.AccountQuestProgress(id, Sample(*bot, objective.quest));
+                if (credit || reward)
+                {
+                    add(state.satisfaction.Effects("pursue_quest", reward ? 1.0 : std::min(0.5, credit * 0.05)));
+                    if (objective.cooperation.state == CooperationState::Working
+                        || objective.cooperation.state == CooperationState::Completed)
+                        add(state.satisfaction.Effects("help_companion", reward ? 1.0 : std::min(0.5, credit * 0.05)));
+                }
+            }
+            if (objective.purpose == PlacePurpose::Rest)
+                if (auto const rested = state.book.AccountRest(id))
+                    add(state.satisfaction.Effects("rest", double(rested) / 60000));
+            bool const completed = objective.state == ObjectiveState::Completed;
+            bool const failed = objective.state == ObjectiveState::Deferred
+                && objective.obstruction != Obstruction::None;
+            if ((completed || failed) && state.book.AssessAttempt(id))
+            {
+                auto const activity = objective.quest ? "pursue_quest" : ActivityCapability(objective.purpose);
+                if (state.intention == id && state.activityObservedMs)
+                    state.satisfaction.Learn(activity, completed, state.activityObservedMs);
+                if (completed && objective.purpose == PlacePurpose::Companionship
+                    && state.satisfaction.ActivityReceipt(activity, now))
+                    add(state.satisfaction.Effects(activity));
+                if (completed && !objective.quest && objective.purpose == PlacePurpose::Work && !objective.request)
+                    add(state.satisfaction.Effects("discover_work"));
+                if (completed && objective.purpose == PlacePurpose::Rest)
+                    state.satisfaction.ActivityReceipt(activity, now);
+            }
+        }
+        auto const& dimensions = state.satisfaction.Capture().dimensions;
+        if (dimensions.contains("security"))
+            effects["security"] = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
+        if (dimensions.contains("resources"))
+            effects["resources"] = double(bot->GetMoney()) / (double(bot->GetMoney()) + 1000 * bot->GetLevel())
+                - dimensions.at("resources").fulfillment;
+        state.satisfaction.Observe(now, elapsed, effects);
+        Publish(owner, state, realMs);
     }
 
     bool CanSeekInformation(ActorKey owner, Owner const& state, Player const& bot) const
@@ -1748,7 +2311,8 @@ struct ObjectiveRuntime::Impl
             {
                 auto decision = Bridge::DecodePlanningDecision(pending.result->response, pending.job.issued);
                 choice = ApplyObjectiveChoice(pending.job, decision, live, state.book, state.knowledge,
-                    Circumstances(bot), CanSeekInformation(owner, state, bot), now);
+                    Circumstances(bot), CanSeekInformation(owner, state, bot), now,
+                    brain ? &state.satisfactionDecision : nullptr);
             }
             catch (std::exception const&)
             {
@@ -1778,8 +2342,10 @@ struct ObjectiveRuntime::Impl
             return;
         auto const circumstances = Circumstances(bot);
         auto const finances = OwnQuestFinances(bot);
-        auto const signal = ObjectiveDecisionSignal(state.book, state.knowledge,
+        auto signal = ObjectiveDecisionSignal(state.book, state.knowledge,
             uint8_t(bot.GetLevel()), state.currentArea, circumstances, now, finances);
+        if (brain)
+            signal ^= state.satisfactionDecision.selected * 1099511628211ULL;
         if (signal != state.seenDecisionSignal)
         {
             state.seenDecisionSignal = signal;
@@ -1791,7 +2357,7 @@ struct ObjectiveRuntime::Impl
         state.nextPlanningRealMs = realMs + 30000;
         auto job = PrepareObjectivePlanning(owner, state.generation, state.book, state.knowledge,
             uint8_t(bot.GetLevel()), state.currentArea, circumstances,
-            CanSeekInformation(owner, state, bot), now, finances);
+            CanSeekInformation(owner, state, bot), now, finances, brain ? &state.satisfactionDecision : nullptr);
         if (!job)
             return;
         auto id = "decision-" + std::to_string(owner.id) + "-" + std::to_string(++nextAdviceId);
@@ -1855,6 +2421,9 @@ struct ObjectiveRuntime::Impl
                 "Execution detached; reconcile on return", now);
         }
         found->second.routeTarget = WorldPosition();
+        found->second.satisfactionSampleMs = 0;
+        found->second.activeRoute.clear();
+        found->second.routeIndex = 0;
         found->second.navigationOrigin = WorldPosition();
         found->second.failedRoutes.clear();
         found->second.merchant.reset();
@@ -1871,6 +2440,7 @@ struct ObjectiveRuntime::Impl
 
     void Tick(ActorKey owner, Owner& state, uint64_t now, uint64_t realMs)
     {
+        state.discoveredArea = 0;
         auto* bot = Find(owner);
         auto* ai = bot ? sPlayerbotsMgr.GetPlayerbotAI(bot) : nullptr;
         auto const status = store.Status(owner);
@@ -1897,6 +2467,10 @@ struct ObjectiveRuntime::Impl
             }
             state.book = std::move(book);
             state.knowledge = std::move(knowledge);
+            state.satisfaction.Restore(snapshot->planning ? snapshot->planning->satisfaction : DefaultSatisfaction());
+            state.satisfactionSampleMs = state.intention = state.intentionSinceMs = state.activityObservedMs = 0;
+            state.destinations.clear();
+            state.travelTimes.clear();
             for (auto const& [id, objective] : state.book.All())
             {
                 if (objective.request)
@@ -2091,8 +2665,16 @@ struct ObjectiveRuntime::Impl
         state.knowledge.Seed(bot->getRace(), bot->getClass() == CLASS_DEATH_KNIGHT, startingComplete);
         if (state.currentArea != bot->GetAreaId())
             if (auto const* area = sAreaTableStore.LookupEntry(bot->GetAreaId()))
+            {
+                auto const known = state.knowledge.Places().find(area->ID);
+                bool const firstVisit = known == state.knowledge.Places().end() || !known->second.visitedMs;
                 if (state.knowledge.Visit(area->ID, PlayerbotAI::GetLocalizedAreaName(area), now, false))
+                {
                     state.currentArea = area->ID;
+                    if (firstVisit)
+                        state.discoveredArea = area->ID;
+                }
+            }
         state.availability = "new_rpg";
         control.plannerAttached = true;
         auto const quests = QuestLog(*bot);
@@ -2118,6 +2700,8 @@ struct ObjectiveRuntime::Impl
                 continue;
             if (!objective.quest)
             {
+                if (objective.purpose != PlacePurpose::Work)
+                    continue; // The purpose-specific executor supplies its own observation below.
                 auto const step = control.token == id && !bot->IsInCombat() ? Step(*bot, control) : ObjectiveStep::Wait;
                 book.ObservePlace(id, state.currentArea, newQuest, step, now);
                 if (newQuest && objective.state == ObjectiveState::Active && state.currentArea != objective.place)
@@ -2152,7 +2736,9 @@ struct ObjectiveRuntime::Impl
                 repairer && bot->GetNPCIfCanInteractWith(repairer->GetGUID(), UNIT_NPC_FLAG_REPAIR))
                 state.knowledge.RememberRepair(state.currentArea, {bot->GetMapId(), bot->GetPhaseMask(),
                     bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), now});
+        ObserveSatisfaction(owner, state, now, realMs);
         PrepareCandidates(state, *bot, now);
+        AssessActivities(state, *bot, *ai, now);
         RefreshMerchant(owner, state, *bot, now);
         ProcessDecision(owner, state, *bot, now, realMs);
         if (PrepareSupplies(owner, state, *bot, *ai, now, realMs))
@@ -2160,7 +2746,17 @@ struct ObjectiveRuntime::Impl
         if (PrepareEquipment(owner, state, *bot, *ai, now, realMs))
             return;
         auto const* current = book.Current();
-        if (current && !current->quest && control.token == current->id)
+        if (brain && current && !state.partyQuest && CanPrepareResources(*bot)
+            && state.satisfactionDecision.selected != current->id
+            && book.Replan(current->id, "Another feasible activity offers greater expected satisfaction", now))
+        {
+            Release(bot, current->id);
+            state.activeRoute.clear();
+            state.routeIndex = 0;
+            state.nextDecisionMs = now;
+            current = nullptr;
+        }
+        if (current && !current->quest && current->purpose == PlacePurpose::Work && control.token == current->id)
         {
             bool const investigating = current->state == ObjectiveState::Active
                 && current->step == ObjectiveStep::Attempt && current->place == state.currentArea
@@ -2251,94 +2847,122 @@ struct ObjectiveRuntime::Impl
             if (!current && now >= state.nextDecisionMs)
             {
                 state.nextDecisionMs = now + 5000;
-                // Keep turn-ins first, then feasible income for an unpaid turn-in, then queued leads and other work.
-                for (bool reward : {true, false})
+                if (brain)
                 {
-                    if (!reward && !current && !state.partyQuest)
-                        for (auto const id : IncomeQuestOrder(book, OwnQuestFinances(*bot), Circumstances(*bot), now))
-                        {
-                            auto const* candidate = book.Find(id);
-                            if (ReadyToAttempt(*bot, candidate->quest, control)
-                                && book.Activate(id, candidate->revision, Sample(*bot, candidate->quest),
-                                    now, Circumstances(*bot)))
-                            {
-                                current = book.Current();
-                                book.Prefer(id, current->revision,
-                                    "Earn own funds through this accepted quest before retrying an unpaid turn-in",
-                                    0, now);
-                                if (recorder)
-                                    recorder->Record(owner, "alles_plan", id, "income_quest_selected",
-                                        "Feasible accepted paying work may fund a retained money-blocked turn-in; "
-                                        "the reward has not been earned yet", realMs);
-                                break;
-                            }
-                        }
-                    if (!reward && !current)
-                        if (auto const* preferred = book.Preferred(now, Circumstances(*bot));
-                            preferred && (!state.partyQuest || preferred->quest == state.partyQuest))
-                        {
-                            if (preferred->quest && ReadyToAttempt(*bot, preferred->quest, control))
-                                book.Activate(preferred->id, preferred->revision, Sample(*bot, preferred->quest),
-                                    now, Circumstances(*bot));
-                            else if (!preferred->quest)
-                                book.ActivatePlace(preferred->id, preferred->revision, now, Circumstances(*bot));
-                            current = book.Current();
-                        }
-                    if (!reward && !current && !state.partyQuest)
-                        for (auto const& [id, candidate] : book.All())
-                            if (!candidate.quest && !candidate.evidence.empty()
-                                && book.ActivatePlace(id, candidate.revision, now, Circumstances(*bot)))
-                            {
-                                current = book.Current();
-                                break;
-                            }
-                    for (uint16_t slot = 0; slot < MAX_QUEST_LOG_SIZE && !current; ++slot)
+                    auto const* chosen = book.Find(state.satisfactionDecision.selected);
+                    if (chosen && (!state.partyQuest || chosen->quest == state.partyQuest))
                     {
-                        auto const quest = bot->GetQuestSlotQuestId(slot);
-                        if (!quest || (state.partyQuest && quest != state.partyQuest)
-                            || (bot->GetQuestStatus(quest) == QUEST_STATUS_COMPLETE) != reward)
-                            continue;
-                        auto const* definition = sObjectMgr->GetQuestTemplate(quest);
-                        if (!definition || definition->IsRepeatable() || !ReadyToAttempt(*bot, quest, control))
-                            continue;
-                        auto const* candidate = book.ProposeQuest(quest,
-                            "Earn the reward for " + definition->GetTitle(),
-                            reward ? "An outstanding turn-in is useful work" : "Accepted quest in my own log");
-                        if (candidate && book.Activate(candidate->id, candidate->revision, Sample(*bot, quest),
-                            now, Circumstances(*bot)))
+                        bool const activated = chosen->quest
+                            ? ReadyToAttempt(*bot, chosen->quest, control)
+                                && book.Activate(chosen->id, chosen->revision, Sample(*bot, chosen->quest),
+                                    now, Circumstances(*bot))
+                            : book.ActivatePlace(chosen->id, chosen->revision, now, Circumstances(*bot));
+                        if (activated)
+                        {
                             current = book.Current();
+                            state.intention = current->id;
+                            state.intentionSinceMs = now;
+                            state.activityObservedMs = state.activityArrivalObservedMs = 0;
+                            state.activeRoute = state.routes[current->id];
+                            state.routeIndex = 0;
+                            state.availability = "pursuing_satisfaction";
+                        }
                     }
+                    else
+                        state.availability = "remaining_here_for_satisfaction";
                 }
-                if (!current && !state.partyQuest)
+                else
                 {
-                    auto choices = state.knowledge.Alternatives(state.currentArea, uint8_t(bot->GetLevel()));
-                    std::sort(choices.begin(), choices.end(), [](auto const* left, auto const* right)
+                    // Legacy memory-only mode retains its original work ordering.
+                    for (bool reward : {true, false})
                     {
-                        if (left->investigations != right->investigations)
-                            return left->investigations < right->investigations;
-                        if (left->lastUsefulWorkMs != right->lastUsefulWorkMs)
-                            return left->lastUsefulWorkMs > right->lastUsefulWorkMs;
-                        if (left->minimumLevel != right->minimumLevel)
-                            return left->minimumLevel > right->minimumLevel;
-                        return left->visitedMs < right->visitedMs;
-                    });
-                    auto const local = state.knowledge.Places().find(state.currentArea);
-                    if (local != state.knowledge.Places().end())
-                        choices.insert(choices.begin(), &local->second);
-                    for (auto const* place : choices)
-                    {
-                        auto const* candidate = book.ProposePlace(place->area, "Discover work in " + place->name,
-                            place->area == state.currentArea ? "Investigate local opportunities before leaving"
-                                : "Try a suitable place from my private geography knowledge");
-                        if (candidate && book.ActivatePlace(candidate->id, candidate->revision,
-                            now, Circumstances(*bot)))
+                        if (!reward && !current && !state.partyQuest)
+                            for (auto const id : IncomeQuestOrder(book, OwnQuestFinances(*bot),
+                                Circumstances(*bot), now))
+                            {
+                                auto const* candidate = book.Find(id);
+                                if (ReadyToAttempt(*bot, candidate->quest, control)
+                                    && book.Activate(id, candidate->revision, Sample(*bot, candidate->quest),
+                                        now, Circumstances(*bot)))
+                                {
+                                    current = book.Current();
+                                    book.Prefer(id, current->revision,
+                                        "Earn own funds through this accepted quest before retrying an unpaid turn-in",
+                                        0, now);
+                                    if (recorder)
+                                        recorder->Record(owner, "alles_plan", id, "income_quest_selected",
+                                            "Feasible accepted paying work may fund a retained money-blocked turn-in; "
+                                            "the reward has not been earned yet", realMs);
+                                    break;
+                                }
+                            }
+                        if (!reward && !current)
+                            if (auto const* preferred = book.Preferred(now, Circumstances(*bot));
+                                preferred && (!state.partyQuest || preferred->quest == state.partyQuest))
+                            {
+                                if (preferred->quest && ReadyToAttempt(*bot, preferred->quest, control))
+                                    book.Activate(preferred->id, preferred->revision, Sample(*bot, preferred->quest),
+                                        now, Circumstances(*bot));
+                                else if (!preferred->quest)
+                                    book.ActivatePlace(preferred->id, preferred->revision, now, Circumstances(*bot));
+                                current = book.Current();
+                            }
+                        if (!reward && !current && !state.partyQuest)
+                            for (auto const& [id, candidate] : book.All())
+                                if (!candidate.quest && !candidate.evidence.empty()
+                                    && book.ActivatePlace(id, candidate.revision, now, Circumstances(*bot)))
+                                {
+                                    current = book.Current();
+                                    break;
+                                }
+                        for (uint16_t slot = 0; slot < MAX_QUEST_LOG_SIZE && !current; ++slot)
                         {
-                            current = book.Current();
-                            break;
+                            auto const quest = bot->GetQuestSlotQuestId(slot);
+                            if (!quest || (state.partyQuest && quest != state.partyQuest)
+                                || (bot->GetQuestStatus(quest) == QUEST_STATUS_COMPLETE) != reward)
+                                continue;
+                            auto const* definition = sObjectMgr->GetQuestTemplate(quest);
+                            if (!definition || definition->IsRepeatable() || !ReadyToAttempt(*bot, quest, control))
+                                continue;
+                            auto const* candidate = book.ProposeQuest(quest,
+                                "Earn the reward for " + definition->GetTitle(),
+                                reward ? "An outstanding turn-in is useful work" : "Accepted quest in my own log");
+                            if (candidate && book.Activate(candidate->id, candidate->revision, Sample(*bot, quest),
+                                now, Circumstances(*bot)))
+                                current = book.Current();
                         }
                     }
-                    if (!current)
-                        state.availability = "waiting_for_new_information_or_retry";
+                    if (!current && !state.partyQuest)
+                    {
+                        auto choices = state.knowledge.Alternatives(state.currentArea, uint8_t(bot->GetLevel()));
+                        std::sort(choices.begin(), choices.end(), [](auto const* left, auto const* right)
+                        {
+                            if (left->investigations != right->investigations)
+                                return left->investigations < right->investigations;
+                            if (left->lastUsefulWorkMs != right->lastUsefulWorkMs)
+                                return left->lastUsefulWorkMs > right->lastUsefulWorkMs;
+                            if (left->minimumLevel != right->minimumLevel)
+                                return left->minimumLevel > right->minimumLevel;
+                            return left->visitedMs < right->visitedMs;
+                        });
+                        auto const local = state.knowledge.Places().find(state.currentArea);
+                        if (local != state.knowledge.Places().end())
+                            choices.insert(choices.begin(), &local->second);
+                        for (auto const* place : choices)
+                        {
+                            auto const* candidate = book.ProposePlace(place->area, "Discover work in " + place->name,
+                                place->area == state.currentArea ? "Investigate local opportunities before leaving"
+                                    : "Try a suitable place from my private geography knowledge");
+                            if (candidate && book.ActivatePlace(candidate->id, candidate->revision,
+                                now, Circumstances(*bot)))
+                            {
+                                current = book.Current();
+                                break;
+                            }
+                        }
+                        if (!current)
+                            state.availability = "waiting_for_new_information_or_retry";
+                    }
                 }
             }
             if (current && current->state == ObjectiveState::Waiting
@@ -2358,8 +2982,10 @@ struct ObjectiveRuntime::Impl
                 context.quests = quests;
                 for (auto const& [area, place] : state.knowledge.Places())
                     context.places.insert(area);
+                for (auto const& [person, contact] : state.knowledge.Contacts())
+                    context.people.insert(person);
                 CapabilityRequest request{1, owner, status->generation, current->id, current->revision,
-                    current->approach, current->quest, current->place, {}};
+                    current->approach, current->quest, current->place, current->person};
                 if (capabilities.Validate(request, context).empty())
                 {
                     if (current->quest)
@@ -2370,21 +2996,30 @@ struct ObjectiveRuntime::Impl
                     }
                     else if (control.ClaimPlace(current->id, current->place))
                     {
-                        state.failedRoutes.clear();
-                        if (auto const known = state.knowledge.Places().find(state.currentArea);
-                            known != state.knowledge.Places().end())
-                            state.knowledge.Visit(known->first, known->second.name, now, false);
-                        state.survey = {};
-                        ai->rpgInfo.ChangeToIdle();
-                        if (state.currentArea == current->place)
-                            ai->rpgInfo.ChangeToWanderNpc();
+                        if (current->purpose != PlacePurpose::Work)
+                        {
+                            state.survey = {};
+                            ai->rpgInfo.ChangeToIdle();
+                        }
                         else
                         {
-                            auto const target = ResolveArea(*bot, current->place);
-                            if (target != WorldPosition())
-                                ai->rpgInfo.ChangeToGoCamp(target);
+                            state.failedRoutes.clear();
+                            if (auto const known = state.knowledge.Places().find(state.currentArea);
+                                known != state.knowledge.Places().end())
+                                state.knowledge.Visit(known->first, known->second.name, now, false);
+                            state.survey = {};
+                            ai->rpgInfo.ChangeToIdle();
+                            if (state.currentArea == current->place)
+                                ai->rpgInfo.ChangeToWanderNpc();
                             else
-                                control.Fail(QuestObjectiveControl::Failure::MissingLocation);
+                            {
+                                auto const target = brain && !state.activeRoute.empty()
+                                    ? state.activeRoute.front() : ResolveArea(*bot, current->place);
+                                if (target != WorldPosition())
+                                    ai->rpgInfo.ChangeToGoCamp(target);
+                                else
+                                    control.Fail(QuestObjectiveControl::Failure::MissingLocation);
+                            }
                         }
                     }
                 }
@@ -2392,7 +3027,7 @@ struct ObjectiveRuntime::Impl
                     book.Block(current->id, Obstruction::Information,
                         "The capability or its reference is no longer available", now);
             }
-            else if (current && control.token == current->id)
+            else if (current && control.token == current->id && current->purpose == PlacePurpose::Work)
             {
                 auto const* task = std::get_if<NewRpgInfo::DoQuest>(&ai->rpgInfo.data);
                 bool const placeTask = !current->quest && (std::holds_alternative<NewRpgInfo::GoCamp>(ai->rpgInfo.data)
@@ -2406,7 +3041,11 @@ struct ObjectiveRuntime::Impl
                 else if (placeTask && current->place != state.currentArea
                     && std::holds_alternative<NewRpgInfo::WanderNpc>(ai->rpgInfo.data))
                 {
-                    auto const target = ResolveArea(*bot, current->place);
+                    if (brain && state.routeIndex + 1 < state.activeRoute.size()
+                        && bot->GetExactDist(state.activeRoute[state.routeIndex]) < 5)
+                        ++state.routeIndex;
+                    auto const target = brain && state.routeIndex < state.activeRoute.size()
+                        ? state.activeRoute[state.routeIndex] : ResolveArea(*bot, current->place);
                     state.survey = {};
                     if (target != WorldPosition())
                         ai->rpgInfo.ChangeToGoCamp(target);
@@ -2415,7 +3054,9 @@ struct ObjectiveRuntime::Impl
                 }
             }
         }
-        if (CurrentControlMode(*bot) == ControlMode::AutonomousSolo)
+        if (current && brain && current->purpose != PlacePurpose::Work && control.token == current->id)
+            ExecuteActivity(state, *bot, *ai, now);
+        if (!brain && CurrentControlMode(*bot) == ControlMode::AutonomousSolo)
             if (auto const* earning = book.Current(); earning && earning->quest)
             {
                 auto const income = IncomeQuestOrder(book, OwnQuestFinances(*bot), Circumstances(*bot), now);
@@ -2568,6 +3209,55 @@ void ObjectiveRuntime::Stop(uint64_t gameMs, uint64_t realMs)
         _impl->Detach(owner, gameMs, realMs);
 }
 
+bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
+    uint64_t realMs)
+{
+    auto found = _impl->states.find(owner);
+    if (found == _impl->states.end() || !found->second.generation || !_impl->brain)
+        return false;
+    auto& state = found->second;
+    auto staged = state.satisfaction;
+    auto const known = staged.Capture().dimensions.find(id);
+    double const fulfillment = known == staged.Capture().dimensions.end() ? 0 : known->second.fulfillment;
+    if (!staged.SetDimension(std::move(id), {weight, fulfillment, depletion, satiation}))
+        return false;
+    auto previous = state.satisfaction;
+    state.satisfaction = std::move(staged);
+    if (!_impl->Publish(owner, state, realMs))
+    {
+        state.satisfaction = std::move(previous);
+        return false;
+    }
+    state.nextAssessmentMs = state.lastPlannedSignal = 0;
+    return true;
+}
+
+bool ObjectiveRuntime::SetEffect(ActorKey owner, std::string activity, std::string motive,
+    double effect, uint64_t realMs)
+{
+    auto found = _impl->states.find(owner);
+    if (found == _impl->states.end() || !found->second.generation || !_impl->brain)
+        return false;
+    auto& state = found->second;
+    // Author effects only for actual observation adapters. An invented activity name cannot create new actions.
+    if (!DefaultSatisfaction().activities.contains(activity))
+        return false;
+    auto staged = state.satisfaction;
+    auto effects = staged.Effects(activity);
+    effects[std::move(motive)] = effect;
+    if (!staged.SetActivity(std::move(activity), std::move(effects)))
+        return false;
+    auto previous = state.satisfaction;
+    state.satisfaction = std::move(staged);
+    if (!_impl->Publish(owner, state, realMs))
+    {
+        state.satisfaction = std::move(previous);
+        return false;
+    }
+    state.nextAssessmentMs = state.lastPlannedSignal = 0;
+    return true;
+}
+
 boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
 {
     auto found = _impl->states.find(owner);
@@ -2577,6 +3267,27 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
     for (auto const& [id, objective] : found->second.book.All())
         objectives.emplace_back(Describe(objective));
     boost::json::array places, reports;
+    boost::json::array dimensions, alternatives;
+    for (auto const& [id, dimension] : found->second.satisfaction.Capture().dimensions)
+        dimensions.emplace_back(boost::json::object{{"id", id}, {"weight", dimension.weight},
+            {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
+            {"satiation", dimension.satiation}});
+    for (auto const& candidate : found->second.satisfactionDecision.alternatives)
+    {
+        boost::json::object contributions;
+        for (auto const& [id, contribution] : candidate.value.contributions)
+            contributions[id] = contribution;
+        auto const travel = found->second.travelTimes.find(candidate.id);
+        auto const risk = found->second.routeRisks.find(candidate.id);
+        auto const reason = found->second.routeReasons.find(candidate.id);
+        auto const route = found->second.routes.find(candidate.id);
+        alternatives.emplace_back(boost::json::object{{"objective", candidate.id}, {"expected", candidate.value.total},
+            {"travelMs", travel == found->second.travelTimes.end() ? 0 : travel->second},
+            {"risk", risk == found->second.routeRisks.end() ? 0 : risk->second},
+            {"route", reason == found->second.routeReasons.end() ? "unavailable" : reason->second},
+            {"waypoints", route == found->second.routes.end() ? 0 : route->second.size()},
+            {"contributions", std::move(contributions)}});
+    }
     for (auto const& [id, place] : found->second.knowledge.Places())
         places.emplace_back(boost::json::object{{"area", id}, {"name", place.name},
             {"minimumLevel", place.minimumLevel}, {"maximumLevel", place.maximumLevel},
@@ -2589,7 +3300,29 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"place", report.topic.place}, {"text", report.text}, {"receivedMs", report.receivedMs},
             {"confidence", report.confidence}, {"usefulVisits", report.usefulVisits},
             {"unsuccessfulVisits", report.unsuccessfulVisits}});
+    boost::json::object experiences, bindings, routeFailures;
+    auto const& satisfaction = found->second.satisfaction.Capture();
+    for (auto const& [activity, experience] : satisfaction.experiences)
+        experiences[activity] = boost::json::object{{"samples", experience.samples},
+            {"successes", experience.successes}, {"meanExecutionMs", experience.meanDurationMs}};
+    for (auto const& [activity, effects] : satisfaction.activities)
+    {
+        boost::json::object values;
+        for (auto const& [dimension, effect] : effects)
+            values[dimension] = effect;
+        bindings[activity] = std::move(values);
+    }
+    for (auto const& [id, reason] : found->second.routeReasons)
+        if (!found->second.routes.contains(id))
+            routeFailures[std::to_string(id)] = reason;
     return {{"engine", found->second.availability}, {"objectives", std::move(objectives)},
+        {"satisfaction", boost::json::object{{"revision", found->second.satisfaction.Capture().revision},
+            {"dimensions", std::move(dimensions)}, {"alternatives", std::move(alternatives)},
+            {"activityEffects", std::move(bindings)}, {"experiences", std::move(experiences)},
+            {"nextRestMs", satisfaction.nextRestMs}, {"nextSocialMs", satisfaction.nextSocialMs},
+            {"routeLimitations", std::move(routeFailures)}, {"routeIndex", found->second.routeIndex},
+            {"selectedObjective", found->second.satisfactionDecision.selected},
+            {"staying", found->second.satisfactionDecision.staying}}},
         {"body", found->second.bodyStatus},
         {"survey", boost::json::object{{"activeMs", found->second.survey.ActiveMs()},
             {"emptyScans", found->second.survey.EmptyScans()}, {"positions", found->second.survey.Positions()}}},

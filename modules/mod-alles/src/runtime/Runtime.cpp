@@ -815,6 +815,28 @@ std::optional<OwnerStatus> Runtime::Status(ActorKey owner) const
     return Contains(owner) ? _impl->store.Status(owner) : std::nullopt;
 }
 
+bool Runtime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation)
+{
+    _impl->CheckThread();
+    return _impl->objectives
+        && _impl->objectives->SetMotive(owner, std::move(id), weight, depletion, satiation, RealNow());
+}
+
+bool Runtime::SetEffect(ActorKey owner, std::string activity, std::string motive, double effect)
+{
+    _impl->CheckThread();
+    return _impl->objectives
+        && _impl->objectives->SetEffect(owner, std::move(activity), std::move(motive), effect, RealNow());
+}
+
+std::string Runtime::SatisfactionStatus(ActorKey owner) const
+{
+    _impl->CheckThread();
+    auto const status = _impl->objectives ? _impl->objectives->Status(owner) : boost::json::object{};
+    auto const* satisfaction = status.if_contains("satisfaction");
+    return satisfaction ? boost::json::serialize(*satisfaction) : "Satisfaction is unavailable for this owner.";
+}
+
 std::optional<uint64_t> Runtime::Flush(ActorKey owner)
 {
     _impl->CheckThread();

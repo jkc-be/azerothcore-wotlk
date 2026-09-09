@@ -185,7 +185,10 @@ struct Objective
     std::optional<ResourcePreparation> preparation;
     PlacePurpose purpose = PlacePurpose::Work;
     uint64_t activityMs = 0;
+    uint64_t creditedActivityMs = 0;
     uint64_t completedMs = 0;
+    std::optional<QuestProgress> satisfactionReceipt;
+    uint32_t assessedAttempts = 0;
 
     bool operator==(Objective const&) const = default;
 };
@@ -221,6 +224,9 @@ public:
     bool ObserveActivity(uint64_t id, ActivityObservation const& observation, uint64_t now);
     bool ReconsiderActivity(uint64_t id, uint64_t now);
     bool Replan(uint64_t id, std::string reason, uint64_t now);
+    std::pair<uint32_t, bool> AccountQuestProgress(uint64_t id, QuestProgress const& observed);
+    bool AssessAttempt(uint64_t id);
+    uint64_t AccountRest(uint64_t id);
     std::optional<uint64_t> Request(HumanRequest request);
     bool ObserveRequest(uint64_t id, RequestObservation const& observation, uint64_t now);
     Objective const* Following() const;

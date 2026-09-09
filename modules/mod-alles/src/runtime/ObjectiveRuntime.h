@@ -35,6 +35,8 @@ public:
     void Detach(ActorKey owner, uint64_t gameMs, uint64_t realMs);
     void Stop(uint64_t gameMs, uint64_t realMs);
     boost::json::object Status(ActorKey owner) const;
+    bool SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation, uint64_t realMs);
+    bool SetEffect(ActorKey owner, std::string activity, std::string motive, double effect, uint64_t realMs);
     boost::json::object HelpOfferContext(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,
         uint64_t gameMs, uint64_t realMs) const;
     bool OfferHelp(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,

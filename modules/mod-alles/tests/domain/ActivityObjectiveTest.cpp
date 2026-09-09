@@ -118,4 +118,39 @@ TEST(AllesActivityObjective, ReplanningRetainsIntentWithoutClaimingFailureOrComp
     EXPECT_TRUE(book.Retryable(*activity, 32000, 1));
     EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
 }
+
+TEST(AllesActivityObjective, QuestCounterRollbackAndReloadCannotAwardTheSameCreditAgain)
+{
+    ObjectiveBook book;
+    auto const* objective = book.ProposeQuest(123, "Quest", "Accepted work");
+    ASSERT_NE(objective, nullptr);
+    auto const id = objective->id;
+    QuestProgress progress;
+    progress.inLog = true;
+    progress.counters[0] = 2;
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{0, false}));
+    progress.counters[0] = 4;
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{2, false}));
+    ASSERT_TRUE(book.Restore(book.Capture()));
+    progress.counters[0] = 2;
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{0, false}));
+    progress.counters[0] = 4;
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{0, false}));
+    progress.rewarded = true;
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{0, true}));
+    ASSERT_TRUE(book.Restore(book.Capture()));
+    EXPECT_EQ(book.AccountQuestProgress(id, progress), (std::pair<uint32_t, bool>{0, false}));
+    EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
+}
+TEST(AllesActivityObjective, WorkSuggestionsCannotExcludeEveryNonWorkPurpose)
+{
+    ObjectiveBook book;
+    for (uint32_t area = 1; area <= 32; ++area)
+        ASSERT_NE(book.ProposePlace(area, "Look for work", "Known area"), nullptr);
+    auto const* rest = book.ProposeActivity(1, PlacePurpose::Rest, "Rest", "Tired");
+    ASSERT_NE(rest, nullptr);
+    EXPECT_EQ(book.All().size(), 32u);
+    EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
+}
+
 }

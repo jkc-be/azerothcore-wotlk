@@ -27,11 +27,24 @@ struct SatisfactionDimension
 
 using SatisfactionEffects = std::map<std::string, double>;
 
+struct SatisfactionExperience
+{
+    uint32_t samples = 0;
+    uint32_t successes = 0;
+    double meanDurationMs = 0;
+
+    bool operator==(SatisfactionExperience const&) const = default;
+};
+
 struct SatisfactionSnapshot
 {
     uint64_t revision = 1;
     uint64_t observedMs = 0;
     std::map<std::string, SatisfactionDimension> dimensions;
+    std::map<std::string, SatisfactionEffects> activities;
+    std::map<std::string, SatisfactionExperience> experiences;
+    uint64_t nextRestMs = 0;
+    uint64_t nextSocialMs = 0;
 
     bool operator==(SatisfactionSnapshot const&) const = default;
 };
@@ -61,10 +74,36 @@ struct SatisfactionForecast
     std::vector<SatisfactionOutcome> outcomes{{}};
 };
 
+// Shared activity/route forecast. Risk is grounded in perceived threats; duration is remaining travel.
+SatisfactionForecast ForecastActivity(uint64_t travelMs, double risk, double successProbability,
+    uint64_t activityMs, SatisfactionEffects effects);
+
 struct SatisfactionValue
 {
     double total = 0;
     std::map<std::string, double> contributions;
+};
+
+struct SatisfactionCandidate
+{
+    uint64_t id = 0;
+    uint64_t revision = 0;
+    SatisfactionForecast forecast;
+};
+
+struct SatisfactionAssessment
+{
+    uint64_t id = 0;
+    uint64_t revision = 0;
+    SatisfactionValue value;
+};
+
+struct SatisfactionDecision
+{
+    uint64_t stateRevision = 0;
+    uint64_t selected = 0; // Zero means maintain the present local state without a new journey.
+    double staying = 0;
+    std::vector<SatisfactionAssessment> alternatives;
 };
 
 class SatisfactionModel
@@ -77,8 +116,16 @@ public:
     // at most five seconds; attachment/reload starts with zero elapsed. Offline time cannot fabricate activity.
     bool Observe(uint64_t now, uint64_t activeMs, SatisfactionEffects const& effects);
     bool SetDimension(std::string id, SatisfactionDimension dimension);
+    bool SetActivity(std::string id, SatisfactionEffects effects);
+    SatisfactionEffects Effects(std::string const& activity, double fraction = 1) const;
+    bool Learn(std::string const& activity, bool success, uint64_t durationMs);
+    double SuccessProbability(std::string const& activity, double prior) const;
+    uint64_t ExpectedDuration(std::string const& activity, uint64_t priorMs) const;
+    bool ActivityReceipt(std::string const& activity, uint64_t now);
     std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast,
         uint64_t horizonMs = 600000) const;
+    SatisfactionDecision Choose(std::vector<SatisfactionCandidate> const& candidates, uint64_t current = 0,
+        bool committed = false, double switchThreshold = 0.01) const;
 
 private:
     SatisfactionSnapshot _state;

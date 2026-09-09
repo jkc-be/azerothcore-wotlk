@@ -139,4 +139,95 @@ TEST(AllesSatisfaction, InvalidOrUnreachableForecastsCannotWinSelection)
     EXPECT_FALSE(model.Evaluate(forecast));
     EXPECT_FALSE(model.Evaluate(SatisfactionForecast{}, 0));
 }
+
+TEST(AllesSatisfaction, SelectionUsesSharedForecastsAndHoldsOnlyFeasibleCommitments)
+{
+    SatisfactionModel model;
+    auto slow = Activity(540000, {{"discovery", 0.5}});
+    auto near = Activity(10000, {{"discovery", 0.3}});
+    auto choice = model.Choose({{1, 1, slow}, {2, 1, near}});
+    EXPECT_EQ(choice.selected, 2u);
+    ASSERT_EQ(choice.alternatives.size(), 2u);
+    EXPECT_EQ(choice.alternatives.front().id, 2u);
+    EXPECT_EQ(model.Choose({{1, 1, slow}, {2, 1, near}}, 1, true).selected, 1u);
+    EXPECT_EQ(model.Choose({{1, 1, slow}, {2, 1, near}}, 1, false, 0).selected, 2u);
+    slow.feasible = false;
+    EXPECT_EQ(model.Choose({{1, 1, slow}, {2, 1, near}}, 1, true).selected, 2u);
+    EXPECT_EQ(model.Choose({{1, 1, Activity(0, {{"security", -0.5}})}}).selected, 0u);
+}
+
+TEST(AllesSatisfaction, TinyImprovementsDoNotAlternateDestinations)
+{
+    SatisfactionModel model;
+    auto first = Activity(10000, {{"discovery", 0.3}});
+    auto second = Activity(9999, {{"discovery", 0.3}});
+    EXPECT_EQ(model.Choose({{1, 1, first}, {2, 1, second}}, 1).selected, 1u);
+    EXPECT_EQ(model.Choose({{1, 1, first}, {2, 1, second}}, 2).selected, 2u);
+}
+
+TEST(AllesSatisfaction, ObservedOutcomesChangeExpectationsAndPersistWithoutAwardingFulfillment)
+{
+    SatisfactionModel model;
+    auto const fulfillment = model.Capture().dimensions;
+    auto const prior = model.SuccessProbability("explore_place", 0.8);
+    ASSERT_TRUE(model.Learn("explore_place", false, 240000));
+    EXPECT_LT(model.SuccessProbability("explore_place", 0.8), prior);
+    EXPECT_GT(model.ExpectedDuration("explore_place", 60000), 60000u);
+    EXPECT_EQ(model.Capture().dimensions, fulfillment);
+    SatisfactionModel loaded;
+    ASSERT_TRUE(loaded.Restore(model.Capture()));
+    EXPECT_EQ(loaded.SuccessProbability("explore_place", 0.8), model.SuccessProbability("explore_place", 0.8));
+    EXPECT_FALSE(loaded.Learn("unknown_activity", true, 1000));
+    EXPECT_FALSE(loaded.Learn("explore_place", true, 3600001));
+}
+
+TEST(AllesSatisfaction, AuthoredActivitiesCanFulfillAdditionalMotives)
+{
+    SatisfactionModel model;
+    ASSERT_TRUE(model.SetDimension("generosity", {3, 0.1, 0.2, 1}));
+    ASSERT_TRUE(model.SetActivity("visit_companion", {{"generosity", 0.4}, {"companionship", 0.2}}));
+    auto const effects = model.Effects("visit_companion", 0.5);
+    EXPECT_DOUBLE_EQ(effects.at("generosity"), 0.2);
+    EXPECT_DOUBLE_EQ(effects.at("companionship"), 0.1);
+    EXPECT_GT(Value(model, Activity(0, effects)), Value(model, SatisfactionForecast{}));
+    EXPECT_FALSE(model.SetActivity("visit_companion", {{"unknown_motive", 0.2}}));
+}
+
+TEST(AllesSatisfaction, ActivityCooldownSurvivesLossOfAnEvictableIntentionAndReload)
+{
+    SatisfactionModel model;
+    ASSERT_TRUE(model.ActivityReceipt("visit_companion", 1000));
+    ASSERT_TRUE(model.ActivityReceipt("rest", 1000));
+    SatisfactionModel loaded;
+    ASSERT_TRUE(loaded.Restore(model.Capture()));
+    EXPECT_FALSE(loaded.ActivityReceipt("visit_companion", 2000));
+    EXPECT_FALSE(loaded.ActivityReceipt("rest", 600999));
+    EXPECT_TRUE(loaded.ActivityReceipt("rest", 601000));
+    EXPECT_TRUE(loaded.ActivityReceipt("visit_companion", 601000));
+}
+TEST(AllesSatisfaction, SharedRouteForecastTradesArrivalDelayAgainstPerceivedRisk)
+{
+    SatisfactionModel model;
+    auto const effects = model.Effects("visit_companion");
+    auto const direct = ForecastActivity(10000, 0.6, 0.9, 10000, effects);
+    auto const detour = ForecastActivity(90000, 0.05, 0.9, 10000, effects);
+    EXPECT_GT(Value(model, detour), Value(model, direct));
+    EXPECT_LT(Value(model, ForecastActivity(1200000, 0, 0.9, 10000, effects)),
+        Value(model, SatisfactionForecast{}));
+    EXPECT_FALSE(model.Evaluate(ForecastActivity(0, -0.1, 1, 60000, effects)));
+    EXPECT_FALSE(model.Evaluate(ForecastActivity(0, 0, 2, 60000, effects)));
+    auto const original = model.Capture();
+    for (unsigned index = 0; index < 20; ++index)
+        EXPECT_EQ(model.Choose({{1, 1, direct}, {2, 1, detour}}).selected, 2u);
+    EXPECT_EQ(model.Capture(), original);
+}
+
+TEST(AllesSatisfaction, DuplicateCandidatesAreRejectedEvenIfTheFirstIsInfeasible)
+{
+    SatisfactionModel model;
+    auto const decision = model.Choose({{1, 1, {false}}, {1, 2, Activity(0, {{"discovery", 1}})}});
+    EXPECT_EQ(decision.selected, 0u);
+    EXPECT_TRUE(decision.alternatives.empty());
+}
+
 }
