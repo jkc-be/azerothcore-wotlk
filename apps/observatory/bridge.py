@@ -1502,7 +1502,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def authorized(self):
-        return hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + self.server.spool.token)
+        # compare_digest accepts non-ASCII credentials only as bytes. Header values may contain
+        # Latin-1 characters; compare the decoded values consistently without dropping characters.
+        supplied = self.headers.get('Authorization', '').encode('utf-8')
+        expected = ('Bearer ' + self.server.spool.token).encode('utf-8')
+        return hmac.compare_digest(supplied, expected)
 
     def do_GET(self):
         path = urlparse(self.path).path

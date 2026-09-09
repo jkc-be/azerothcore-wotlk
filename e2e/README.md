@@ -394,6 +394,15 @@ cohort and `E2E_ALLES_OBJECTIVE_FIXTURE`; see [fixture requirements](suites/alle
 to require bounded strength deferral, another active intention and saved quest retention without reward. It also
 compiles but has not run live. Objective relog/handoff and live repair/respawn competition remain gaps.
 
+P1, covered: `suites/observatory/TestObservatory_NavigationRecoveryAndAreaSearch` passed on 2026-09-08 and
+uses two native POV clients to require movement and completion of seeded quest/search intentions without repeated
+search-to-travel reversals. It requires a fresh exclusive realm (under 60 simulated seconds), observer admission,
+the standard `E2E_OBSERVATORY_*` settings, and `E2E_OBSERVATORY_NAVIGATION_FIXTURE` pointing to JSON with
+`disposable: true` and two `bots: [{name, guid, quest, place}]`. Each bot must have intention ID 1 active in its
+clean fixture: a ready-to-turn-in quest at the stuck location, or a search just outside its destination boundary.
+Run with `-parallel 2` for the two read-only observers. This fixture intentionally changes initial state; use a
+separate fresh realm for subsequent simulation. A passing run proves these routes, not all world navigation.
+
 P1, compiled but not run: `suites/alles/TestAlles_HumanInvitationSuspendsAndResumesQuest` requires the exact normal
 human-led party, acknowledged saved quest checkpoint/attempt, a paused active-work timer and autonomous resumption
 after the human leaves. It uses the exclusive objective fixture on a quiet route and cleans up the new party.

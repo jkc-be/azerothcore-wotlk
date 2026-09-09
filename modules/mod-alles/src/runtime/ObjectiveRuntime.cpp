@@ -542,6 +542,7 @@ struct ObjectiveRuntime::Impl
         std::string notifiedRoster;
         std::set<ActorKey> rosterRecipients;
         WorldPosition routeTarget;
+        WorldPosition navigationOrigin;
         std::vector<WorldPosition> failedRoutes;
         float nearestRouteDistance = 0;
         uint64_t lastRouteProgressMs = 0;
@@ -1854,6 +1855,7 @@ struct ObjectiveRuntime::Impl
                 "Execution detached; reconcile on return", now);
         }
         found->second.routeTarget = WorldPosition();
+        found->second.navigationOrigin = WorldPosition();
         found->second.failedRoutes.clear();
         found->second.merchant.reset();
         found->second.lastMerchant.Clear();
@@ -1953,6 +1955,17 @@ struct ObjectiveRuntime::Impl
             return;
         }
         control.plannerAttached = true;
+        // Observe actual relocation, not equipment, as evidence that a blocked route may now work.
+        // The initial sample after attachment only establishes a baseline; relog is not recovery.
+        WorldPosition const position(bot);
+        if (state.navigationOrigin == WorldPosition())
+            state.navigationOrigin = position;
+        else if (state.navigationOrigin.GetMapId() != position.GetMapId()
+            || state.navigationOrigin.GetExactDist(position) >= 20.0f)
+        {
+            book.ReconsiderNavigation(now);
+            state.navigationOrigin = position;
+        }
         if (auto const* preparing = book.Preparing(); preparing
             && CurrentControlMode(*bot) != ControlMode::AutonomousSolo)
         {

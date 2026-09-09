@@ -240,6 +240,7 @@ public:
     bool AwaitCooperation(uint64_t id, uint64_t now);
     void ExpireQuestions(uint64_t now);
     bool Retryable(Objective const& objective, uint64_t now, uint64_t circumstances) const;
+    void ReconsiderNavigation(uint64_t now);
     Objective const* Find(uint64_t id) const;
     Objective const* Current() const;
     std::map<uint64_t, Objective> const& All() const { return _objectives; }
