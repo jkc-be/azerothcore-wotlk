@@ -1872,6 +1872,11 @@ struct ObjectiveRuntime::Impl
         {
             if (destination == WorldPosition() || destination.GetMapId() != bot.GetMapId())
                 return std::nullopt;
+            if (from.distance(destination) < 5)
+            {
+                from = destination;
+                continue; // Remaining locally needs no navigation mesh or manufactured travel time.
+            }
             PathGenerator path(&bot);
             path.SetUseStraightPath(true);
             if (!path.CalculatePath(from.GetPositionX(), from.GetPositionY(), from.GetPositionZ(),
