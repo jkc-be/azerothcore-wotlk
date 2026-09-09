@@ -33,6 +33,44 @@ class TokenFile(unittest.TestCase):
                 bridge.load_token(path)
 
 
+class Authentication(unittest.TestCase):
+    def test_non_ascii_credentials_authenticate_or_return_401_without_disconnect(self):
+        import urllib.error
+        import urllib.request
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            (path / 'latest.json').write_text(json.dumps({'run': 'auth-test', 'seq': 1}))
+            server = bridge.ThreadingHTTPServer(('127.0.0.1', 0), bridge.Handler)
+            server.daemon_threads = True
+            server.spool = bridge.Spool(path, 'test-token', follow=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for token in ('a' * 32, 'a' * 32 + '\u00e9\u00f1'):
+                    server.spool.token = token
+                    request = urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/snapshot',
+                                                     headers={'Authorization': 'Bearer ' + token})
+                    with urllib.request.urlopen(request, timeout=5) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(json.load(response)['run'], 'auth-test')
+                    for method in ('GET', 'POST'):
+                        for supplied in ('', 'Bearer wrong', 'Bearer ' + token + '\u00e9'):
+                            with self.subTest(token_ascii=token.isascii(), method=method, supplied=supplied):
+                                request = urllib.request.Request(
+                                    f'http://127.0.0.1:{server.server_port}/api/snapshot', method=method,
+                                    headers={'Authorization': supplied})
+                                with self.assertRaises(urllib.error.HTTPError) as error:
+                                    urllib.request.urlopen(request, timeout=5)
+                                self.assertEqual(error.exception.code, 401)
+                                error.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
+                server.spool.close()
+
+
 class Controls(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

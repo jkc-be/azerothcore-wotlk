@@ -117,7 +117,7 @@ TEST(AllesObjective, DeferralRetainsQuestAndRetriesOnlyAfterChangeOrWindowWithin
 {
     ObjectiveBook book({3000, 6000, 2, 32});
     auto const id = Start(book);
-    ASSERT_TRUE(book.Block(id, Obstruction::Navigation, "Unreachable path", 2000));
+    ASSERT_TRUE(book.Block(id, Obstruction::Executor, "Executor failed", 2000));
     ASSERT_TRUE(book.Defer(id, 2000));
     auto const* objective = book.Find(id);
     EXPECT_EQ(objective->quest, 42u);
@@ -125,14 +125,56 @@ TEST(AllesObjective, DeferralRetainsQuestAndRetriesOnlyAfterChangeOrWindowWithin
     EXPECT_FALSE(book.Activate(id, objective->revision, Accepted(), 3000, 1));
     EXPECT_TRUE(book.Activate(id, objective->revision, Accepted(), 3000, 2));
     EXPECT_EQ(objective->attempts, 2u);
-    book.Block(id, Obstruction::Navigation, "Still unreachable", 4000);
+    book.Block(id, Obstruction::Executor, "Executor failed", 4000);
     book.Defer(id, 4000);
     EXPECT_TRUE(book.Activate(id, objective->revision, Accepted(), 10000, 2));
-    book.Block(id, Obstruction::Navigation, "Still unreachable", 11000);
+    book.Block(id, Obstruction::Executor, "Executor failed", 11000);
     book.Defer(id, 11000);
     EXPECT_FALSE(book.Activate(id, objective->revision, Accepted(), 100000, 2));
     EXPECT_TRUE(book.Activate(id, objective->revision, Accepted(), 100000, 3));
     EXPECT_EQ(objective->attemptsInCircumstances, 1u);
+}
+
+TEST(AllesObjective, NavigationRetriesBackOffButDoNotPermanentlyExhaustTheQuest)
+{
+    ObjectiveBook book;
+    auto const id = Start(book);
+    uint64_t now = 2000;
+    for (unsigned attempt = 0; attempt < 8; ++attempt)
+    {
+        ASSERT_TRUE(book.Block(id, Obstruction::Navigation, "No route", now));
+        ASSERT_TRUE(book.Defer(id, now));
+        auto const* objective = book.Find(id);
+        auto const retry = objective->nextReconsiderationMs;
+        EXPECT_GE(retry - now, 60000u);
+        EXPECT_LE(retry - now, 600000u);
+        EXPECT_FALSE(book.Retryable(*objective, retry - 1, 99)); // Equipment cannot bypass backoff.
+        ASSERT_TRUE(book.Activate(id, objective->revision, Accepted(), retry, 1));
+        now = retry + 1000;
+    }
+    EXPECT_EQ(book.Find(id)->attempts, 9u);
+}
+
+TEST(AllesObjective, NavigationRecoveryUsesRelocationWithoutReopeningUnrelatedFailures)
+{
+    ObjectiveBook book;
+    auto const id = Start(book);
+    book.Block(id, Obstruction::Navigation, "No route", 2000);
+    book.Defer(id, 2000);
+    auto const* other = book.ProposePlace(363, "Look for work", "No work here");
+    ASSERT_TRUE(book.ActivatePlace(other->id, other->revision, 3000, 1));
+    book.Block(other->id, Obstruction::Information, "No work here", 4000);
+    book.Defer(other->id, 4000);
+    auto const otherRevision = other->revision;
+    book.ReconsiderNavigation(5000);
+    EXPECT_EQ(other->revision, otherRevision);
+    EXPECT_FALSE(book.Retryable(*other, 5000, 1));
+    EXPECT_TRUE(book.Retryable(*book.Find(id), 5000, 1));
+    EXPECT_EQ(book.Find(id)->attempts, 1u);
+    EXPECT_EQ(book.Find(id)->attemptsInCircumstances, 0u);
+    ObjectiveBook restored;
+    ASSERT_TRUE(restored.Restore(book.Capture()));
+    EXPECT_TRUE(restored.Retryable(*restored.Find(id), 5000, 1));
 }
 
 TEST(AllesObjective, RetryWindowDoesNotMoveOnRepeatedFailedQuestObservations)

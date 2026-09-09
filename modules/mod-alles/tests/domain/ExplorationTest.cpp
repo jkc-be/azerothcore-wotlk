@@ -55,6 +55,8 @@ TEST(AllesExploration, ArrivalIsNotCompletionAndWorkMustBeObservedInTheIntendedA
     EXPECT_FALSE(book.Activate(place->id, place->revision, {}, 1000, 5));
     ASSERT_TRUE(book.ObservePlace(place->id, 9, 42, ObjectiveStep::Travel, 2000));
     EXPECT_EQ(place->arrivedMs, 0u);
+    ASSERT_TRUE(book.ObservePlace(place->id, 87, 0, ObjectiveStep::Travel, 2500));
+    EXPECT_EQ(place->arrivedMs, 0u); // Crossing the border while still travelling is not a local search.
     EXPECT_EQ(place->state, ObjectiveState::Active);
     ASSERT_TRUE(book.ObservePlace(place->id, 87, 0, ObjectiveStep::Attempt, 3000));
     EXPECT_EQ(place->arrivedMs, 3000u);

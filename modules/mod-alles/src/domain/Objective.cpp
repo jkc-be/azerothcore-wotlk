@@ -519,6 +519,10 @@ bool ObjectiveBook::Retryable(Objective const& objective, uint64_t now, uint64_t
 {
     if (objective.request)
         return false;
+    // A route failure says nothing about whether the quest can ever be done. Keep bounded probes
+    // available even after the semantic attempt cap; equipment changes do not repair a route.
+    if (objective.obstruction == Obstruction::Navigation)
+        return objective.state == ObjectiveState::Deferred && now >= objective.nextReconsiderationMs;
     if (objective.quest && (objective.obstruction == Obstruction::Strength
         || objective.obstruction == Obstruction::Supplies || objective.obstruction == Obstruction::Prerequisite))
         return false; // Elapsed time or an unrelated equipment change is not evidence that this condition was resolved.
@@ -704,7 +708,7 @@ bool ObjectiveBook::ObservePlace(uint64_t id, uint32_t area, uint32_t newQuest, 
     }
     if (objective.state != ObjectiveState::Active || area != objective.place)
         return true;
-    if (!objective.arrivedMs)
+    if (!objective.arrivedMs && (step == ObjectiveStep::Attempt || newQuest))
     {
         objective.arrivedMs = now;
         objective.lastProgressMs = now;
@@ -1096,13 +1100,29 @@ bool ObjectiveBook::ObserveOpportunity(uint64_t id, QuestOpportunity opportunity
     return true;
 }
 
+void ObjectiveBook::ReconsiderNavigation(uint64_t now)
+{
+    for (auto& [id, objective] : _objectives)
+        if (!objective.request && objective.state == ObjectiveState::Deferred
+            && objective.obstruction == Obstruction::Navigation)
+        {
+            objective.nextReconsiderationMs = now;
+            objective.attemptsInCircumstances = 0;
+            ++objective.revision;
+        }
+}
+
 bool ObjectiveBook::Defer(uint64_t id, uint64_t now)
 {
     auto found = _objectives.find(id);
     if (found == _objectives.end() || found->second.state != ObjectiveState::Blocked)
         return false;
     found->second.state = ObjectiveState::Deferred;
-    found->second.nextReconsiderationMs = now + _policy.retryMs;
+    auto const& objective = found->second;
+    uint64_t delay = _policy.retryMs;
+    if (objective.obstruction == Obstruction::Navigation)
+        delay = std::min(delay, uint64_t(30000) << std::min(objective.attemptsInCircumstances, 5u));
+    found->second.nextReconsiderationMs = now + delay;
     ++found->second.revision;
     return true;
 }

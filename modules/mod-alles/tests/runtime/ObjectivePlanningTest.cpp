@@ -237,9 +237,13 @@ TEST_F(AllesObjectivePlanningTest, SignalsIgnoreTickSamplingButReactToCreditRetr
     ASSERT_TRUE(book.Block(currentId, Obstruction::Navigation, "The current route is obstructed", 4000));
     ASSERT_TRUE(book.Defer(currentId, 4000));
     EXPECT_FALSE(book.Retryable(*book.Find(currentId), 5000, 5));
-    EXPECT_TRUE(book.Retryable(*book.Find(currentId), 5000, 55));
+    EXPECT_FALSE(book.Retryable(*book.Find(currentId), 5000, 55));
     EXPECT_NE(ObjectiveDecisionSignal(book, knowledge, 5, 9, 5, 5000),
         ObjectiveDecisionSignal(book, knowledge, 5, 9, 5, 604000));
+    signal = ObjectiveDecisionSignal(book, knowledge, 5, 9, 5, 5000);
+    book.ReconsiderNavigation(5001);
+    EXPECT_TRUE(book.Retryable(*book.Find(currentId), 5001, 5));
+    EXPECT_NE(ObjectiveDecisionSignal(book, knowledge, 5, 9, 5, 5001), signal);
 }
 
 TEST_F(AllesObjectivePlanningTest, ReadinessDeferralDoesNotOfferRetriesUntilTheOwnObstructionIsResolved)

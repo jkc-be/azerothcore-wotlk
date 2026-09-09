@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Create a fresh disposable native Alles realm; ordinary acore_* databases are read-only sources."""
 
+import argparse
 import datetime
 import fcntl
 import json
@@ -16,7 +17,12 @@ import time
 SERVICES = ("acore-alles-interpreter", "acore-observatory-bridge", "acore-worldserver", "acore-authserver")
 
 
-def prepare(root, worker_config):
+def prepare(root, worker_config, initial_races=None):
+    initial_races = {1: 4, 8: 2} if initial_races is None else initial_races
+    capacities = {race: 20 if race == 1 else 5 for race in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11)}
+    if not initial_races or any(race not in capacities or not 0 <= count <= capacities[race]
+        for race, count in initial_races.items()) or not sum(initial_races.values()):
+        raise ValueError("Initial race counts must fit the prepared roster and include at least one bot")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S%f")
     base = root / "var/run" / ("alles-accelerated-" + stamp)
     base.mkdir(mode=0o700)
@@ -160,11 +166,11 @@ def prepare(root, worker_config):
         "Observatory.Enable": "1",
         "Observatory.DisposableAcknowledgement": "DISPOSABLE_BOTS_ONLY",
         "Observatory.Directory": str(base / "simulation"),
-        "Observatory.BotCount": "6",
+        "Observatory.BotCount": str(sum(initial_races.values())),
         "Observatory.BotGuids": guids,
         "Observatory.Trace": "0",
         "Observatory.RaceRoster": ",".join(f"{r['guid']}:{r['race']}" for r in roster),
-        "Observatory.RaceCounts": "4 0 0 0 0 0 0 2 0 0",
+        "Observatory.RaceCounts": " ".join(str(initial_races.get(race, 0)) for race in races),
         "Observatory.LlmQueueLimit": "8",
         "Observatory.AllowGmObservers": "1",
         "Observatory.ObserverMode": "1",
@@ -245,7 +251,7 @@ def prepare(root, worker_config):
     (base / "environment").write_text("\n".join(f"{envkey(k)}={json.dumps(v)}" for k, v in settings.items()) + "\n")
     os.chmod(base / "environment", 0o600)
     (base / "roster.json").write_text(
-        json.dumps({"prefix": prefix, "bots": roster, "initialRaces": {"1": 4, "8": 2}}, indent=2) + "\n"
+        json.dumps({"prefix": prefix, "bots": roster, "initialRaces": initial_races}, indent=2) + "\n"
     )
     for path in (
         root / "env/dist/etc/worldserver.conf",
@@ -264,6 +270,11 @@ def prepare(root, worker_config):
 
 
 def deploy(root, base):
+    roster = json.loads((base / "roster.json").read_text())
+    initial_races = {int(race): count for race, count in roster["initialRaces"].items()}
+    expected_names = set()
+    for race, count in initial_races.items():
+        expected_names.update(bot["name"] for bot in [b for b in roster["bots"] if b["race"] == race][:count])
     units = Path.home() / ".config/systemd/user"
     backup = base / "unit-backup"
     backup.mkdir(mode=0o700, exist_ok=True)
@@ -322,25 +333,28 @@ def deploy(root, base):
                     raise RuntimeError(f"New realm reported fault: {snapshot['fault']}")
                 if (
                     snapshot.get("ready")
-                    and len(bots) == 6
-                    and names == {"Humana", "Humanb", "Humanc", "Humand", "Trolla", "Trollb"}
-                    and sum(bool(bot.get("controlGroup")) for bot in bots) == 2
+                    and len(bots) == len(expected_names)
+                    and names == expected_names
+                    and sum(bool(bot.get("controlGroup")) for bot in bots) == initial_races.get(8, 0)
+                    and snapshot.get("requestedSpeed") == 1
+                    and not snapshot.get("llmGuard")
+                    and not snapshot.get("paused")
                 ):
                     for service in SERVICES:
                         subprocess.run(["systemctl", "--user", "is-active", "--quiet", service], check=True)
                     (base / "reset-proof.json").write_text(json.dumps(snapshot, indent=2) + "\n")
-                    print("Ready: 4 Humans + 2 Troll controls. Dashboard: http://localhost:8778/", flush=True)
+                    print(f"Ready at 1x: {', '.join(sorted(names))}. Dashboard: http://localhost:8778/", flush=True)
                     return
             except (FileNotFoundError, json.JSONDecodeError):
                 pass
             time.sleep(2)
-        raise RuntimeError("Fresh realm did not reach its six-bot roster within 180 seconds")
+        raise RuntimeError("Fresh realm did not reach its requested roster at 1x within 180 seconds")
     except BaseException:
         subprocess.run(["systemctl", "--user", "stop", *SERVICES], check=False)
         raise
 
 
-def reset(root):
+def reset(root, initial_races=None):
     """Prepare first, then switch services. Never resume or delete an earlier run."""
     os.umask(0o077)
     (root / "var/run").mkdir(parents=True, exist_ok=True)
@@ -377,7 +391,7 @@ def reset(root):
             stdout=subprocess.DEVNULL,
             check=True,
         )
-        base = prepare(root, worker_config)
+        base = prepare(root, worker_config, initial_races)
         deploy(root, base)
         pointer = root / "var/run/server-realm.json"
         temporary = pointer.with_suffix(".tmp")
@@ -387,7 +401,12 @@ def reset(root):
 
 if __name__ == "__main__":
     try:
-        reset(Path(__file__).resolve().parents[2])
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("--humans", type=int, default=4)
+        parser.add_argument("--orcs", type=int, default=0)
+        parser.add_argument("--trolls", type=int, default=2, help="Unmanaged Playerbots control group")
+        args = parser.parse_args()
+        reset(Path(__file__).resolve().parents[2], {1: args.humans, 2: args.orcs, 8: args.trolls})
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"reset: {error}", file=sys.stderr)
         sys.exit(1)
