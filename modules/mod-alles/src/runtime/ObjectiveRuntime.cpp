@@ -533,6 +533,8 @@ struct ObjectiveRuntime::Impl
         SatisfactionDecision satisfactionDecision;
         uint64_t satisfactionSampleMs = 0;
         uint64_t nextContactSampleMs = 0;
+        uint64_t nextCandidateMs = 0;
+        uint32_t candidateArea = 0;
         uint64_t intentionSinceMs = 0;
         uint64_t intention = 0;
         uint64_t activityObservedMs = 0;
@@ -1766,6 +1768,10 @@ struct ObjectiveRuntime::Impl
                     }
                 }
         }
+        if (brain && now < state.nextCandidateMs && state.candidateArea == state.currentArea)
+            return;
+        state.nextCandidateMs = now + 10000;
+        state.candidateArea = state.currentArea;
         if (brain)
         {
             for (auto const& [id, objective] : state.book.All())
