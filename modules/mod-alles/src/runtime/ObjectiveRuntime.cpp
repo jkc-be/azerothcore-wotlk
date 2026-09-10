@@ -2658,7 +2658,7 @@ struct ObjectiveRuntime::Impl
         if (auto const* current = state.book.Current(); brain && current
             && current->state == ObjectiveState::Active && current->obstruction == Obstruction::None
             && current->id == state.satisfactionDecision.selected && current->activeWithoutProgressMs < 60000
-            && !NeedsRecovery(bot))
+            && (!NeedsRecovery(bot) || current->purpose == PlacePurpose::Rest))
             return;
         auto const circumstances = Circumstances(bot);
         auto const finances = OwnQuestFinances(bot);
