@@ -628,7 +628,7 @@ std::string EncodePlanning(PlanningSnapshot const& snapshot)
         places.push_back(EncodePlace(place));
     for (auto const& [id, report] : snapshot.knowledge.reports)
         reports.push_back(EncodeReport(report));
-    object root{{"version", 14}, {"owner", Actor(snapshot.owner)},
+    object root{{"version", 15}, {"owner", Actor(snapshot.owner)},
         {"revision", snapshot.revision}, {"nextObjectiveId", snapshot.objectives.nextId},
         {"objectives", std::move(objectives)}, {"seedVersion", snapshot.knowledge.seedVersion},
         {"nextReportId", snapshot.knowledge.nextReport}, {"places", std::move(places)},
@@ -657,7 +657,7 @@ std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey e
         auto const decoded = Bridge::Parse(text, MaxPlanningBytes);
         auto const& object = decoded.as_object();
         auto const version = UInt<uint32_t>(object, "version");
-        if (version < 1 || version > 14)
+        if (version < 1 || version > 15)
             return std::nullopt;
         if (version >= 11 && object.contains("contacts"))
             Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",

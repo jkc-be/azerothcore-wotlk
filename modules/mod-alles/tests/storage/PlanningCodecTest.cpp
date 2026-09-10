@@ -249,7 +249,7 @@ TEST(AllesPlanningCodec, RejectsForeignOwnersUnknownVersionsFieldsAndDuplicateKe
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::CreatureSpawn, Owner.id}));
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::Player, Owner.id + 1}));
     auto value = Bridge::Parse(encoded).as_object();
-    value["version"] = 15;
+    value["version"] = 16;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
     value["version"] = 13;
     value["movementHandle"] = 123;

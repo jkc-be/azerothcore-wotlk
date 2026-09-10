@@ -488,8 +488,8 @@ with at least two newly initialized Alles owners and GM observers enabled in loc
 `{"Disposable":true,"Name":"<watched bot>","GUID":123}` and the normal `E2E_*` DB/Observatory settings.
 Run `go test -tags=e2e ./suites/observatory -run TestObservatory_IndividualMotivationsLearnObservedOutcomes
 -count=1 -v -timeout 8m` on one line. The oracle requires native movement, distinct ambitions, actual carried
-money, mastery increasing by actual earned XP, positive starter gear value, a measured attempt and committed
-version 14 learning data. The observer never changes preferences or grants XP/money/equipment. Run this separately from throughput comparisons.
+money, mastery increasing by actual earned XP, positive starter gear value, a successful XP-bearing practice attempt and committed
+version 15 learning data. The observer never changes preferences or grants XP/money/equipment. Run this separately from throughput comparisons.
 
 ### Conversational memory quality
 

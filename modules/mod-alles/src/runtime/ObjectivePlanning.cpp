@@ -98,6 +98,8 @@ CapabilityRegistry ObjectiveCapabilities()
         "Prefer ordinary travel and investigation; arrival alone is not success", "Release investigation ownership"});
     registry.Register({"explore_place", false, true, false, "A privately known place with unobserved surroundings",
         "Travel normally and observe something personally new; no quest reward is required", "Release exploration"});
+    registry.Register({"develop_skills", false, true, false, "A suitable practice opportunity is personally visible",
+        "Use ordinary gameplay to gain experience; only observed progress completes the activity", "Release practice"});
     registry.Register({"rest", false, true, false, "A known place where stationary rest is currently feasible",
         "Observe stationary rest outside combat; an idle command alone is not recovery", "Resume on interruption"});
     registry.Register({"visit_companion", false, true, true, "A personally observed companion at a known place",

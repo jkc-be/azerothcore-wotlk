@@ -151,3 +151,13 @@ Observed death records a separate failed outcome; resurrection is excluded from 
 perceived danger and prior outcomes still affect the choice, and staying remains valid when useful work does not
 justify its costs. These game measurements live in the adapter; the satisfaction evaluator accepts arbitrary
 need and growth dimensions for other scenarios.
+
+The WoW recovery need is measured from current health and mana, without passive fatigue or a walking penalty.
+Rest becomes eligible below 60% and ends after recovery to 90%, while the ordinary body handles food/drink.
+Routine companionship starts mostly fulfilled, drains slowly, and has a small default weight; ordinary replies
+and cooperation can satisfy it during play. Individual preferences remain configurable.
+
+When quests are unavailable, `develop_skills` offers practice against visible, untapped, ordinary creatures no
+higher level than the actor, within its current area. It uses assessed routes and normal combat, loot and recovery.
+Observed XP completes an attempt; movement or choosing a target does not. The planner retains human/party control
+boundaries. Planning storage version 15 retains these activities and early observed recovery completions.

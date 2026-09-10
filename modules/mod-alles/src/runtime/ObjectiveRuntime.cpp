@@ -8,6 +8,7 @@
 #include "ObjectivePlanning.h"
 #include "PlayerMotivations.h"
 #include "World.h"
+#include "Formulas.h"
 #include "Item.h"
 #include "ItemUsageValue.h"
 #include "Bag.h"
@@ -328,10 +329,16 @@ QuestFinances OwnQuestFinances(Player& bot)
     return result;
 }
 
-bool NeedsRecovery(Player const& bot)
+double AvailableMana(Player const& bot)
+{
+    return bot.getPowerType() == POWER_MANA && bot.GetMaxPower(POWER_MANA)
+        ? double(bot.GetPower(POWER_MANA)) / bot.GetMaxPower(POWER_MANA) : 1.0;
+}
+
+bool NeedsRecovery(Player const& bot, bool continuing = false)
 {
     return bot.IsAlive() && !bot.IsInCombat() && !bot.IsBeingTeleported() && !bot.IsInFlight()
-        && bot.GetHealthPct() < 60;
+        && PlayerNeedsRecovery(bot.GetHealthPct() / 100, AvailableMana(bot), continuing);
 }
 
 double MeasuredMotivation(SatisfactionDimension const& dimension, double amount)
@@ -646,6 +653,7 @@ struct ObjectiveRuntime::Impl
         uint64_t nextActivityInteractionMs = 0;
         uint64_t visitGreetingMs = 0;
         bool visitAcknowledged = false;
+        bool socialReceipt = false;
         uint64_t activityArrivalObservedMs = 0;
         std::map<uint64_t, double> routeRisks;
         std::map<uint64_t, std::string> routeReasons;
@@ -1894,9 +1902,12 @@ struct ObjectiveRuntime::Impl
         {
             for (auto const& [id, objective] : state.book.All())
                 state.book.ReconsiderActivity(id, now, NeedsRecovery(bot));
-            if (state.currentArea && (now >= state.satisfaction.Capture().nextRestMs || NeedsRecovery(bot)))
+            if (state.currentArea && NeedsRecovery(bot))
                 state.book.ProposeActivity(state.currentArea, PlacePurpose::Rest,
-                    "Rest here", "Consider recovering through observed stationary rest");
+                    "Recover health and mana", "Recover actual combat resources before continuing");
+            if (state.currentArea && PracticeTarget(bot))
+                state.book.ProposeActivity(state.currentArea, PlacePurpose::Practice,
+                    "Gain experience nearby", "A suitable creature is personally visible");
             std::vector<KnownContact const*> contacts;
             for (auto const& [actor, contact] : state.knowledge.Contacts())
                 if (now >= state.satisfaction.Capture().nextSocialMs && now >= contact.location.observedMs
@@ -1951,6 +1962,36 @@ struct ObjectiveRuntime::Impl
                     place->area == state.currentArea ? "Investigate local opportunities before leaving"
                         : "Consider a suitable place from my private geography");
         }
+    }
+
+    Creature* PracticeTarget(Player& bot) const
+    {
+        if (bot.GetLevel() >= sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL)
+            || bot.HasPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN) || bot.GetGroup())
+            return nullptr;
+        Creature* best = nullptr;
+        double distance = 80;
+        unsigned scanned = 0;
+        if (auto const* visible = bot.GetObjectVisibilityContainer().GetVisibleWorldObjectsMap())
+            for (auto const& [guid, object] : *visible)
+            {
+                if (++scanned > 256)
+                    break;
+                auto* target = object ? object->ToCreature() : nullptr;
+                if (!target || !target->IsAlive() || target->IsPet() || target->IsTotem()
+                    || target->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL
+                    || target->GetLevel() > bot.GetLevel() || target->GetAreaId() != bot.GetAreaId()
+                    || target->hasLootRecipient() || !bot.CanSeeOrDetect(target)
+                    || !bot.IsValidAttackTarget(target) || !Acore::XP::Gain(&bot, target))
+                    continue;
+                double const range = bot.GetExactDist(target);
+                if (range < distance && bot.IsWithinLOSInMap(target))
+                {
+                    best = target;
+                    distance = range;
+                }
+            }
+        return best;
     }
 
     struct ActivityRoute
@@ -2100,7 +2141,7 @@ struct ObjectiveRuntime::Impl
                 state.stayingRisk = std::min(0.8, state.stayingRisk + threat.risk);
         // Inaction faces the same personally perceived danger as a local activity. It cannot assume safety
         // merely because no path is requested. This predicts exposure, never awards or removes fulfillment.
-        auto const staying = ForecastActivity(0, state.stayingRisk, 1, 60000, {});
+        auto const staying = ForecastPlayerActivity(0, state.stayingRisk, 1, 60000, {});
         std::vector<SatisfactionCandidate> candidates;
         auto const circumstances = Circumstances(bot);
         auto const finances = OwnQuestFinances(bot);
@@ -2130,9 +2171,16 @@ struct ObjectiveRuntime::Impl
             else if (objective.purpose == PlacePurpose::Rest)
             {
                 if (objective.place != state.currentArea
-                    || (now < state.satisfaction.Capture().nextRestMs && !NeedsRecovery(bot)))
+                    || !NeedsRecovery(bot, current && current->id == id))
                     continue;
                 destination = WorldPosition(&bot);
+            }
+            else if (objective.purpose == PlacePurpose::Practice)
+            {
+                auto* target = PracticeTarget(bot);
+                if (!target || NeedsRecovery(bot) || objective.place != state.currentArea)
+                    continue;
+                destination = WorldPosition(target);
             }
             else if (objective.purpose == PlacePurpose::Companionship)
             {
@@ -2200,13 +2248,18 @@ struct ObjectiveRuntime::Impl
                     found != state.satisfaction.Capture().dimensions.end())
                     effects["mastery"] = MeasuredMotivation(found->second,
                         OwnMastery(bot) + KnownMasteryReward(bot, objective.quest)) - found->second.fulfillment;
+            if (objective.purpose == PlacePurpose::Practice)
+                if (auto* target = PracticeTarget(bot))
+                    effects["mastery"] = Acore::XP::Gain(&bot, target);
             double const prior = objective.purpose == PlacePurpose::Rest ? 1
+                : objective.purpose == PlacePurpose::Practice ? 0.85
                 : objective.checkpoint.readyToReward ? 0.95
                 : objective.purpose == PlacePurpose::Discovery ? 0.85
                 : objective.purpose == PlacePurpose::Companionship ? 0.65 : 0.6;
             double success = state.satisfaction.SuccessProbability(activity, prior, context);
             uint64_t duration = objective.purpose == PlacePurpose::Rest ? 60000 - objective.activityMs
-                : state.satisfaction.ExpectedDuration(activity, objective.checkpoint.readyToReward ? 10000 : 120000)
+                : state.satisfaction.ExpectedDuration(activity, objective.purpose == PlacePurpose::Practice ? 45000
+                    : objective.checkpoint.readyToReward ? 10000 : 120000)
                     + (supplies ? 30000 : 0);
             if (!objective.quest && objective.purpose == PlacePurpose::Work)
             {
@@ -2223,7 +2276,7 @@ struct ObjectiveRuntime::Impl
                     + state.satisfaction.ExpectedDuration("pursue_quest", 120000));
             }
             candidates.push_back({id, objective.revision,
-                ForecastActivity(travelMs, risk, success, duration, effects, failureEffects)});
+                ForecastPlayerActivity(travelMs, risk, success, duration, effects, failureEffects)});
         }
         // First score all bounded known candidates cheaply. Retain the current intention plus the best of
         // each purpose before filling the eight pathfinding slots; quests cannot consume every route query.
@@ -2273,7 +2326,7 @@ struct ObjectiveRuntime::Impl
             auto const duration = candidate.forecast.outcomes.front().stages.back().durationMs;
             auto const probability = candidate.forecast.outcomes.front().probability;
             auto bestRoute = *direct;
-            auto bestForecast = ForecastActivity(direct->durationMs, direct->risk, probability, duration,
+            auto bestForecast = ForecastPlayerActivity(direct->durationMs, direct->risk, probability, duration,
                 effects, failureEffects);
             auto const assessedRoute = state.satisfaction.Evaluate(bestForecast);
             if (!assessedRoute)
@@ -2298,7 +2351,7 @@ struct ObjectiveRuntime::Impl
                     if (!detour)
                         continue;
                     experience(*detour);
-                    auto forecast = ForecastActivity(detour->durationMs, detour->risk, probability, duration,
+                    auto forecast = ForecastPlayerActivity(detour->durationMs, detour->risk, probability, duration,
                         effects, failureEffects);
                     auto const assessedDetour = state.satisfaction.Evaluate(forecast);
                     if (!assessedDetour)
@@ -2323,7 +2376,8 @@ struct ObjectiveRuntime::Impl
                     experience(*held);
                     committedRisk = held->risk;
                     auto const heldValue = state.satisfaction.Evaluate(
-                        ForecastActivity(held->durationMs, held->risk, probability, duration, effects, failureEffects));
+                        ForecastPlayerActivity(held->durationMs, held->risk, probability, duration,
+                            effects, failureEffects));
                     reviseRoute = !heldValue || bestValue > heldValue->total + 0.01
                         || remaining.back().distance(destination->second) >= 5;
                 }
@@ -2383,12 +2437,14 @@ struct ObjectiveRuntime::Impl
         observation.area = state.currentArea;
         observation.available = Autonomous(bot, ai) && bot.IsAlive() && !bot.IsInCombat()
             && !bot.IsBeingTeleported() && !bot.IsInFlight() && !bot.IsNonMeleeSpellCast(false)
-            && !bot.IsSitState() && !bot.HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT);
+            && (!bot.IsSitState() || objective->purpose == PlacePurpose::Rest)
+            && !bot.HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT);
         if (!observation.available)
         {
             state.book.ObserveActivity(id, observation, now);
             return;
         }
+        observation.recovered = objective->purpose == PlacePurpose::Rest && !NeedsRecovery(bot, true);
         observation.discovered = state.discoveredArea == objective->place;
         if (objective->purpose == PlacePurpose::Discovery && observation.discovered)
         {
@@ -2432,6 +2488,20 @@ struct ObjectiveRuntime::Impl
             return;
         }
         ai.rpgInfo.objectiveControl.phase = QuestObjectiveControl::Phase::Attempting;
+        if (objective->purpose == PlacePurpose::Practice)
+        {
+            if (auto* target = PracticeTarget(bot); target && !NeedsRecovery(bot)
+                && bot.GetExactDist(target) <= 20
+                && ai.rpgInfo.body.Fresh(getMSTime()) && ai.rpgInfo.body.objective == id
+                && ai.rpgInfo.body.state == BodyControl::State::Running)
+            {
+                observation.atDestination = true;
+                state.book.ObserveActivity(id, observation, now);
+                ai.rpgInfo.objectiveControl.phase = QuestObjectiveControl::Phase::Attempting;
+                CooperativeAssist(&ai).Engage(target);
+            }
+            return;
+        }
         observation.atDestination = true;
         observation.resting = objective->purpose == PlacePurpose::Rest && !bot.isMoving()
             && !bot.IsNonMeleeSpellCast(false);
@@ -2543,6 +2613,9 @@ struct ObjectiveRuntime::Impl
         SatisfactionEffects effects;
         auto const& dimensions = state.satisfaction.Capture().dimensions;
         SatisfactionEffects measured;
+        if (dimensions.contains("rest"))
+            measured["rest"] = std::min(double(bot->GetHealthPct()) / 100, AvailableMana(*bot))
+                - dimensions.at("rest").fulfillment;
         if (dimensions.contains("mastery"))
             measured["mastery"] = MeasuredMotivation(dimensions.at("mastery"), OwnMastery(*bot))
                 - dimensions.at("mastery").fulfillment;
@@ -2563,6 +2636,8 @@ struct ObjectiveRuntime::Impl
         if (elapsed && state.intention)
             for (auto const& [id, value] : measured)
             {
+                if (id == "rest" && !continuouslyAlive)
+                    continue;
                 double const limit = MotivationLimit(dimensions.at(id));
                 state.attemptEffects[id] = std::clamp(state.attemptEffects[id] + value, -limit, limit);
             }
@@ -2571,8 +2646,26 @@ struct ObjectiveRuntime::Impl
             for (auto const& [dimension, effect] : additions)
                 effects[dimension] = std::clamp(effects[dimension] + effect, -1.0, 1.0);
         };
-        if (elapsed && bot->isMoving() && state.satisfaction.Capture().dimensions.contains("rest"))
-            effects["rest"] = -double(elapsed) / 3600000 * 0.2;
+        if (state.socialReceipt)
+        {
+            add(state.satisfaction.Effects("visit_companion"));
+            state.socialReceipt = false;
+        }
+        if (auto const* active = state.book.Current(); active && bot->IsAlive())
+        {
+            ActivityObservation progress;
+            progress.area = state.currentArea;
+            progress.available = true;
+            progress.progressed = active->purpose == PlacePurpose::Practice && measured.contains("mastery")
+                && measured.at("mastery") > 0 && elapsed;
+            progress.recovered = active->purpose == PlacePurpose::Rest && !bot->IsInCombat()
+                && !NeedsRecovery(*bot, true);
+            if (progress.progressed || progress.recovered)
+            {
+                state.book.ObserveActivity(active->id, progress, now);
+                Release(bot, active->id);
+            }
+        }
         if (elapsed && state.discoveredArea)
             add(state.satisfaction.Effects("explore_place"));
         for (auto const& [id, objective] : state.book.All())
@@ -2615,6 +2708,9 @@ struct ObjectiveRuntime::Impl
         }
         if (dimensions.contains("security"))
             effects["security"] = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
+        if (dimensions.contains("rest"))
+            effects["rest"] = std::min(double(bot->GetHealthPct()) / 100, AvailableMana(*bot))
+                - dimensions.at("rest").fulfillment;
         if (dimensions.contains("resources"))
             effects["resources"] = double(bot->GetMoney()) / (double(bot->GetMoney()) + 1000 * bot->GetLevel())
                 - dimensions.at("resources").fulfillment;
@@ -2821,8 +2917,14 @@ struct ObjectiveRuntime::Impl
                 activity["mastery"] = defaults.activities.at("pursue_quest").at("mastery");
                 state.satisfaction.SetActivity("pursue_quest", std::move(activity));
             }
+            auto recovery = state.satisfaction.Capture().dimensions.at("rest");
+            recovery.depletionPerHour = 0;
+            state.satisfaction.SetDimension("rest", recovery);
+            if (!state.satisfaction.Capture().activities.contains("develop_skills"))
+                state.satisfaction.SetActivity("develop_skills", {{"mastery", 45}});
             state.attemptEffects.clear();
             state.attemptContext.clear();
+            state.socialReceipt = false;
             state.satisfactionSampleMs = state.intention = state.intentionSinceMs = state.activityObservedMs = 0;
             state.learningRoute.clear();
             state.observedTravelMs = state.predictedTravelMs = 0;
@@ -3485,6 +3587,8 @@ void ObjectiveRuntime::CompanionReply(ActorKey owner, ActorKey speaker, uint64_t
     if (current && current->purpose == PlacePurpose::Companionship && current->person == speaker
         && state.visitGreetingMs && gameMs >= state.visitGreetingMs && gameMs - state.visitGreetingMs <= 60000)
         state.visitAcknowledged = true;
+    else if (state.satisfaction.ActivityReceipt("visit_companion", gameMs))
+        state.socialReceipt = true;
 }
 
 ObjectiveRuntime::~ObjectiveRuntime()

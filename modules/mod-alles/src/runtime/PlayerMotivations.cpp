@@ -19,12 +19,29 @@ SatisfactionSnapshot InitialPlayerMotivations(ActorKey owner)
     state.activities["pursue_quest"]["wealth"] = 50;
     state.activities["pursue_quest"]["equipment"] = 5;
     state.dimensions.at("security").urgency = 4;
-    state.dimensions.at("rest").urgency = 2;
+    state.dimensions.at("rest") = {1, 1, 0, 1, MotivationCurve::Need, 1, 2};
+    // Social contact complements play; it is not a rapidly recurring substitute for progression.
+    state.dimensions.at("companionship") = {0.15, 0.9, 0.03, 1};
+    state.activities["develop_skills"] = {{"mastery", 45}};
     // A bounded prior for a minute of uninterrupted recovery; observations, not this prediction, change health.
     state.activities.at("rest")["security"] = 0.35;
     state = PersonalizeMotivations(std::move(state), owner.id);
     state.dimensions.at("security").weight = std::max(1.5, state.dimensions.at("security").weight);
     return state;
+}
+
+bool PlayerNeedsRecovery(double health, double mana, bool continuing)
+{
+    return std::min(health, mana) < (continuing ? 0.9 : 0.6);
+}
+
+SatisfactionForecast ForecastPlayerActivity(uint64_t travelMs, double risk, double success, uint64_t durationMs,
+    SatisfactionEffects benefits, SatisfactionEffects failures)
+{
+    risk = std::clamp(risk, 0.0, 1.0);
+    failures["security"] = std::clamp(failures["security"] - risk * 0.4, -1.0, 1.0);
+    // Movement takes time but does not consume a fictional WoW stamina resource.
+    return ForecastAttempt(travelMs, durationMs, success * (1 - risk), benefits, {}, failures);
 }
 
 double EquipmentMotivationPoints(ItemTemplate const& item, uint8_t level)

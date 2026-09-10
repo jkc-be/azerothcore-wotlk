@@ -73,6 +73,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 	}
 	type experience struct {
 		Samples        uint64
+		Successes      uint64
 		Effects        map[string]effect
 		FailureEffects map[string]effect
 	}
@@ -94,7 +95,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 		}
 	}
 	seen, moved, matchedMoney := false, false, false
-	matchedProgress, measuredGear := false, false
+	matchedProgress, measuredGear, practiced := false, false, false
 	var startXP, startMastery float64
 	progressBaseline := false
 	var x0, y0 float32
@@ -122,6 +123,10 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 						profiles[motive.Weight] = true
 					}
 				}
+			}
+			for key, outcome := range bot.Planning.Satisfaction.Contexts {
+				practiced = practiced || (strings.HasPrefix(key, "develop_skills:") &&
+					outcome.Successes > 0 && outcome.Effects["mastery"].Mean > 0)
 			}
 			if bot.GUID != fixture.GUID || bot.Name != fixture.Name {
 				continue
@@ -159,7 +164,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 				}
 			}
 		}
-		if moved && matchedMoney && matchedProgress && measuredGear && retained > 0 && len(profiles) > 1 {
+		if moved && matchedMoney && matchedProgress && measuredGear && practiced && retained > 0 && len(profiles) > 1 {
 			var payload []byte
 			err := charDB.QueryRow("SELECT payload FROM alles_planning WHERE owner_kind=0 AND owner_id=?",
 				fixture.GUID).Scan(&payload)
@@ -183,11 +188,11 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 					persisted = persisted || outcome.Effects["wealth"].Samples > 0 ||
 						outcome.FailureEffects["wealth"].Samples > 0
 				}
-				if saved.Version == 14 && persisted {
+				if saved.Version == 15 && persisted {
 					for _, motive := range saved.Satisfaction.Dimensions {
 						require(t, weights[motive.ID] == motive.Weight, "individual preference changed on save")
 					}
-					t.Logf("PASS %s: native movement, distinct personal priorities, measured XP gain and starter gear, actual wealth and committed learned outcomes",
+					t.Logf("PASS %s: native movement, distinct personal priorities, measured XP gain, successful practice and starter gear, actual wealth and committed learned outcomes",
 						fixture.Name)
 					return
 				}
@@ -195,8 +200,8 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 		}
 		select {
 		case <-deadline.C:
-			e2eharness.Assertf(t, "missing observed learning: seen=%t moved=%t wealth=%t XP=%t gear=%t attempts=%d profiles=%d",
-				seen, moved, matchedMoney, matchedProgress, measuredGear, retained, len(profiles))
+			e2eharness.Assertf(t, "missing observed learning: seen=%t moved=%t wealth=%t XP=%t gear=%t practice=%t attempts=%d profiles=%d",
+				seen, moved, matchedMoney, matchedProgress, measuredGear, practiced, retained, len(profiles))
 		case <-tick.C:
 		}
 	}

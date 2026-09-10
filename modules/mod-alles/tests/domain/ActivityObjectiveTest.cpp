@@ -217,4 +217,44 @@ TEST(AllesActivityObjective, InjuryCanReopenRestWithoutReplayingItsObservedRecov
     EXPECT_EQ(rest->state, ObjectiveState::Proposed);
 }
 
+TEST(AllesActivityObjective, ObservedRecoveryEndsRestWithoutSpendingTheFullMinute)
+{
+    ObjectiveBook book;
+    auto const* rest = book.ProposeActivity(9, PlacePurpose::Rest, "Recover", "Low mana");
+    ASSERT_NE(rest, nullptr);
+    ASSERT_TRUE(book.ActivatePlace(rest->id, rest->revision, 1000, 1));
+    ASSERT_TRUE(book.ObserveActivity(rest->id, {9, true, true}, 2000));
+    ActivityObservation recovered{9, true, true};
+    recovered.recovered = true;
+    ASSERT_TRUE(book.ObserveActivity(rest->id, recovered, 3000));
+    EXPECT_EQ(rest->state, ObjectiveState::Completed);
+    EXPECT_LT(rest->activityMs, 60000u);
+    EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
+}
+
+TEST(AllesActivityObjective, PracticeRequiresProgressAndCanResumeAfterACompletedAttempt)
+{
+    ObjectiveBook book;
+    auto const* practice = book.ProposeActivity(9, PlacePurpose::Practice, "Practice", "Visible opportunity");
+    ASSERT_NE(practice, nullptr);
+    auto const id = practice->id;
+    ASSERT_TRUE(book.ActivatePlace(id, practice->revision, 1000, 1));
+    ASSERT_TRUE(book.ObserveActivity(id, {9, true}, 2000));
+    EXPECT_EQ(practice->state, ObjectiveState::Active);
+    ActivityObservation progress{9, true};
+    progress.progressed = true;
+    ASSERT_TRUE(book.ObserveActivity(id, progress, 3000));
+    EXPECT_EQ(practice->state, ObjectiveState::Completed);
+    PrivateKnowledge knowledge;
+    knowledge.Seed(1, false, true);
+    PlanningSnapshot snapshot{{ActorKind::Player, 42}, 1, book.Capture(), knowledge.Capture()};
+    auto saved = Storage::DecodePlanning(Storage::EncodePlanning(snapshot), snapshot.owner);
+    ASSERT_TRUE(saved);
+    ObjectiveBook loaded;
+    ASSERT_TRUE(loaded.Restore(saved->objectives));
+    EXPECT_FALSE(loaded.ReconsiderActivity(id, 3001));
+    EXPECT_TRUE(loaded.ReconsiderActivity(id, 13000));
+    EXPECT_TRUE(IsValidObjectiveSnapshot(loaded.Capture()));
+}
+
 }

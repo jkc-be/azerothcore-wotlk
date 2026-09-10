@@ -66,7 +66,7 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
             && (!objective.quest || objective.satisfactionReceipt->inLog || objective.satisfactionReceipt->failed
                 || objective.satisfactionReceipt->readyToReward)))
             return false;
-        if (objective.purpose > PlacePurpose::Companionship || objective.activityMs > 60000
+        if (objective.purpose > PlacePurpose::Practice || objective.activityMs > 60000
             || objective.creditedActivityMs > objective.activityMs
             || (objective.purpose == PlacePurpose::Work && (objective.activityMs || objective.completedMs))
             || (objective.purpose != PlacePurpose::Work && (objective.quest || objective.request
@@ -75,8 +75,7 @@ bool IsValidObjectiveSnapshot(ObjectiveSnapshot const& snapshot, ObjectivePolicy
                 || objective.checkpoint != QuestProgress{} || objective.discoveredQuest
                 || objective.information != InformationSearch{}
                 || (objective.purpose != PlacePurpose::Rest && objective.activityMs)
-                || (objective.completedMs && (!objective.arrivedMs || objective.completedMs < objective.arrivedMs
-                    || (objective.purpose == PlacePurpose::Rest && objective.activityMs != 60000)))
+                || (objective.completedMs && (!objective.arrivedMs || objective.completedMs < objective.arrivedMs))
                 || bool(objective.person) != (objective.purpose == PlacePurpose::Companionship)
                 || (objective.person && objective.person->kind != ActorKind::Player)
                 || (objective.state == ObjectiveState::Completed) != bool(objective.completedMs))))
@@ -416,7 +415,7 @@ Objective const* ObjectiveBook::ProposePlace(uint32_t place, std::string outcome
 Objective const* ObjectiveBook::ProposeActivity(uint32_t place, PlacePurpose purpose, std::string outcome,
     std::string reason, std::optional<ActorKey> companion)
 {
-    if (!place || purpose == PlacePurpose::Work || purpose > PlacePurpose::Companionship
+    if (!place || purpose == PlacePurpose::Work || purpose > PlacePurpose::Practice
         || bool(companion) != (purpose == PlacePurpose::Companionship)
         || (companion && (!IsValidActor(*companion) || companion->kind != ActorKind::Player)))
         return nullptr;
@@ -461,13 +460,17 @@ bool ObjectiveBook::ObserveActivity(uint64_t id, ActivityObservation const& obse
     objective.step = observation.resting || objective.purpose != PlacePurpose::Rest
         ? ObjectiveStep::Attempt : ObjectiveStep::Wait;
     bool const complete = objective.purpose == PlacePurpose::Discovery ? observation.discovered
-        : objective.purpose == PlacePurpose::Companionship ? metCompanion : objective.activityMs >= 60000;
+        : objective.purpose == PlacePurpose::Companionship ? metCompanion
+        : objective.purpose == PlacePurpose::Practice ? observation.progressed
+        : observation.recovered || objective.activityMs >= 60000;
     if (complete)
     {
         objective.state = ObjectiveState::Completed;
         objective.completedMs = objective.lastProgressMs = now;
         objective.reason = objective.purpose == PlacePurpose::Discovery ? "Observed a new part of my surroundings"
             : objective.purpose == PlacePurpose::Companionship ? "An ordinary interaction reached my companion"
+            : objective.purpose == PlacePurpose::Practice ? "Observed progress through practice"
+            : observation.recovered ? "Recovered enough to resume useful activity"
             : "Observed a minute of stationary rest";
     }
     ++objective.revision;
@@ -481,7 +484,7 @@ bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now, bool urgentRec
         || found->second.purpose == PlacePurpose::Discovery || found->second.state != ObjectiveState::Completed
         || now < found->second.completedMs
         || now - found->second.completedMs < (urgentRecovery && found->second.purpose == PlacePurpose::Rest
-            ? 30000u : 600000u)
+            ? 30000u : found->second.purpose == PlacePurpose::Practice ? 10000u : 600000u)
         || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
         return false;
     auto& objective = found->second;
@@ -1392,6 +1395,7 @@ char const* Name(PlacePurpose value)
         case PlacePurpose::Discovery: return "discovery";
         case PlacePurpose::Rest: return "rest";
         case PlacePurpose::Companionship: return "companionship";
+        case PlacePurpose::Practice: return "practice";
     }
     return "invalid";
 }
@@ -1404,6 +1408,7 @@ char const* ActivityCapability(PlacePurpose value)
         case PlacePurpose::Discovery: return "explore_place";
         case PlacePurpose::Rest: return "rest";
         case PlacePurpose::Companionship: return "visit_companion";
+        case PlacePurpose::Practice: return "develop_skills";
     }
     return "invalid";
 }

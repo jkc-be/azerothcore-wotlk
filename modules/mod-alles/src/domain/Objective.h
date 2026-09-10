@@ -29,7 +29,7 @@ enum class ObjectiveStep : uint8_t
 
 enum class PlacePurpose : uint8_t
 {
-    Work, Discovery, Rest, Companionship
+    Work, Discovery, Rest, Companionship, Practice
 };
 
 struct ActivityObservation
@@ -41,6 +41,8 @@ struct ActivityObservation
     bool interaction = false; // Actual comprehended delivery/interaction with the intended companion.
     std::optional<ActorKey> person;
     bool atDestination = false; // Physically reached the route endpoint; does not establish activity success.
+    bool recovered = false; // Observed recovery can finish rest before its time bound.
+    bool progressed = false; // Actual progress in the practiced skill, never just issuing an action.
 };
 
 enum class InformationStatus : uint8_t

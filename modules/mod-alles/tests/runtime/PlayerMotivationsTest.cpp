@@ -90,4 +90,42 @@ TEST(AllesPlayerMotivations, ProgressDoesNotSatiateAfterOneAchievement)
     EXPECT_EQ(model.Choose({{1, 1, work}}).selected, 1u);
     EXPECT_EQ(DefaultSatisfaction().dimensions.count("mastery"), 0u); // Game metrics belong to this adapter.
 }
+TEST(AllesPlayerMotivations, DefaultPlayersPreferProgressOverHealthyRestAndRoutineSocialVisits)
+{
+    for (uint64_t seed = 1; seed <= 128; ++seed)
+    {
+        SatisfactionModel model;
+        auto state = InitialPlayerMotivations({ActorKind::Player, seed});
+        state.dimensions.at("security").fulfillment = 1;
+        ASSERT_TRUE(model.Restore(state));
+        auto const work = ForecastPlayerActivity(30000, 0, 0.85, 45000, {{"mastery", 45}});
+        auto const rest = ForecastPlayerActivity(0, 0, 1, 60000, model.Effects("rest"));
+        auto const social = ForecastPlayerActivity(0, 0, 0.65, 60000, model.Effects("visit_companion"));
+        EXPECT_EQ(model.Choose({{1, 1, work}, {2, 1, rest}, {3, 1, social}}).selected, 1u) << seed;
+    }
+}
+
+TEST(AllesPlayerMotivations, WalkingDoesNotCreateFictionalFatigueAndManaCanRequireRecovery)
+{
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(ComfortablePlayer()));
+    auto const wait = model.Evaluate({});
+    auto const walk = model.Evaluate(ForecastPlayerActivity(120000, 0, 1, 60000, {}));
+    ASSERT_TRUE(wait);
+    ASSERT_TRUE(walk);
+    EXPECT_NEAR(wait->total, walk->total, 1e-12);
+    EXPECT_FALSE(PlayerNeedsRecovery(1, 1));
+    EXPECT_TRUE(PlayerNeedsRecovery(1, 0.2));
+    EXPECT_TRUE(PlayerNeedsRecovery(0.3, 1));
+    EXPECT_FALSE(PlayerNeedsRecovery(0.8, 1));
+    EXPECT_TRUE(PlayerNeedsRecovery(0.8, 1, true));
+    EXPECT_FALSE(PlayerNeedsRecovery(0.95, 0.95, true));
+    auto state = ComfortablePlayer();
+    state.dimensions.at("rest").fulfillment = 0.2;
+    ASSERT_TRUE(model.Restore(state));
+    EXPECT_EQ(model.Choose({
+        {1, 1, ForecastPlayerActivity(30000, 0, 0.85, 45000, {{"mastery", 45}})},
+        {2, 1, ForecastPlayerActivity(0, 0, 1, 60000, model.Effects("rest"))}}).selected, 2u);
+}
+
 }

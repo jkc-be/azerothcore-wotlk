@@ -13,6 +13,9 @@ struct ItemTemplate;
 namespace Alles
 {
 SatisfactionSnapshot InitialPlayerMotivations(ActorKey owner);
+bool PlayerNeedsRecovery(double health, double mana, bool continuing = false);
+SatisfactionForecast ForecastPlayerActivity(uint64_t travelMs, double risk, double success, uint64_t durationMs,
+    SatisfactionEffects benefits, SatisfactionEffects failures = {});
 // Equipment progress includes ordinary starter items; cosmetic slots are excluded by the caller.
 double EquipmentMotivationPoints(ItemTemplate const& item, uint8_t level);
 }
