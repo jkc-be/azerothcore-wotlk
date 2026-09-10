@@ -125,6 +125,15 @@ TEST(AllesBodyTravel, OscillationAtAnObstacleEventuallyFailsDespiteContinuedMove
     travel.Remember({100, 0, 0});
     EXPECT_TRUE(travel.Tried({102, 0, 0}));
     EXPECT_FALSE(travel.Tried({50, 0, 0}));
+    travel.failures = 2;
+    travel.recoveries = 1;
+    travel.nextAttempt = 42000;
+    travel.ClearPath(); // A revised corridor retains the journey's retry and loop history.
+    EXPECT_FALSE(travel.HasPath());
+    EXPECT_EQ(travel.failures, 2u);
+    EXPECT_EQ(travel.recoveries, 1u);
+    EXPECT_EQ(travel.nextAttempt, 42000u);
+    EXPECT_TRUE(travel.Tried({102, 0, 0}));
 }
 
 TEST(AllesBodyTravel, InterruptedAndOfflineTimeDoesNotConsumeTheNavigationBudget)

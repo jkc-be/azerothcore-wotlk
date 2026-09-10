@@ -720,14 +720,13 @@ struct ObjectiveRuntime::Impl
                     ? BodyControl::Skill::Travel : BodyControl::Skill::Investigate;
         }
         body.Issue(state.generation, state.attachment, token, skill, now);
-        if (skill == BodyControl::Skill::Quest && state.routes.contains(token) && state.destinations.contains(token))
+        if (skill == BodyControl::Skill::Quest && state.intention == token && !state.activeRoute.empty())
         {
-            auto const& goal = state.destinations.at(token);
-            auto const& stops = state.routes.at(token);
+            auto const& stops = state.activeRoute;
+            auto const& goal = stops.back();
             auto& policy = ai->rpgInfo.bodyRoute;
             BodyTravel::Point const target{goal.GetPositionX(), goal.GetPositionY(), goal.GetPositionZ()};
-            if (!policy.Matches(state.generation, state.attachment, token, goal.GetMapId(), target)
-                || (policy.Stops() == 1 && stops.size() > 1))
+            if (!policy.Matches(state.generation, state.attachment, token, goal.GetMapId(), target))
             {
                 std::vector<BodyTravel::Point> points;
                 for (auto const& point : stops)
@@ -2214,7 +2213,10 @@ struct ObjectiveRuntime::Impl
         if (reviseRoute && current && state.satisfactionDecision.selected == current->id
             && CanPrepareResources(bot) && state.routes.contains(current->id))
         {
+            auto journey = ai.rpgInfo.bodyTravel;
             Release(&bot, current->id);
+            journey.ClearPath();
+            ai.rpgInfo.bodyTravel = std::move(journey);
             state.activeRoute = state.routes.at(current->id);
             state.routeIndex = 0;
             state.learningRoute.clear();

@@ -10,7 +10,7 @@
     "fork": "https://github.com/jkc-be/mod-playerbots",
     "branch": "master",
     "upstreamRevision": "b949b50bfcdd4fab937781bac2d7765e39330e4b",
-    "revision": "60f1817c2c5c5fde3592574db52dc39de2357ff1",
+    "revision": "15724a564ff2204c21dc96fc057196d62aad4e1d",
     "simulationBranch": "feat/alles-satisfaction-body",
     "povSourceCommit": "1c38209b062a8d4c1bc45608e1e4c93eac0e4e01"
   }
