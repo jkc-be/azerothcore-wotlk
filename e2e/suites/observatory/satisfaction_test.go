@@ -185,9 +185,9 @@ func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
 	if initial.ExpectedBots != 2 {
 		e2eharness.Preconditionf(t, "exclusive two-bot fixture required")
 	}
-	seq := a.observerMode(t, initial, 2, 200)
+	seq := a.observerMode(t, initial, 2, http.StatusAccepted)
 	a.wait(t, "GM fixture mode", func(s snapshot) bool { return s.ControlSeq >= seq && s.ObserverMode == 2 })
-	t.Cleanup(func() { s := a.frame(t); a.observerMode(t, s, initial.ObserverMode, 200) })
+	t.Cleanup(func() { s := a.frame(t); a.observerMode(t, s, initial.ObserverMode, http.StatusAccepted) })
 	authDB, _ := e2eharness.OpenTestDBs(t)
 	id := e2eharness.MakeBotIdents("Satvis", 1)[0]
 	if err := e2eharness.EnsureAccount(authDB, id.Account, "test"); err != nil {
@@ -295,7 +295,7 @@ func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
 	// Population control goes through the real world admission/logout path, keeping the simulation clock alive.
 	control := func(count int) {
 		var result struct{ Sequence uint64 }
-		a.call(t, "/api/control", map[string]any{"run": initial.Run, "speed": 1, "paused": false, "bots": count}, 200, &result)
+		a.call(t, "/api/control", map[string]any{"run": initial.Run, "speed": 1, "paused": false, "bots": count}, http.StatusAccepted, &result)
 		a.wait(t, "population change", func(s snapshot) bool { return s.ControlSeq >= result.Sequence && len(s.Bots) == count })
 	}
 	control(0)
