@@ -12,6 +12,10 @@ interaction delivered to the intended, personally perceived companion. Selecting
 Rest contributes continuously while observed; persisted counters prevent replay. Completed rest and social
 activities have per-owner ten-minute cooldowns that survive objective-history eviction.
 
+A delivered interaction with the intended companion can complete a visit after they cross an area boundary.
+Physical arrival starts a bounded wait even when the destination's area label is stale. Arrival alone grants no
+fulfillment. Completed rest, discovery and companion visits appear in the dashboard's ordinary action history.
+
 Security follows observed health and resources follow actual own money. Other fulfillment changes use confirmed
 quest counters, rewards, visits, interactions and rest. Gameplay time drives depletion; unavailable/offline time
 is not simulated as activity. Bounded success counts and mean execution durations update expectations after an

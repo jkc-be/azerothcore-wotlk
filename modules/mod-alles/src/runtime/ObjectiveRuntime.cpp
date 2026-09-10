@@ -22,6 +22,7 @@
 #include "domain/Exploration.h"
 #include "telemetry/Recorder.h"
 #include "MotionMaster.h"
+#include "Observatory.h"
 #include "PathGenerator.h"
 #include "DBCStores.h"
 #include "ObjectAccessor.h"
@@ -2249,6 +2250,8 @@ struct ObjectiveRuntime::Impl
         if (objective->purpose == PlacePurpose::Discovery && observation.discovered)
         {
             state.book.ObserveActivity(id, observation, now);
+            if (objective->state == ObjectiveState::Completed)
+                Observatory::Event(&bot, "bot_action", id, "discover place");
             Release(&bot, id);
             return;
         }
@@ -2310,7 +2313,11 @@ struct ObjectiveRuntime::Impl
         }
         state.book.ObserveActivity(id, observation, now);
         if (objective->state == ObjectiveState::Completed)
+        {
+            Observatory::Event(&bot, "bot_action", id,
+                objective->purpose == PlacePurpose::Rest ? "rest" : "visit companion");
             Release(&bot, id);
+        }
         else if (objective->purpose != PlacePurpose::Rest && state.activityArrivalObservedMs >= 60000)
             state.book.Block(id, Obstruction::Information,
                 "The expected observation or companion was not found at the destination", now);
