@@ -49,14 +49,23 @@ object EncodeSatisfaction(SatisfactionSnapshot const& state)
     for (auto const& [id, experience] : state.experiences)
         experiences.emplace_back(object{{"id", id}, {"samples", experience.samples},
             {"successes", experience.successes}, {"meanDurationMs", experience.meanDurationMs}});
+    array travel;
+    for (auto const& [route, experience] : state.travel)
+        travel.emplace_back(object{{"route", route}, {"samples", experience.samples},
+            {"successes", experience.successes}, {"durationRatio", experience.durationRatio}});
     return {{"revision", state.revision}, {"observedMs", state.observedMs}, {"dimensions", std::move(dimensions)},
         {"activities", std::move(activities)}, {"experiences", std::move(experiences)},
-        {"nextRestMs", state.nextRestMs}, {"nextSocialMs", state.nextSocialMs}};
+        {"nextRestMs", state.nextRestMs}, {"nextSocialMs", state.nextSocialMs}, {"travel", std::move(travel)}};
 }
 
 SatisfactionSnapshot ReadSatisfaction(object const& object)
 {
-    Fields(object, {"revision", "observedMs", "dimensions", "activities", "experiences", "nextRestMs", "nextSocialMs"});
+    if (object.contains("travel"))
+        Fields(object, {"revision", "observedMs", "dimensions", "activities", "experiences",
+            "nextRestMs", "nextSocialMs", "travel"});
+    else
+        Fields(object, {"revision", "observedMs", "dimensions", "activities", "experiences",
+            "nextRestMs", "nextSocialMs"});
     SatisfactionSnapshot result;
     result.revision = UInt<uint64_t>(object, "revision");
     result.observedMs = UInt<uint64_t>(object, "observedMs");
@@ -100,6 +109,20 @@ SatisfactionSnapshot ReadSatisfaction(object const& object)
             experience.at("meanDurationMs").to_number<double>()};
         if (!result.experiences.emplace(String(experience, "id", 32), item).second)
             throw std::invalid_argument("duplicate satisfaction experience");
+    }
+    if (auto const* travel = object.if_contains("travel"))
+    {
+        if (travel->as_array().size() > 32)
+            throw std::invalid_argument("too many travel experiences");
+        for (auto const& value : travel->as_array())
+        {
+            auto const& experience = value.as_object();
+            Fields(experience, {"route", "samples", "successes", "durationRatio"});
+            TravelExperience item{UInt<uint32_t>(experience, "samples"), UInt<uint32_t>(experience, "successes"),
+                experience.at("durationRatio").to_number<double>()};
+            if (!result.travel.emplace(String(experience, "route", 32), item).second)
+                throw std::invalid_argument("duplicate travel experience");
+        }
     }
     if (!IsValidSatisfaction(result))
         throw std::invalid_argument("invalid satisfaction state");

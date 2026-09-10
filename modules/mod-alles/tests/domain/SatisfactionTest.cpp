@@ -230,4 +230,29 @@ TEST(AllesSatisfaction, DuplicateCandidatesAreRejectedEvenIfTheFirstIsInfeasible
     EXPECT_TRUE(decision.alternatives.empty());
 }
 
+TEST(AllesSatisfaction, RouteOutcomesChangeExpectationsWithoutAwardingFulfillment)
+{
+    SatisfactionModel model;
+    auto const fulfillment = model.Capture().dimensions;
+    EXPECT_DOUBLE_EQ(model.TravelSuccess("route_a"), 1);
+    EXPECT_EQ(model.TravelDuration("route_a", 10000), 10000u);
+    ASSERT_TRUE(model.LearnTravel("route_a", false, 30000, 10000));
+    EXPECT_LT(model.TravelSuccess("route_a"), 1);
+    EXPECT_EQ(model.TravelDuration("route_a", 10000), 10000u); // A failed trip does not establish arrival speed.
+    EXPECT_DOUBLE_EQ(model.TravelSuccess("route_b"), 1); // Other approaches remain independent.
+    ASSERT_TRUE(model.LearnTravel("route_a", true, 20000, 10000));
+    EXPECT_GT(model.TravelDuration("route_a", 10000), 10000u);
+    EXPECT_EQ(model.TravelDuration("route_a", 0), 0u); // Sunk distance is never charged again.
+    EXPECT_EQ(model.Capture().dimensions, fulfillment);
+    auto const saved = model.Capture();
+    ASSERT_TRUE(model.Restore(saved));
+    EXPECT_EQ(model.Capture(), saved);
+    EXPECT_FALSE(model.LearnTravel("route_a", true, 0, 10000));
+    EXPECT_FALSE(model.LearnTravel("route_a", true, 10000, 0));
+    for (unsigned index = 0; index < 50; ++index)
+        EXPECT_TRUE(model.LearnTravel("route_" + std::to_string(index), false, 1000, 1000));
+    EXPECT_EQ(model.Capture().travel.size(), 32u);
+    EXPECT_TRUE(IsValidSatisfaction(model.Capture()));
+}
+
 }

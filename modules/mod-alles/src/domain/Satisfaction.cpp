@@ -64,7 +64,7 @@ bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot)
     if (!snapshot.revision || snapshot.revision >= std::numeric_limits<uint64_t>::max() - 1
         || snapshot.observedMs >= std::numeric_limits<uint64_t>::max() - 3600000
         || snapshot.dimensions.empty() || snapshot.dimensions.size() > 32 || snapshot.activities.size() > 32
-        || snapshot.experiences.size() > 32
+        || snapshot.experiences.size() > 32 || snapshot.travel.size() > 32
         || snapshot.nextRestMs >= std::numeric_limits<uint64_t>::max() - 3600000
         || snapshot.nextSocialMs >= std::numeric_limits<uint64_t>::max() - 3600000)
         return false;
@@ -82,6 +82,10 @@ bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot)
     for (auto const& [id, experience] : snapshot.experiences)
         if (!snapshot.activities.contains(id) || !experience.samples || experience.samples > 1000
             || experience.successes > experience.samples || !Range(experience.meanDurationMs, 0, 3600000))
+            return false;
+    for (auto const& [route, experience] : snapshot.travel)
+        if (!Identifier(route) || !experience.samples || experience.samples > 1000
+            || experience.successes > experience.samples || !Range(experience.durationRatio, 0.1, 10))
             return false;
     return weight > 0;
 }
@@ -175,6 +179,49 @@ uint64_t SatisfactionModel::ExpectedDuration(std::string const& activity, uint64
     auto const& experience = found->second;
     return uint64_t((experience.meanDurationMs * experience.samples
         + 4 * double(std::min(priorMs, uint64_t(3600000)))) / (experience.samples + 4));
+}
+
+bool SatisfactionModel::LearnTravel(std::string const& route, bool success, uint64_t observedMs, uint64_t predictedMs)
+{
+    if (!Identifier(route) || !observedMs || observedMs > 3600000 || !predictedMs || predictedMs > 3600000
+        || _state.revision >= std::numeric_limits<uint64_t>::max() - 2)
+        return false;
+    if (!_state.travel.contains(route) && _state.travel.size() == 32)
+    {
+        auto least = std::min_element(_state.travel.begin(), _state.travel.end(),
+            [](auto const& left, auto const& right)
+            { return left.second.samples < right.second.samples; });
+        _state.travel.erase(least);
+    }
+    auto& experience = _state.travel[route];
+    if (experience.samples == 1000)
+    {
+        experience.samples /= 2;
+        experience.successes /= 2;
+    }
+    ++experience.samples;
+    if (success)
+    {
+        ++experience.successes;
+        double const ratio = std::clamp(double(observedMs) / double(predictedMs), 0.1, 10.0);
+        experience.durationRatio += (ratio - experience.durationRatio) / experience.successes;
+    }
+    ++_state.revision;
+    return true;
+}
+
+double SatisfactionModel::TravelSuccess(std::string const& route) const
+{
+    auto const found = _state.travel.find(route);
+    return found == _state.travel.end() ? 1 : double(found->second.successes + 4) / (found->second.samples + 4);
+}
+
+uint64_t SatisfactionModel::TravelDuration(std::string const& route, uint64_t remainingMs) const
+{
+    auto const found = _state.travel.find(route);
+    double const ratio = found == _state.travel.end() ? 1
+        : (found->second.durationRatio * found->second.successes + 4) / (found->second.successes + 4);
+    return uint64_t(std::min(3600000.0, double(remainingMs) * ratio));
 }
 
 bool SatisfactionModel::ActivityReceipt(std::string const& activity, uint64_t now)

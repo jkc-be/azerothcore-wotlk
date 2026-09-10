@@ -3,7 +3,9 @@
 package observatory_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/azerothcore/AzerothGhost/client"
 	"github.com/azerothcore/AzerothGhost/e2e/e2eharness"
 	"github.com/azerothcore/azerothcore-wotlk/e2e/internal/meta"
 )
@@ -154,4 +157,160 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 		}
 	}
 	t.Logf("PASS %s: client-observed stationary rest, grounded fulfillment and committed anti-replay receipt", fixture.Name)
+}
+
+// A seeded last-observed meeting site can justify travel without quest rewards. Ordinary SAY must reach
+// the intended companion, and removing/rejoining the owner must retain the receipt without another gain.
+func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
+	meta.Begin(t, meta.TestMeta{Tags: []string{"observatory", "alles", "serial"}, Category: "observatory", Runtime: "med"})
+	path := os.Getenv("E2E_OBSERVATORY_SATISFACTION_FIXTURE")
+	if path == "" {
+		t.Skip("requires an exclusive two-bot satisfaction fixture")
+	}
+	var fixture struct {
+		Disposable          bool
+		Name, Companion     string
+		GUID, CompanionGUID uint64
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(data, &fixture) != nil || !fixture.Disposable || fixture.CompanionGUID == 0 {
+		e2eharness.Preconditionf(t, "requires the seeded companion fixture: %v", err)
+	}
+	token, err := os.ReadFile(os.Getenv("E2E_OBSERVATORY_TOKEN_FILE"))
+	if err != nil {
+		e2eharness.Preconditionf(t, "token: %v", err)
+	}
+	a := api{url: strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"), token: strings.TrimSpace(string(token)), http: &http.Client{Timeout: 5 * time.Second}}
+	initial := a.wait(t, "previous observer release", func(s snapshot) bool { return s.Observers == 0 })
+	if initial.ExpectedBots != 2 {
+		e2eharness.Preconditionf(t, "exclusive two-bot fixture required")
+	}
+	seq := a.observerMode(t, initial, 2, 200)
+	a.wait(t, "GM fixture mode", func(s snapshot) bool { return s.ControlSeq >= seq && s.ObserverMode == 2 })
+	t.Cleanup(func() { s := a.frame(t); a.observerMode(t, s, initial.ObserverMode, 200) })
+	authDB, _ := e2eharness.OpenTestDBs(t)
+	id := e2eharness.MakeBotIdents("Satvis", 1)[0]
+	if err := e2eharness.EnsureAccount(authDB, id.Account, "test"); err != nil {
+		e2eharness.Preconditionf(t, "account: %v", err)
+	}
+	if err := e2eharness.SetGM(authDB, id.Account, 3); err != nil {
+		e2eharness.Preconditionf(t, "GM: %v", err)
+	}
+	t.Cleanup(func() {
+		authDB.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account)
+	})
+	observer := loginObserver(t, authDB, id)
+	t.Cleanup(func() { observer.Close() })
+	chat(t, observer, ".pov watch "+fixture.Name, "RPOV\tSTATE|"+fixture.Name+"|")
+	heard := make(chan struct{}, 1)
+	cancel := observer.AddPacketHook(func(op uint16, b []byte) {
+		if op == client.SmsgMessageChat && bytes.Contains(b, []byte("Hello, "+fixture.Companion+". It is good to see you.")) {
+			select {
+			case heard <- struct{}{}:
+			default:
+			}
+		}
+	})
+	defer cancel()
+	chat(t, observer, fmt.Sprintf(".alles motive player %d companionship 10 0.3 1", fixture.GUID), "Motive updated")
+	chat(t, observer, fmt.Sprintf(".alles motive player %d rest 0 0.6 1", fixture.GUID), "Motive updated")
+	type view struct {
+		GUID     uint64
+		Planning struct {
+			Body         struct{ Generation uint64 }
+			Satisfaction struct {
+				NextSocialMs uint64
+				Dimensions   []struct {
+					ID          string
+					Fulfillment float64
+				}
+			}
+			Objectives []struct {
+				ID, CompletedMs uint64
+				Purpose, State  string
+			}
+		}
+	}
+	sample := func() view {
+		var frame struct {
+			Run, Fault string
+			Bots       []view
+		}
+		a.call(t, "/api/snapshot", nil, 200, &frame)
+		require(t, frame.Run == initial.Run && frame.Fault == "", "realm changed or faulted")
+		for _, bot := range frame.Bots {
+			if bot.GUID == fixture.GUID {
+				return bot
+			}
+		}
+		return view{}
+	}
+	fulfillment := func(v view) float64 {
+		for _, dimension := range v.Planning.Satisfaction.Dimensions {
+			if dimension.ID == "companionship" {
+				return dimension.Fulfillment
+			}
+		}
+		return -1
+	}
+	before := sample()
+	if fulfillment(before) < 0 || before.Planning.Satisfaction.NextSocialMs != 0 {
+		e2eharness.Preconditionf(t, "expected unmet social activity")
+	}
+	var x0, y0 float32
+	seen, moved := false, false
+	var completed view
+	deadline := time.NewTimer(2 * time.Minute)
+	defer deadline.Stop()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for completed.GUID == 0 {
+		if obj := observer.GetObject(fixture.GUID); obj != nil && obj.HasKnownPosition() {
+			x, y, _ := obj.InterpolatedPosition()
+			if !seen {
+				x0, y0, seen = x, y, true
+			}
+			moved = moved || math.Hypot(float64(x-x0), float64(y-y0)) > 20
+		}
+		v := sample()
+		for _, o := range v.Planning.Objectives {
+			if o.Purpose == "companionship" && o.State == "completed" && v.Planning.Satisfaction.NextSocialMs > o.CompletedMs {
+				completed = v
+			}
+		}
+		select {
+		case <-deadline.C:
+			e2eharness.Assertf(t, "social travel did not reach its evidenced companion; seen=%t moved=%t", seen, moved)
+		case <-tick.C:
+		}
+	}
+	require(t, moved, "social intention did not produce client-observed travel")
+	require(t, fulfillment(completed) > fulfillment(before)+0.25, "interaction did not produce observed companionship")
+	select {
+	case <-heard:
+	case <-time.After(3 * time.Second):
+		e2eharness.Assertf(t, "normal social greeting never reached the observing client")
+	}
+	chat(t, observer, ".pov stop", "RPOV\tSTOP")
+	// Population control goes through the real world admission/logout path, keeping the simulation clock alive.
+	control := func(count int) {
+		var result struct{ Sequence uint64 }
+		a.call(t, "/api/control", map[string]any{"run": initial.Run, "speed": 1, "paused": false, "bots": count}, 200, &result)
+		a.wait(t, "population change", func(s snapshot) bool { return s.ControlSeq >= result.Sequence && len(s.Bots) == count })
+	}
+	control(0)
+	control(2)
+	var restored view
+	a.wait(t, "owner reloaded", func(s snapshot) bool {
+		restored = sample()
+		return restored.GUID == fixture.GUID && restored.Planning.Body.Generation != 0 &&
+			restored.Planning.Body.Generation != completed.Planning.Body.Generation && fulfillment(restored) >= 0
+	})
+	require(t, restored.GUID == fixture.GUID && restored.Planning.Body.Generation != completed.Planning.Body.Generation,
+		"source owner did not load a new generation after ordinary logout/rejoin")
+	require(t, restored.Planning.Satisfaction.NextSocialMs == completed.Planning.Satisfaction.NextSocialMs,
+		"social cooldown did not survive owner reload")
+	require(t, fulfillment(restored) <= fulfillment(completed)+0.005 && fulfillment(restored) > fulfillment(completed)-0.03,
+		"reload replayed fulfillment or invented offline activity: before=%f after=%f", fulfillment(completed), fulfillment(restored))
+	t.Logf("PASS %s: walked to %s, ordinary greeting, grounded fulfillment and receipt preserved through owner reload", fixture.Name, fixture.Companion)
 }

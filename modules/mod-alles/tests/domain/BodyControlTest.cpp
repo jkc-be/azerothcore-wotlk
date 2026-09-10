@@ -150,3 +150,40 @@ TEST(AllesBodyTravel, InvalidOrZeroLengthPathsCannotBeReportedAsCommittedMovemen
     EXPECT_FALSE(travel.Commit({{0, 0, 0}, {NAN, 0, 0}}, 0));
     EXPECT_FALSE(travel.HasPath());
 }
+
+TEST(AllesBodyRoutePolicy, ACommittedDetourRetainsTheGoalAndRejectsForeignOwners)
+{
+    BodyRoutePolicy policy;
+    BodyTravel::Point const goal{100, 0, 0};
+    ASSERT_TRUE(policy.Install(1, 2, 3, 4, 0, goal, {{50, 40, 0}, goal}));
+    auto target = policy.Next(1, 2, 3, 0, goal, {0, 0, 0});
+    ASSERT_TRUE(target);
+    EXPECT_EQ(*target, (BodyTravel::Point{50, 40, 0}));
+    EXPECT_FALSE(policy.Next(2, 2, 3, 0, goal, {0, 0, 0}));
+    EXPECT_FALSE(policy.Next(1, 3, 3, 0, goal, {0, 0, 0}));
+    EXPECT_FALSE(policy.Next(1, 2, 4, 0, goal, {0, 0, 0}));
+    EXPECT_FALSE(policy.Next(1, 2, 3, 1, goal, {0, 0, 0}));
+    EXPECT_FALSE(policy.Next(1, 2, 3, 0, {200, 0, 0}, {0, 0, 0}));
+    target = policy.Next(1, 2, 3, 0, goal, {50, 40, 0});
+    ASSERT_TRUE(target);
+    EXPECT_EQ(*target, goal);
+    EXPECT_EQ(policy.Cursor(), 1u);
+    EXPECT_EQ(*policy.Next(1, 2, 3, 0, goal, {0, 0, 0}), goal); // Never return to a visited policy stop.
+    EXPECT_FALSE(policy.Install(1, 2, 3, 3, 0, goal, {goal}));
+    EXPECT_EQ(policy.Revision(), 4u);
+}
+
+TEST(AllesBodyRoutePolicy, MalformedOrLoopingRoutesCannotReplaceACommittedPolicy)
+{
+    BodyRoutePolicy policy;
+    BodyTravel::Point const goal{100, 0, 0};
+    ASSERT_TRUE(policy.Install(1, 2, 3, 4, 0, goal, {goal}));
+    EXPECT_FALSE(policy.Install(0, 2, 3, 5, 0, goal, {goal}));
+    EXPECT_FALSE(policy.Install(1, 2, 3, 5, 0, goal, {}));
+    EXPECT_FALSE(policy.Install(1, 2, 3, 5, 0, goal, {{50, 0, 0}}));
+    EXPECT_FALSE(policy.Install(1, 2, 3, 5, 0, goal, {{NAN, 0, 0}, goal}));
+    EXPECT_FALSE(policy.Install(1, 2, 3, 5, 0, goal, {{10, 0, 0}, {20, 0, 0}, {30, 0, 0}, goal}));
+    EXPECT_FALSE(policy.Install(1, 2, 3, 5, 0, goal, {goal, {50, 0, 0}, goal}));
+    EXPECT_EQ(policy.Stops(), 1u);
+    EXPECT_EQ(policy.Revision(), 4u);
+}

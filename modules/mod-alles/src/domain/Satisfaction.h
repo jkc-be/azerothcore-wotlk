@@ -36,6 +36,15 @@ struct SatisfactionExperience
     bool operator==(SatisfactionExperience const&) const = default;
 };
 
+struct TravelExperience
+{
+    uint32_t samples = 0;
+    uint32_t successes = 0;
+    double durationRatio = 1; // Observed / predicted travel time, learned from successful journeys only.
+
+    bool operator==(TravelExperience const&) const = default;
+};
+
 struct SatisfactionSnapshot
 {
     uint64_t revision = 1;
@@ -45,6 +54,7 @@ struct SatisfactionSnapshot
     std::map<std::string, SatisfactionExperience> experiences;
     uint64_t nextRestMs = 0;
     uint64_t nextSocialMs = 0;
+    std::map<std::string, TravelExperience> travel;
 
     bool operator==(SatisfactionSnapshot const&) const = default;
 };
@@ -122,6 +132,9 @@ public:
     double SuccessProbability(std::string const& activity, double prior) const;
     uint64_t ExpectedDuration(std::string const& activity, uint64_t priorMs) const;
     bool ActivityReceipt(std::string const& activity, uint64_t now);
+    bool LearnTravel(std::string const& route, bool success, uint64_t observedMs, uint64_t predictedMs);
+    double TravelSuccess(std::string const& route) const;
+    uint64_t TravelDuration(std::string const& route, uint64_t remainingMs) const;
     std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast,
         uint64_t horizonMs = 600000) const;
     SatisfactionDecision Choose(std::vector<SatisfactionCandidate> const& candidates, uint64_t current = 0,

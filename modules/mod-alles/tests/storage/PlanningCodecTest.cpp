@@ -500,6 +500,7 @@ TEST(AllesPlanningCodec, SatisfactionReceiptsAndAuthoredEffectsSurviveSerializat
     ASSERT_TRUE(model.SetActivity("visit_companion", {{"companionship", 0.2}, {"purpose", 0.3}}));
     ASSERT_TRUE(model.Learn("visit_companion", false, 45000));
     ASSERT_TRUE(model.ActivityReceipt("rest", 10000));
+    ASSERT_TRUE(model.LearnTravel("route_test", false, 30000, 10000));
     snapshot.satisfaction = model.Capture();
     auto const encoded = EncodePlanning(snapshot);
     auto decoded = DecodePlanning(encoded, Owner);

@@ -541,6 +541,11 @@ struct ObjectiveRuntime::Impl
         uint32_t discoveredArea = 0;
         std::map<uint64_t, WorldPosition> destinations;
         std::map<uint64_t, uint64_t> travelTimes;
+        std::map<uint64_t, uint64_t> geometricTravelTimes;
+        std::map<uint64_t, std::string> routeKeys;
+        std::string learningRoute;
+        uint64_t predictedTravelMs = 0;
+        uint64_t observedTravelMs = 0;
         std::map<uint64_t, std::vector<WorldPosition>> routes;
         std::vector<WorldPosition> activeRoute;
         std::size_t routeIndex = 0;
@@ -624,6 +629,7 @@ struct ObjectiveRuntime::Impl
             }
             body.Issue(body.generation, body.attachment, 0, BodyControl::Skill::Idle, getMSTime());
             ai->rpgInfo.bodyTravel = {};
+            ai->rpgInfo.bodyRoute = {};
         }
         auto const* task = std::get_if<NewRpgInfo::DoQuest>(&ai->rpgInfo.data);
         if ((task && task->questId == quest) || (place && (std::holds_alternative<NewRpgInfo::GoCamp>(ai->rpgInfo.data)
@@ -646,6 +652,8 @@ struct ObjectiveRuntime::Impl
         auto const end = travel.End();
         state.bodyStatus = {{"attached", true}, {"objective", body.objective},
             {"generation", body.generation}, {"attachment", body.attachment},
+            {"routePolicyRevision", ai.rpgInfo.bodyRoute.Revision()},
+            {"routePolicyStops", ai.rpgInfo.bodyRoute.Stops()}, {"routePolicyCursor", ai.rpgInfo.bodyRoute.Cursor()},
             {"skill", std::string(BodyControl::Name(body.skill))},
             {"state", std::string(BodyControl::Name(body.state))},
             {"interruption", std::string(BodyControl::Name(body.interruption))},
@@ -712,6 +720,22 @@ struct ObjectiveRuntime::Impl
                     ? BodyControl::Skill::Travel : BodyControl::Skill::Investigate;
         }
         body.Issue(state.generation, state.attachment, token, skill, now);
+        if (skill == BodyControl::Skill::Quest && state.routes.contains(token) && state.destinations.contains(token))
+        {
+            auto const& goal = state.destinations.at(token);
+            auto const& stops = state.routes.at(token);
+            auto& policy = ai->rpgInfo.bodyRoute;
+            BodyTravel::Point const target{goal.GetPositionX(), goal.GetPositionY(), goal.GetPositionZ()};
+            if (!policy.Matches(state.generation, state.attachment, token, goal.GetMapId(), target)
+                || (policy.Stops() == 1 && stops.size() > 1))
+            {
+                std::vector<BodyTravel::Point> points;
+                for (auto const& point : stops)
+                    points.push_back({point.GetPositionX(), point.GetPositionY(), point.GetPositionZ()});
+                policy.Install(state.generation, state.attachment, token, state.book.Find(token)->revision,
+                    goal.GetMapId(), target, std::move(points));
+            }
+        }
         ObserveBody(owner, state, *ai, realMs);
     }
 
@@ -1838,7 +1862,10 @@ struct ObjectiveRuntime::Impl
     struct ActivityRoute
     {
         uint64_t durationMs = 0;
+        uint64_t geometricMs = 0;
+        std::string key;
         double risk = 0;
+        std::optional<std::size_t> threat;
         std::vector<WorldPosition> stops;
     };
 
@@ -1864,6 +1891,23 @@ struct ObjectiveRuntime::Impl
                         creature->GetLevel() > bot.GetLevel() + 2 ? 0.3 : 0.08});
             }
         return result;
+    }
+
+    std::string RouteKey(Player const& bot, std::vector<WorldPosition> const& stops) const
+    {
+        // Local route cells distinguish approaches and detours without retaining a global route graph.
+        uint64_t hash = 14695981039346656037ULL;
+        auto add = [&](uint64_t value) { hash = (hash ^ value) * 1099511628211ULL; };
+        add(bot.GetMapId());
+        auto point = [&](float x, float y)
+        {
+            add(uint64_t(int64_t(std::floor(x / 64))));
+            add(uint64_t(int64_t(std::floor(y / 64))));
+        };
+        point(bot.GetPositionX(), bot.GetPositionY());
+        for (auto const& stop : stops)
+            point(stop.GetPositionX(), stop.GetPositionY());
+        return "route_" + std::to_string(hash);
     }
 
     std::optional<ActivityRoute> RouteEstimate(Player& bot, std::vector<WorldPosition> const& stops,
@@ -1917,9 +1961,14 @@ struct ObjectiveRuntime::Impl
                     threats[index].position.z) < 25)
                     encountered.insert(index);
         for (auto const index : encountered)
+        {
             result.risk = std::min(0.8, result.risk + threats[index].risk);
+            if (!result.threat || threats[index].risk > threats[*result.threat].risk)
+                result.threat = index;
+        }
         auto const speed = std::max(1.0f, bot.GetSpeed(MOVE_RUN));
-        result.durationMs = uint64_t(std::min(3600000.0, 1000 * length / speed));
+        result.durationMs = result.geometricMs = uint64_t(std::min(3600000.0, 1000 * length / speed));
+        result.key = RouteKey(bot, stops);
         return result;
     }
 
@@ -1936,9 +1985,13 @@ struct ObjectiveRuntime::Impl
             state.intention = current ? current->id : 0;
             state.intentionSinceMs = now;
             state.activityObservedMs = state.activityArrivalObservedMs = 0;
+            state.learningRoute.clear();
+            state.observedTravelMs = state.predictedTravelMs = 0;
         }
         state.destinations.clear();
         state.travelTimes.clear();
+        state.geometricTravelTimes.clear();
+        state.routeKeys.clear();
         state.routes.clear();
         state.routeRisks.clear();
         state.routeReasons.clear();
@@ -1953,9 +2006,9 @@ struct ObjectiveRuntime::Impl
                     && objective.state != ObjectiveState::Waiting
                     && !state.book.Retryable(objective, now, circumstances)))
                 continue;
-            bool const supplies = state.book.CanBuySupplies(id, now) && state.merchant
+            auto const supplies = state.book.CanBuySupplies(id, now) && state.merchant
                 && now >= state.merchantReceivedMs && now - state.merchantReceivedMs < 30000
-                && SupplyPurchase(bot, objective, *state.merchant, true);
+                ? SupplyPurchase(bot, objective, *state.merchant, true) : std::nullopt;
             if (objective.quest && !supplies && !ReadyToAttempt(bot, objective.quest, ai.rpgInfo.objectiveControl))
                 continue;
             uint64_t travelMs = 0;
@@ -2019,7 +2072,8 @@ struct ObjectiveRuntime::Impl
                 if (auto const money = finances.money.find(objective.quest); money != finances.money.end())
                 {
                     auto value = [&](double amount) { return amount / (amount + 1000 * bot.GetLevel()); };
-                    effects["resources"] = value(std::max(0.0, double(finances.ownMoney) + money->second))
+                    double const expense = supplies ? supplies->maximumPrice : 0;
+                    effects["resources"] = value(std::max(0.0, double(finances.ownMoney) + money->second - expense))
                         - value(finances.ownMoney);
                 }
             double const prior = objective.purpose == PlacePurpose::Rest ? 1
@@ -2049,6 +2103,13 @@ struct ObjectiveRuntime::Impl
         for (auto const& assessed : coarse.alternatives)
             if (shortlist.size() < 8)
                 shortlist.insert(assessed.id);
+        auto experience = [&](ActivityRoute& route)
+        {
+            route.durationMs = state.satisfaction.TravelDuration(route.key, route.geometricMs);
+            route.risk = 1 - (1 - route.risk) * state.satisfaction.TravelSuccess(route.key);
+        };
+        double committedRisk = 0;
+        bool reviseRoute = false;
         std::vector<SatisfactionCandidate> routed;
         for (auto const& candidate : candidates)
         {
@@ -2062,12 +2123,13 @@ struct ObjectiveRuntime::Impl
                 routed.push_back(candidate);
                 continue;
             }
-            auto const direct = RouteEstimate(bot, {destination->second}, threats);
+            auto direct = RouteEstimate(bot, {destination->second}, threats);
             if (!direct)
             {
                 state.routeReasons[candidate.id] = "no navigable corridor; destination remains privately known";
                 continue;
             }
+            experience(*direct);
             auto const& effects = candidate.forecast.outcomes.front().stages.back().effects;
             auto const duration = candidate.forecast.outcomes.front().stages.back().durationMs;
             auto const probability = candidate.forecast.outcomes.front().probability;
@@ -2080,9 +2142,9 @@ struct ObjectiveRuntime::Impl
             auto const* objective = state.book.Find(candidate.id);
             // Bounded alternatives use geometry around a threat the owner can actually perceive. The waypoint
             // is route policy for this intention, never an invented discovery or a second activity reward.
-            if (!objective->quest && objective->purpose != PlacePurpose::Rest && direct->risk > 0 && !threats.empty())
+            if (objective->purpose != PlacePurpose::Rest && direct->threat)
             {
-                auto const& threat = threats.front().position;
+                auto const& threat = threats[*direct->threat].position;
                 double const angle = std::atan2(destination->second.GetPositionY() - bot.GetPositionY(),
                     destination->second.GetPositionX() - bot.GetPositionX()) + M_PI / 2;
                 for (int side : {-1, 1})
@@ -2091,10 +2153,11 @@ struct ObjectiveRuntime::Impl
                     float const y = threat.y + side * 40 * std::sin(angle);
                     float z = threat.z;
                     bot.UpdateAllowedPositionZ(x, y, z);
-                    auto const detour = RouteEstimate(bot,
+                    auto detour = RouteEstimate(bot,
                         {WorldPosition(bot.GetMapId(), x, y, z, 0), destination->second}, threats);
                     if (!detour)
                         continue;
+                    experience(*detour);
                     auto forecast = ForecastActivity(detour->durationMs, detour->risk, probability, duration, effects);
                     auto const assessedDetour = state.satisfaction.Evaluate(forecast);
                     if (!assessedDetour)
@@ -2108,25 +2171,57 @@ struct ObjectiveRuntime::Impl
                     }
                 }
             }
+            if (current && candidate.id == current->id && !state.activeRoute.empty())
+            {
+                auto const cursor = current->quest ? ai.rpgInfo.bodyRoute.Cursor() : state.routeIndex;
+                std::vector<WorldPosition> remaining(state.activeRoute.begin()
+                    + std::min(cursor, state.activeRoute.size() - 1), state.activeRoute.end());
+                auto held = RouteEstimate(bot, remaining, threats);
+                if (held)
+                {
+                    experience(*held);
+                    committedRisk = held->risk;
+                    auto const heldValue = state.satisfaction.Evaluate(
+                        ForecastActivity(held->durationMs, held->risk, probability, duration, effects));
+                    reviseRoute = !heldValue || bestValue > heldValue->total + 0.01
+                        || remaining.back().distance(destination->second) >= 5;
+                }
+                else
+                    reviseRoute = true;
+            }
             state.routes[candidate.id] = bestRoute.stops;
             state.routeRisks[candidate.id] = bestRoute.risk;
             state.travelTimes[candidate.id] = bestRoute.durationMs;
+            state.geometricTravelTimes[candidate.id] = bestRoute.geometricMs;
+            state.routeKeys[candidate.id] = bestRoute.key;
             state.routeReasons[candidate.id] = bestRoute.stops.size() > 1
                 ? "safer corridor around a perceived threat" : "direct navigable corridor";
             routed.push_back({candidate.id, candidate.revision, std::move(bestForecast)});
         }
-        bool const danger = current && (bot.GetHealthPct() < 35
-            || (state.routeRisks.contains(current->id) && state.routeRisks.at(current->id) >= 0.3));
+        if (current && state.learningRoute.empty() && state.geometricTravelTimes.contains(current->id)
+            && state.geometricTravelTimes.at(current->id) >= 1000)
+        {
+            state.learningRoute = state.routeKeys.at(current->id);
+            state.predictedTravelMs = state.geometricTravelTimes.at(current->id);
+            state.observedTravelMs = 0;
+        }
+        bool const danger = current && (bot.GetHealthPct() < 35 || committedRisk >= 0.3);
         bool const committed = current && !danger && now >= state.intentionSinceMs
             && now - state.intentionSinceMs < 120000;
         state.satisfactionDecision = state.satisfaction.Choose(routed, current ? current->id : 0, committed);
-        // Preserve the committed corridor across ordinary reevaluation. A newly perceived danger can install
-        // a materially safer route, while the body keeps ownership of the same activity.
-        if (danger && current && state.satisfactionDecision.selected == current->id
-            && state.routes.contains(current->id) && state.activeRoute.size() == 1
-            && state.routes.at(current->id).size() > 1)
+        // Replacing the route requires a material improvement or a changed destination. The intention
+        // keeps its identity, and reaching another waypoint cannot masquerade as a completed activity.
+        if (reviseRoute && current && state.satisfactionDecision.selected == current->id
+            && CanPrepareResources(bot) && state.routes.contains(current->id))
         {
             Release(&bot, current->id);
+            state.activeRoute = state.routes.at(current->id);
+            state.routeIndex = 0;
+            state.learningRoute.clear();
+            state.observedTravelMs = state.predictedTravelMs = 0;
+        }
+        if (current && state.activeRoute.empty() && state.routes.contains(current->id))
+        {
             state.activeRoute = state.routes.at(current->id);
             state.routeIndex = 0;
         }
@@ -2241,6 +2336,29 @@ struct ObjectiveRuntime::Impl
             if (auto const* current = state.book.Current(); current && current->arrivedMs && !bot->isMoving()
                 && bot->IsAlive() && !bot->IsInCombat())
                 state.activityArrivalObservedMs = std::min(uint64_t(60000), state.activityArrivalObservedMs + elapsed);
+        }
+        if (!state.learningRoute.empty())
+        {
+            auto const* intention = state.book.Find(state.intention);
+            auto const phase = ai->rpgInfo.objectiveControl.phase;
+            bool const traveling = phase == QuestObjectiveControl::Phase::Traveling
+                || (intention && intention->step == ObjectiveStep::Travel);
+            if (elapsed && traveling && bot->IsAlive() && !bot->IsInCombat() && !bot->IsBeingTeleported()
+                && !bot->IsInFlight() && !bot->IsNonMeleeSpellCast(false) && !bot->IsSitState())
+                state.observedTravelMs = std::min(uint64_t(3600000), state.observedTravelMs + elapsed);
+            bool const failed = intention && intention->state == ObjectiveState::Deferred
+                && intention->obstruction == Obstruction::Navigation;
+            bool const arrived = intention && (intention->state == ObjectiveState::Completed
+                || phase == QuestObjectiveControl::Phase::Attempting
+                || (intention->place && intention->place == state.currentArea
+                    && intention->purpose == PlacePurpose::Work));
+            if ((failed || arrived) && state.observedTravelMs)
+            {
+                state.satisfaction.LearnTravel(state.learningRoute, !failed,
+                    state.observedTravelMs, state.predictedTravelMs);
+                state.learningRoute.clear();
+                state.nextAssessmentMs = 0;
+            }
         }
         SatisfactionEffects effects;
         auto add = [&](SatisfactionEffects const& additions)
@@ -2415,7 +2533,10 @@ struct ObjectiveRuntime::Impl
             if (auto* ai = sPlayerbotsMgr.GetPlayerbotAI(bot))
             {
                 if (ai->rpgInfo.body.Detach(found->second.generation, found->second.attachment))
+                {
                     ai->rpgInfo.bodyTravel = {};
+                    ai->rpgInfo.bodyRoute = {};
+                }
                 ai->rpgInfo.objectiveControl.plannerAttached = false;
                 ai->rpgInfo.objectiveControl.cooperativeQuest = 0;
                 ai->rpgInfo.objectiveControl.partyMembers = 0;
@@ -2480,6 +2601,8 @@ struct ObjectiveRuntime::Impl
             state.knowledge = std::move(knowledge);
             state.satisfaction.Restore(snapshot->planning ? snapshot->planning->satisfaction : DefaultSatisfaction());
             state.satisfactionSampleMs = state.intention = state.intentionSinceMs = state.activityObservedMs = 0;
+            state.learningRoute.clear();
+            state.observedTravelMs = state.predictedTravelMs = 0;
             state.destinations.clear();
             state.travelTimes.clear();
             for (auto const& [id, objective] : state.book.All())
@@ -2874,6 +2997,14 @@ struct ObjectiveRuntime::Impl
                             state.intention = current->id;
                             state.intentionSinceMs = now;
                             state.activityObservedMs = state.activityArrivalObservedMs = 0;
+                            state.learningRoute.clear();
+                            state.observedTravelMs = state.predictedTravelMs = 0;
+                            if (state.geometricTravelTimes.contains(current->id)
+                                && state.geometricTravelTimes.at(current->id) >= 1000)
+                            {
+                                state.learningRoute = state.routeKeys.at(current->id);
+                                state.predictedTravelMs = state.geometricTravelTimes.at(current->id);
+                            }
                             state.activeRoute = state.routes[current->id];
                             state.routeIndex = 0;
                             state.availability = "pursuing_satisfaction";
@@ -3311,8 +3442,11 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"place", report.topic.place}, {"text", report.text}, {"receivedMs", report.receivedMs},
             {"confidence", report.confidence}, {"usefulVisits", report.usefulVisits},
             {"unsuccessfulVisits", report.unsuccessfulVisits}});
-    boost::json::object experiences, bindings, routeFailures;
+    boost::json::object experiences, bindings, routeFailures, travelExperiences;
     auto const& satisfaction = found->second.satisfaction.Capture();
+    for (auto const& [route, experience] : satisfaction.travel)
+        travelExperiences[route] = boost::json::object{{"samples", experience.samples},
+            {"successes", experience.successes}, {"durationRatio", experience.durationRatio}};
     for (auto const& [activity, experience] : satisfaction.experiences)
         experiences[activity] = boost::json::object{{"samples", experience.samples},
             {"successes", experience.successes}, {"meanExecutionMs", experience.meanDurationMs}};
@@ -3330,6 +3464,7 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
         {"satisfaction", boost::json::object{{"revision", found->second.satisfaction.Capture().revision},
             {"dimensions", std::move(dimensions)}, {"alternatives", std::move(alternatives)},
             {"activityEffects", std::move(bindings)}, {"experiences", std::move(experiences)},
+            {"travelExperiences", std::move(travelExperiences)},
             {"nextRestMs", satisfaction.nextRestMs}, {"nextSocialMs", satisfaction.nextSocialMs},
             {"routeLimitations", std::move(routeFailures)}, {"routeIndex", found->second.routeIndex},
             {"selectedObjective", found->second.satisfactionDecision.selected},

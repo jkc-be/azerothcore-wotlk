@@ -491,8 +491,10 @@ bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now)
 bool ObjectiveBook::Replan(uint64_t id, std::string reason, uint64_t now)
 {
     auto found = _objectives.find(id);
-    if (found == _objectives.end() || found->second.request || found->second.preparation
-        || found->second.cooperation.state != CooperationState::None
+    if (found == _objectives.end() || found->second.request
+        || (found->second.preparation && found->second.preparation->state == PreparationState::Active)
+        || (found->second.cooperation.state > CooperationState::None
+            && found->second.cooperation.state < CooperationState::Completed)
         || (found->second.state != ObjectiveState::Active && found->second.state != ObjectiveState::Waiting)
         || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2
         || now > std::numeric_limits<uint64_t>::max() - 30000

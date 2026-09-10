@@ -464,10 +464,17 @@ The revised wave oracle awaits a fresh live run. It reuses `E2E_ALLES_AUDIENCE_F
 moves only the disposable human; see the suite guide for conversation and journal prerequisites.
 
 P1, satisfaction activity keeper: `suites/observatory/TestObservatory_SatisfactionProducesObservedRest` requires
-a fresh exclusive Observatory realm with one managed bot and native GM POV enabled. The offline fixture seeds
+a fresh exclusive Observatory realm with a managed bot and native GM POV enabled. The offline fixture seeds
 that owner with rest fulfillment 0.1, rest weight 10, other weights zero, default effects and no previous activity
 receipts. Set `E2E_OBSERVATORY_SATISFACTION_FIXTURE` to a private JSON file containing `disposable: true`, `name`
 and `guid`, plus the standard Observatory URL/token and `E2E_*` database settings. Start within 30 simulated
 seconds of boot. The client observes stationary rest, telemetry verifies 60 seconds of observed recovery, and
 the database oracle waits for its durable anti-replay receipt. Run alone with `-timeout=3m`; compilation alone
 does not establish a live pass.
+
+The companion variant `TestObservatory_SatisfactionSocialTravelAndReload` uses two fresh Human bots. Seed a
+recent personally observed `Humanb` meeting site 65 yards from `Humana`, keep the companion's rest-focused
+profile, and add `companion` and `companionGUID` to the fixture JSON. Run after the rest keeper on the same
+exclusive realm with `-run '^TestObservatory_Satisfaction' -timeout=7m`. GM setup changes only the source's
+motive weights. The client must observe travel and an ordinary greeting; population logout/rejoin must preserve
+the source's social receipt and fulfillment. The test restores observer permissions afterward.
