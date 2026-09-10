@@ -17,7 +17,7 @@ import (
 
 // PR: https://github.com/jkc-be/azerothcore-wotlk/pull/28
 // An exclusive fresh cohort uses individual motivations, acts through the ordinary client-visible body,
-// and persists measured outcomes. No preference, money or equipment is changed by the observing client.
+// and persists measured outcomes. No preference, XP, money or equipment is changed by the observing client.
 func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 	meta.Begin(t, meta.TestMeta{Tags: []string{"observatory", "alles", "serial"}, Category: "observatory", Runtime: "med"})
 	path := os.Getenv("E2E_OBSERVATORY_MOTIVATIONS_FIXTURE")
@@ -58,7 +58,10 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 		}
 	})
 	observer := loginObserver(t, authDB, id)
-	t.Cleanup(func() { observer.Close() })
+	t.Cleanup(func() {
+		observer.Close()
+		a.wait(t, "observer disconnected", func(s snapshot) bool { return s.Observers == 0 })
+	})
 	chat(t, observer, ".pov watch "+fixture.Name, "RPOV\tSTATE|"+fixture.Name+"|")
 	type dimension struct {
 		ID, Curve                           string
@@ -79,6 +82,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 			GUID         uint64
 			Name         string
 			Money        float64
+			EarnedXP     float64
 			ControlGroup bool
 			Planning     struct {
 				Satisfaction struct {
@@ -90,10 +94,13 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 		}
 	}
 	seen, moved, matchedMoney := false, false, false
+	matchedProgress, measuredGear := false, false
+	var startXP, startMastery float64
+	progressBaseline := false
 	var x0, y0 float32
 	var retained uint64
 	var weights map[string]float64
-	deadline := time.NewTimer(4 * time.Minute)
+	deadline := time.NewTimer(6 * time.Minute)
 	defer deadline.Stop()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
@@ -109,9 +116,11 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 				if motive.ID == "security" || motive.ID == "rest" {
 					require(t, motive.Urgency > 0, "survival/recovery urgency is absent")
 				}
-				if motive.ID == "wealth" {
-					require(t, motive.Curve == "growth" && motive.Scale > 0, "wealth ambition is absent")
-					profiles[motive.Weight] = true
+				if motive.ID == "wealth" || motive.ID == "mastery" {
+					require(t, motive.Curve == "growth" && motive.Scale > 0, "measured growth ambition is absent")
+					if motive.ID == "wealth" {
+						profiles[motive.Weight] = true
+					}
 				}
 			}
 			if bot.GUID != fixture.GUID || bot.Name != fixture.Name {
@@ -120,6 +129,16 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 			weights = map[string]float64{}
 			for _, motive := range bot.Planning.Satisfaction.Dimensions {
 				weights[motive.ID] = motive.Weight
+				if motive.ID == "mastery" {
+					if !progressBaseline {
+						startXP, startMastery, progressBaseline = bot.EarnedXP, motive.Fulfillment, true
+					}
+					matchedProgress = matchedProgress || (bot.EarnedXP > startXP &&
+						math.Abs((motive.Fulfillment-startMastery)-(bot.EarnedXP-startXP)) < 0.001)
+				}
+				if motive.ID == "equipment" && motive.Fulfillment > 0 {
+					measuredGear = true
+				}
 				if motive.ID == "wealth" && motive.Fulfillment == bot.Money {
 					matchedMoney = true
 				}
@@ -140,7 +159,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 				}
 			}
 		}
-		if moved && matchedMoney && retained > 0 && len(profiles) > 1 {
+		if moved && matchedMoney && matchedProgress && measuredGear && retained > 0 && len(profiles) > 1 {
 			var payload []byte
 			err := charDB.QueryRow("SELECT payload FROM alles_planning WHERE owner_kind=0 AND owner_id=?",
 				fixture.GUID).Scan(&payload)
@@ -164,11 +183,11 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 					persisted = persisted || outcome.Effects["wealth"].Samples > 0 ||
 						outcome.FailureEffects["wealth"].Samples > 0
 				}
-				if saved.Version == 13 && persisted {
+				if saved.Version == 14 && persisted {
 					for _, motive := range saved.Satisfaction.Dimensions {
 						require(t, weights[motive.ID] == motive.Weight, "individual preference changed on save")
 					}
-					t.Logf("PASS %s: native movement, distinct personal priorities, actual wealth and committed learned outcomes",
+					t.Logf("PASS %s: native movement, distinct personal priorities, measured XP gain and starter gear, actual wealth and committed learned outcomes",
 						fixture.Name)
 					return
 				}
@@ -176,8 +195,8 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 		}
 		select {
 		case <-deadline.C:
-			e2eharness.Assertf(t, "missing observed learning: seen=%t moved=%t wealth=%t attempts=%d profiles=%d",
-				seen, moved, matchedMoney, retained, len(profiles))
+			e2eharness.Assertf(t, "missing observed learning: seen=%t moved=%t wealth=%t XP=%t gear=%t attempts=%d profiles=%d",
+				seen, moved, matchedMoney, matchedProgress, measuredGear, retained, len(profiles))
 		case <-tick.C:
 		}
 	}

@@ -137,3 +137,17 @@ The planner skips requests that merely endorse a valid ongoing activity. Meaning
 knowledge and objective changes can trigger reconsideration. A finished or expired request is not retried solely
 because the same observation is sampled again. Rejections distinguish expiration, missing/changed objectives and
 ownership changes; option, evidence and generation checks still apply.
+
+### Progress and comfort
+
+The WoW adapter values mastery (accumulated XP across levels), carried wealth and equipped item levels as
+individual growth ambitions. Rest, safety and social needs remain bounded needs. Accepted quest forecasts use
+the owner's known XP/money rewards and usable equipment upgrades; unknown work retains an uncertain prior.
+Actual player state alone updates these measured ambitions. Starter items, shields and ranged weapons count;
+shirts and tabards do not. Item level is a progress proxy, not a simulation of combat effectiveness.
+
+Living health changes include both wounds and recovery, so a healed fight does not teach permanent health loss.
+Observed death records a separate failed outcome; resurrection is excluded from learned healing. Route travel,
+perceived danger and prior outcomes still affect the choice, and staying remains valid when useful work does not
+justify its costs. These game measurements live in the adapter; the satisfaction evaluator accepts arbitrary
+need and growth dimensions for other scenarios.

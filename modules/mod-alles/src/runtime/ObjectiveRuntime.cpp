@@ -6,6 +6,8 @@
 #include "ObjectiveRuntime.h"
 #include "PartyActions.h"
 #include "ObjectivePlanning.h"
+#include "PlayerMotivations.h"
+#include "World.h"
 #include "Item.h"
 #include "ItemUsageValue.h"
 #include "Bag.h"
@@ -326,23 +328,6 @@ QuestFinances OwnQuestFinances(Player& bot)
     return result;
 }
 
-SatisfactionSnapshot InitialPlayerMotivations(ActorKey owner)
-{
-    auto state = DefaultSatisfaction();
-    state.dimensions["wealth"] = {2, 0, 0, 0, MotivationCurve::Growth, 1000};
-    state.dimensions["equipment"] = {2, 0, 0, 0, MotivationCurve::Growth, 100};
-    // Explicit uncertain priors for not-yet-known work; accepted quest rewards replace these estimates.
-    state.activities["pursue_quest"]["wealth"] = 50;
-    state.activities["pursue_quest"]["equipment"] = 5;
-    state.dimensions.at("security").urgency = 4;
-    state.dimensions.at("rest").urgency = 2;
-    // A bounded prior for a minute of uninterrupted recovery; observations, not this prediction, change health.
-    state.activities.at("rest")["security"] = 0.35;
-    state = PersonalizeMotivations(std::move(state), owner.id);
-    state.dimensions.at("security").weight = std::max(1.5, state.dimensions.at("security").weight);
-    return state;
-}
-
 bool NeedsRecovery(Player const& bot)
 {
     return bot.IsAlive() && !bot.IsInCombat() && !bot.IsBeingTeleported() && !bot.IsInFlight()
@@ -362,6 +347,38 @@ std::string LearningContext(Player const& bot, Objective const& objective)
         + (bot.GetHealthPct() < 60 ? "_hurt" : "_well");
 }
 
+double OwnMastery(Player const& bot)
+{
+    double experience = bot.GetUInt32Value(PLAYER_XP);
+    for (uint8_t level = 1; level < bot.GetLevel(); ++level)
+        experience += sObjectMgr->GetXPForLevel(level);
+    return experience; // Level transitions preserve accumulated progress instead of resetting the motive.
+}
+
+double OwnEquipment(Player const& bot)
+{
+    double points = 0;
+    for (uint8_t slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD)
+            if (auto const* item = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                points += EquipmentMotivationPoints(*item->GetTemplate(), bot.GetLevel());
+    return points;
+}
+
+double KnownMasteryReward(Player& bot, uint32_t quest)
+{
+    auto const* definition = sObjectMgr->GetQuestTemplate(quest);
+    if (!definition || bot.FindQuestSlot(quest) >= MAX_QUEST_LOG_SIZE
+        || bot.GetLevel() >= sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL)
+        || bot.HasPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN) || bot.HasPlayerFlag(PLAYER_FLAGS_NO_PLAY_TIME))
+        return 0;
+    bool const repeatWithoutXp = bot.IsQuestRewarded(quest) && !definition->IsDFQuest()
+        && !(definition->IsDaily() || definition->IsWeekly() || definition->IsMonthly());
+    // Estimate the displayed reward with current rates/auras, without executing reward script callbacks.
+    return repeatWithoutXp ? 0 : definition->XPValue(uint8_t(bot.GetLevel()))
+        * bot.GetQuestRate(definition->IsDFQuest()) * bot.GetTotalAuraMultiplier(SPELL_AURA_MOD_XP_QUEST_PCT);
+}
+
 double KnownEquipmentReward(Player& bot, PlayerbotAI& ai, uint32_t quest)
 {
     auto const* definition = sObjectMgr->GetQuestTemplate(quest);
@@ -375,13 +392,12 @@ double KnownEquipmentReward(Player& bot, PlayerbotAI& ai, uint32_t quest)
                 != ITEM_USAGE_EQUIP)
             return {NULL_SLOT, 0};
         auto const slot = bot.FindEquipSlot(prototype, NULL_SLOT, true);
-        // Match the core's GetTotalItemLevel observable, a gear-quality proxy rather than combat simulation.
-        if (slot >= EQUIPMENT_SLOT_END || slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD
-            || slot == EQUIPMENT_SLOT_OFFHAND || slot == EQUIPMENT_SLOT_RANGED)
+        // Use the same equipped-item proxy in forecasts and observations, including starter weapons/shields.
+        if (slot >= EQUIPMENT_SLOT_END || slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
             return {NULL_SLOT, 0};
         auto const* current = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
-        double const before = current ? current->GetTemplate()->GetItemLevelIncludingQuality(bot.GetLevel()) : 0;
-        return {slot, std::max(0.0, prototype->GetItemLevelIncludingQuality(bot.GetLevel()) - before)};
+        double const before = current ? EquipmentMotivationPoints(*current->GetTemplate(), uint8_t(bot.GetLevel())) : 0;
+        return {slot, std::max(0.0, EquipmentMotivationPoints(*prototype, uint8_t(bot.GetLevel())) - before)};
     };
     std::map<uint8_t, double> guaranteed;
     for (auto const item : definition->RewardItemId)
@@ -2177,8 +2193,13 @@ struct ObjectiveRuntime::Impl
                 if (auto const found = state.satisfaction.Capture().dimensions.find("equipment");
                     found != state.satisfaction.Capture().dimensions.end())
                     effects["equipment"] = MeasuredMotivation(found->second,
-                        bot.GetTotalItemLevel() + KnownEquipmentReward(bot, ai, objective.quest))
+                        OwnEquipment(bot) + KnownEquipmentReward(bot, ai, objective.quest))
                         - found->second.fulfillment;
+            if (objective.quest)
+                if (auto const found = state.satisfaction.Capture().dimensions.find("mastery");
+                    found != state.satisfaction.Capture().dimensions.end())
+                    effects["mastery"] = MeasuredMotivation(found->second,
+                        OwnMastery(bot) + KnownMasteryReward(bot, objective.quest)) - found->second.fulfillment;
             double const prior = objective.purpose == PlacePurpose::Rest ? 1
                 : objective.checkpoint.readyToReward ? 0.95
                 : objective.purpose == PlacePurpose::Discovery ? 0.85
@@ -2473,6 +2494,7 @@ struct ObjectiveRuntime::Impl
                 && bot->IsAlive() && !bot->IsInCombat())
                 state.activityArrivalObservedMs = std::min(uint64_t(60000), state.activityArrivalObservedMs + elapsed);
         }
+        bool const continuouslyAlive = state.observedAlive.value_or(false) && bot->IsAlive();
         bool const died = state.observedAlive.value_or(false) && !bot->IsAlive();
         state.observedAlive = bot->IsAlive();
         if (auto const* current = state.book.Find(state.intention); current && died
@@ -2521,18 +2543,21 @@ struct ObjectiveRuntime::Impl
         SatisfactionEffects effects;
         auto const& dimensions = state.satisfaction.Capture().dimensions;
         SatisfactionEffects measured;
+        if (dimensions.contains("mastery"))
+            measured["mastery"] = MeasuredMotivation(dimensions.at("mastery"), OwnMastery(*bot))
+                - dimensions.at("mastery").fulfillment;
         if (dimensions.contains("wealth"))
             measured["wealth"] = MeasuredMotivation(dimensions.at("wealth"), bot->GetMoney())
                 - dimensions.at("wealth").fulfillment;
         if (dimensions.contains("equipment"))
-            measured["equipment"] = MeasuredMotivation(dimensions.at("equipment"), bot->GetTotalItemLevel())
+            measured["equipment"] = MeasuredMotivation(dimensions.at("equipment"), OwnEquipment(*bot))
                 - dimensions.at("equipment").fulfillment;
         if (auto const* intention = state.book.Find(state.intention); intention && dimensions.contains("security"))
         {
             double const change = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
-            // Resurrection or passive healing must not cancel the harm suffered in an earlier attempt.
-            if (change < 0 || (bot->IsAlive() && intention->purpose == PlacePurpose::Rest
-                && state.attemptContext.ends_with("_hurt")))
+            // Net living health is the outcome: a recovered wound is not a permanent loss of all health.
+            // Death has its own failed receipt above; resurrection never becomes a successful healing sample.
+            if (continuouslyAlive)
                 measured["security"] = change;
         }
         if (elapsed && state.intention)
@@ -2594,7 +2619,7 @@ struct ObjectiveRuntime::Impl
             effects["resources"] = double(bot->GetMoney()) / (double(bot->GetMoney()) + 1000 * bot->GetLevel())
                 - dimensions.at("resources").fulfillment;
         for (auto const& [id, value] : measured)
-            effects[id] = value; // Predictions and authored effects cannot mint money or equipment.
+            effects[id] = value; // Authored effects cannot award XP, money or equipment.
         state.satisfaction.Observe(now, elapsed, effects);
         Publish(owner, state, realMs);
     }
@@ -2787,6 +2812,15 @@ struct ObjectiveRuntime::Impl
             state.knowledge = std::move(knowledge);
             state.satisfaction.Restore(snapshot->planning ? snapshot->planning->satisfaction
                 : InitialPlayerMotivations(owner));
+            // Upgrade existing actors without replacing their learned preferences or other dimensions.
+            if (!state.satisfaction.Capture().dimensions.contains("mastery"))
+            {
+                auto const defaults = InitialPlayerMotivations(owner);
+                state.satisfaction.SetDimension("mastery", defaults.dimensions.at("mastery"));
+                auto activity = state.satisfaction.Effects("pursue_quest");
+                activity["mastery"] = defaults.activities.at("pursue_quest").at("mastery");
+                state.satisfaction.SetActivity("pursue_quest", std::move(activity));
+            }
             state.attemptEffects.clear();
             state.attemptContext.clear();
             state.satisfactionSampleMs = state.intention = state.intentionSinceMs = state.activityObservedMs = 0;
@@ -3644,7 +3678,8 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
             {"satiation", dimension.satiation},
             {"curve", dimension.curve == MotivationCurve::Growth ? "growth" : "need"}, {"scale", dimension.scale},
-            {"unit", id == "wealth" ? "copper" : id == "equipment" ? "equipment points" : ""},
+            {"unit", id == "wealth" ? "copper" : id == "equipment" ? "equipment points"
+                : id == "mastery" ? "XP" : ""},
             {"urgency", dimension.urgency}});
     for (auto const& candidate : found->second.satisfactionDecision.alternatives)
     {
