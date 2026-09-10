@@ -47,7 +47,12 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 	}
 	seq := a.observerMode(t, initial, 2, http.StatusAccepted)
 	a.wait(t, "interactive chat fixture", func(s snapshot) bool { return s.ControlSeq >= seq && s.ObserverMode == 2 })
-	t.Cleanup(func() { a.observerMode(t, a.frame(t), initial.ObserverMode, http.StatusAccepted) })
+	t.Cleanup(func() {
+		seq := a.observerMode(t, a.frame(t), initial.ObserverMode, http.StatusAccepted)
+		a.wait(t, "restore observer mode", func(s snapshot) bool {
+			return s.ControlSeq >= seq && s.ObserverMode == initial.ObserverMode
+		})
+	})
 	authDB, charDB := e2eharness.OpenTestDBs(t)
 	id := e2eharness.MakeBotIdents("Memtalk", 1)[0]
 	if err := e2eharness.EnsureAccount(authDB, id.Account, "test"); err != nil {
@@ -63,7 +68,10 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 		}
 	})
 	observer := loginObserver(t, authDB, id)
-	t.Cleanup(observer.Close)
+	t.Cleanup(func() {
+		observer.Close()
+		a.wait(t, "observer disconnected", func(s snapshot) bool { return s.Observers == 0 })
+	})
 	send := func(text string) {
 		if err := observer.SendChatMessage(client.ChatMsgSay, client.LangCommon, text); err != nil {
 			e2eharness.HarnessFailf(t, "send ordinary chat: %v", err)
@@ -173,7 +181,12 @@ func TestObservatory_PersonalDeathRetainsLearningAfterRecovery(t *testing.T) {
 	}
 	seq := a.observerMode(t, initial, 2, http.StatusAccepted)
 	a.wait(t, "interactive chat fixture", func(s snapshot) bool { return s.ControlSeq >= seq && s.ObserverMode == 2 })
-	t.Cleanup(func() { a.observerMode(t, a.frame(t), initial.ObserverMode, http.StatusAccepted) })
+	t.Cleanup(func() {
+		seq := a.observerMode(t, a.frame(t), initial.ObserverMode, http.StatusAccepted)
+		a.wait(t, "restore observer mode", func(s snapshot) bool {
+			return s.ControlSeq >= seq && s.ObserverMode == initial.ObserverMode
+		})
+	})
 	authDB, charDB := e2eharness.OpenTestDBs(t)
 	id := e2eharness.MakeBotIdents("Harm", 1)[0]
 	if err := e2eharness.EnsureAccount(authDB, id.Account, "test"); err != nil {
@@ -189,7 +202,10 @@ func TestObservatory_PersonalDeathRetainsLearningAfterRecovery(t *testing.T) {
 		}
 	})
 	observer := loginObserver(t, authDB, id)
-	t.Cleanup(observer.Close)
+	t.Cleanup(func() {
+		observer.Close()
+		a.wait(t, "observer disconnected", func(s snapshot) bool { return s.Observers == 0 })
+	})
 	send := func(text string) {
 		if err := observer.SendChatMessage(client.ChatMsgSay, client.LangCommon, text); err != nil {
 			e2eharness.HarnessFailf(t, "send ordinary chat: %v", err)

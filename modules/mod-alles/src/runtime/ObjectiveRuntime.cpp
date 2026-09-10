@@ -613,7 +613,7 @@ struct ObjectiveRuntime::Impl
         uint64_t intention = 0;
         uint64_t activityObservedMs = 0;
         SatisfactionEffects attemptEffects;
-        bool deathObserved = false;
+        std::optional<bool> observedAlive;
         std::string attemptContext;
         uint32_t discoveredArea = 0;
         std::map<uint64_t, WorldPosition> destinations;
@@ -2456,6 +2456,7 @@ struct ObjectiveRuntime::Impl
         if (!ai || !Autonomous(*bot, *ai) || now <= state.satisfaction.Capture().observedMs)
         {
             state.satisfactionSampleMs = 0;
+            state.observedAlive.reset();
             return;
         }
         uint64_t const elapsed = state.satisfactionSampleMs && now >= state.satisfactionSampleMs
@@ -2472,11 +2473,11 @@ struct ObjectiveRuntime::Impl
                 && bot->IsAlive() && !bot->IsInCombat())
                 state.activityArrivalObservedMs = std::min(uint64_t(60000), state.activityArrivalObservedMs + elapsed);
         }
-        if (auto const* current = state.book.Find(state.intention); current && !state.deathObserved
-            && current->state != ObjectiveState::Completed && current->state != ObjectiveState::Cancelled
-            && !bot->IsAlive())
+        bool const died = state.observedAlive.value_or(false) && !bot->IsAlive();
+        state.observedAlive = bot->IsAlive();
+        if (auto const* current = state.book.Find(state.intention); current && died
+            && current->state != ObjectiveState::Completed && current->state != ObjectiveState::Cancelled)
         {
-            state.deathObserved = true;
             auto const activity = current->quest ? "pursue_quest" : ActivityCapability(current->purpose);
             if (state.satisfaction.Capture().dimensions.contains("security"))
                 state.attemptEffects["security"] = -1; // Personally experienced loss of all viable health.
@@ -2494,8 +2495,6 @@ struct ObjectiveRuntime::Impl
                 recorder->Record(owner, "alles_learning", current->id, "personal_death",
                     state.attemptContext, realMs);
         }
-        if (bot->IsAlive())
-            state.deathObserved = false;
         if (!state.learningRoute.empty())
         {
             auto const* intention = state.book.Find(state.intention);
@@ -2740,6 +2739,7 @@ struct ObjectiveRuntime::Impl
         }
         found->second.routeTarget = WorldPosition();
         found->second.satisfactionSampleMs = 0;
+        found->second.observedAlive.reset();
         found->second.activeRoute.clear();
         found->second.routeIndex = 0;
         found->second.navigationOrigin = WorldPosition();
