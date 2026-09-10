@@ -316,11 +316,14 @@ SatisfactionForecast ForecastActivity(uint64_t travelMs, double risk, double suc
 }
 
 SatisfactionDecision SatisfactionModel::Choose(std::vector<SatisfactionCandidate> const& candidates,
-    uint64_t current, bool committed, double switchThreshold) const
+    uint64_t current, bool committed, double switchThreshold, SatisfactionForecast const& staying) const
 {
     SatisfactionDecision result;
     result.stateRevision = _state.revision;
-    result.staying = Evaluate({})->total;
+    auto const local = Evaluate(staying);
+    if (!local)
+        return result;
+    result.staying = local->total;
     if (candidates.size() > 32 || !Range(switchThreshold, 0, 1))
         return result;
     std::map<uint64_t, SatisfactionAssessment> unique;

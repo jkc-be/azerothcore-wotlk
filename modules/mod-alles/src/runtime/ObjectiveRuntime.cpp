@@ -532,6 +532,7 @@ struct ObjectiveRuntime::Impl
         PrivateKnowledge knowledge;
         SatisfactionModel satisfaction;
         SatisfactionDecision satisfactionDecision;
+        double stayingRisk = 0;
         uint64_t satisfactionSampleMs = 0;
         uint64_t nextContactSampleMs = 0;
         uint64_t nextCandidateMs = 0;
@@ -1996,6 +1997,13 @@ struct ObjectiveRuntime::Impl
         state.routeRisks.clear();
         state.routeReasons.clear();
         auto const threats = PerceivedThreats(bot);
+        state.stayingRisk = 0;
+        for (auto const& threat : threats)
+            if (bot.GetExactDist(threat.position.x, threat.position.y, threat.position.z) < 25)
+                state.stayingRisk = std::min(0.8, state.stayingRisk + threat.risk);
+        // Inaction faces the same personally perceived danger as a local activity. It cannot assume safety
+        // merely because no path is requested. This predicts exposure, never awards or removes fulfillment.
+        auto const staying = ForecastActivity(0, state.stayingRisk, 1, 60000, {});
         std::vector<SatisfactionCandidate> candidates;
         auto const circumstances = Circumstances(bot);
         auto const finances = OwnQuestFinances(bot);
@@ -2089,7 +2097,7 @@ struct ObjectiveRuntime::Impl
         }
         // First score all bounded known candidates cheaply. Retain the current intention plus the best of
         // each purpose before filling the eight pathfinding slots; quests cannot consume every route query.
-        auto const coarse = state.satisfaction.Choose(candidates);
+        auto const coarse = state.satisfaction.Choose(candidates, 0, false, 0.01, staying);
         std::set<uint64_t> shortlist;
         if (current)
             shortlist.insert(current->id);
@@ -2205,10 +2213,11 @@ struct ObjectiveRuntime::Impl
             state.predictedTravelMs = state.geometricTravelTimes.at(current->id);
             state.observedTravelMs = 0;
         }
-        bool const danger = current && (bot.GetHealthPct() < 35 || committedRisk >= 0.3);
+        bool const danger = current && (bot.GetHealthPct() < 35 || committedRisk >= 0.3 || state.stayingRisk >= 0.3);
         bool const committed = current && !danger && now >= state.intentionSinceMs
             && now - state.intentionSinceMs < 120000;
-        state.satisfactionDecision = state.satisfaction.Choose(routed, current ? current->id : 0, committed);
+        state.satisfactionDecision = state.satisfaction.Choose(routed, current ? current->id : 0, committed,
+            0.01, staying);
         // Replacing the route requires a material improvement or a changed destination. The intention
         // keeps its identity, and reaching another waypoint cannot masquerade as a completed activity.
         if (reviseRoute && current && state.satisfactionDecision.selected == current->id
@@ -3478,7 +3487,7 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"nextRestMs", satisfaction.nextRestMs}, {"nextSocialMs", satisfaction.nextSocialMs},
             {"routeLimitations", std::move(routeFailures)}, {"routeIndex", found->second.routeIndex},
             {"selectedObjective", found->second.satisfactionDecision.selected},
-            {"staying", found->second.satisfactionDecision.staying}}},
+            {"staying", found->second.satisfactionDecision.staying}, {"stayingRisk", found->second.stayingRisk}}},
         {"body", found->second.bodyStatus},
         {"survey", boost::json::object{{"activeMs", found->second.survey.ActiveMs()},
             {"emptyScans", found->second.survey.EmptyScans()}, {"positions", found->second.survey.Positions()}}},

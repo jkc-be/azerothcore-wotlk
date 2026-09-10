@@ -138,7 +138,7 @@ public:
     std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast,
         uint64_t horizonMs = 600000) const;
     SatisfactionDecision Choose(std::vector<SatisfactionCandidate> const& candidates, uint64_t current = 0,
-        bool committed = false, double switchThreshold = 0.01) const;
+        bool committed = false, double switchThreshold = 0.01, SatisfactionForecast const& staying = {}) const;
 
 private:
     SatisfactionSnapshot _state;

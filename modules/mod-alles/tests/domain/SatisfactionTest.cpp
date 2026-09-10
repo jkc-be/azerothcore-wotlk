@@ -78,6 +78,31 @@ TEST(AllesSatisfaction, MaintainingFulfillmentBeatsCreatingAndRelievingTheSameDe
     EXPECT_DOUBLE_EQ(Value(model, walk), Value(model, SatisfactionForecast{}));
 }
 
+TEST(AllesSatisfaction, StayingFacesTheSameObservedExposureAsALocalActivity)
+{
+    SatisfactionModel model;
+    auto const exposed = ForecastActivity(0, 0.8, 1, 60000, {});
+    auto const safe = model.Choose({});
+    auto const decision = model.Choose({{1, 1, exposed}}, 0, false, 0.01, exposed);
+    ASSERT_EQ(decision.alternatives.size(), 1u);
+    EXPECT_DOUBLE_EQ(decision.staying, decision.alternatives.front().value.total);
+    EXPECT_LT(decision.staying, safe.staying);
+    EXPECT_EQ(decision.selected, 0u); // An equally exposed activity offers no invented benefit.
+}
+
+TEST(AllesSatisfaction, ObservedLocalDangerCanMakeLeavingWorthItsTravelCost)
+{
+    SatisfactionModel model;
+    auto const before = model.Capture();
+    auto const walk = ForecastActivity(30000, 0, 1, 60000, {});
+    std::vector<SatisfactionCandidate> const alternatives{{1, 1, walk}};
+    EXPECT_EQ(model.Choose(alternatives).selected, 0u); // Safe and fulfilled: unnecessary travel loses.
+    auto const exposed = ForecastActivity(0, 0.8, 1, 60000, {});
+    EXPECT_EQ(model.Choose(alternatives, 0, false, 0.01, exposed).selected, 1u);
+    EXPECT_EQ(model.Capture(), before); // Reconsideration cannot turn a prediction into observed damage.
+    EXPECT_EQ(model.Choose(alternatives, 0, false, 0.01, SatisfactionForecast{false}).selected, 0u);
+}
+
 TEST(AllesSatisfaction, GroundedRiskCanJustifyALongerRoute)
 {
     SatisfactionModel model;

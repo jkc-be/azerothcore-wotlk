@@ -41,6 +41,10 @@ known destinations, at most two detours around a visible threat are compared usi
 A selected detour retains the parent intention and offers no reward for its waypoints. The existing body handles
 bounded corridor legs, progress, combat interruptions, failed attempts and local walkable recovery probes.
 
+Staying also includes exposure to personally visible nearby enemies, using the same risk forecast as local
+activities. `planning.satisfaction.stayingRisk` exposes that estimate. A character in danger cannot compare
+travel against an imaginary safe idle state; actual health observations still determine security fulfillment.
+
 Travel consumes rest and delays the activity's benefit once in the forecast. Actual moving time supplies the
 corresponding observed cost. Distances already walked do not improve the score. Staying locally is an explicit
 alternative. Unsupported cross-map routes cannot be executed. Quest destinations come from the existing tactical
