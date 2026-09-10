@@ -1982,7 +1982,7 @@ struct ObjectiveRuntime::Impl
                     || target->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL
                     || target->GetLevel() > bot.GetLevel() || target->GetAreaId() != bot.GetAreaId()
                     || target->hasLootRecipient() || !bot.CanSeeOrDetect(target)
-                    || !bot.IsValidAttackTarget(target) || !Acore::XP::Gain(&bot, target))
+                    || !bot.IsValidAttackTarget(target) || !PracticeExperience(bot, *target))
                     continue;
                 double const range = bot.GetExactDist(target);
                 if (range < distance && bot.IsWithinLOSInMap(target))
@@ -1992,6 +1992,17 @@ struct ObjectiveRuntime::Impl
                 }
             }
         return best;
+    }
+
+    double PracticeExperience(Player const& bot, Creature const& target) const
+    {
+        if (target.IsCritter() || target.HasFlagsExtra(CREATURE_FLAG_EXTRA_NO_XP))
+            return 0;
+        // Gain() is the post-combat payout and discounts damage the player has not yet dealt.
+        // Forecast an ordinary solo kill; only the later observed XP becomes a successful outcome.
+        return Acore::XP::BaseGain(bot.GetLevel(), target.GetLevel(),
+            GetContentLevelsForMapAndZone(target.GetMapId(), target.GetZoneId()))
+            * target.GetCreatureTemplate()->ModExperience * sWorld->getRate(RATE_XP_KILL);
     }
 
     struct ActivityRoute
@@ -2250,7 +2261,7 @@ struct ObjectiveRuntime::Impl
                         OwnMastery(bot) + KnownMasteryReward(bot, objective.quest)) - found->second.fulfillment;
             if (objective.purpose == PlacePurpose::Practice)
                 if (auto* target = PracticeTarget(bot))
-                    effects["mastery"] = Acore::XP::Gain(&bot, target);
+                    effects["mastery"] = PracticeExperience(bot, *target);
             double const prior = objective.purpose == PlacePurpose::Rest ? 1
                 : objective.purpose == PlacePurpose::Practice ? 0.85
                 : objective.checkpoint.readyToReward ? 0.95
