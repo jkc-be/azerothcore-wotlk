@@ -436,10 +436,17 @@ bool ObjectiveBook::ObserveActivity(uint64_t id, ActivityObservation const& obse
         || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
         return false;
     auto& objective = found->second;
-    bool const present = observation.available && observation.area == objective.place;
+    bool const metCompanion = objective.purpose == PlacePurpose::Companionship
+        && observation.interaction && observation.person == objective.person;
+    bool const present = observation.available && (observation.area == objective.place || metCompanion);
     uint64_t const elapsed = objective.lastSampleMs && now - objective.lastSampleMs <= 2000
         ? now - objective.lastSampleMs : 0;
     objective.lastSampleMs = now;
+    if (!objective.arrivedMs && observation.available && (present || observation.atDestination))
+    {
+        objective.arrivedMs = now;
+        ++objective.revision;
+    }
     if (!present)
     {
         if (objective.step != ObjectiveStep::Wait)
@@ -449,15 +456,12 @@ bool ObjectiveBook::ObserveActivity(uint64_t id, ActivityObservation const& obse
         }
         return true;
     }
-    if (!objective.arrivedMs)
-        objective.arrivedMs = now;
     if (objective.purpose == PlacePurpose::Rest && observation.resting && objective.step == ObjectiveStep::Attempt)
         objective.activityMs = std::min(uint64_t(60000), objective.activityMs + elapsed);
     objective.step = observation.resting || objective.purpose != PlacePurpose::Rest
         ? ObjectiveStep::Attempt : ObjectiveStep::Wait;
     bool const complete = objective.purpose == PlacePurpose::Discovery ? observation.discovered
-        : objective.purpose == PlacePurpose::Companionship
-            ? observation.interaction && observation.person == objective.person : objective.activityMs >= 60000;
+        : objective.purpose == PlacePurpose::Companionship ? metCompanion : objective.activityMs >= 60000;
     if (complete)
     {
         objective.state = ObjectiveState::Completed;

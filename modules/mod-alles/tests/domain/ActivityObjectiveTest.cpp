@@ -104,6 +104,48 @@ TEST(AllesActivityObjective, CompanionshipRequiresInteractionWithTheIntendedPers
     EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
 }
 
+TEST(AllesActivityObjective, MeetingTheIntendedCompanionAcrossAnAreaBoundaryCompletesTheVisit)
+{
+    ObjectiveBook book;
+    ActorKey const companion{ActorKind::Player, 43};
+    auto const* visit = book.ProposeActivity(9, PlacePurpose::Companionship, "Visit", "Previous meeting site",
+        companion);
+    ASSERT_NE(visit, nullptr);
+    auto const id = visit->id;
+    ASSERT_TRUE(book.ActivatePlace(id, visit->revision, 1000, 1));
+    ASSERT_TRUE(book.ObserveActivity(id, {12, true, false, false, true,
+        ActorKey{ActorKind::Player, 44}, true}, 2000));
+    EXPECT_EQ(visit->state, ObjectiveState::Active);
+    EXPECT_EQ(visit->arrivedMs, 2000u);
+    ASSERT_TRUE(book.ObserveActivity(id, {12, true, false, false, true, companion, true}, 3000));
+    EXPECT_EQ(visit->state, ObjectiveState::Completed);
+    EXPECT_EQ(visit->place, 9u); // Keep the intention's identity; the actual interaction supplies success.
+    EXPECT_FALSE(book.ObserveActivity(id, {12, true, false, false, true, companion, true}, 4000));
+    EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
+}
+
+TEST(AllesActivityObjective, PhysicalArrivalStartsTheWaitWithoutInventingDiscoveryOrRest)
+{
+    for (auto const purpose : {PlacePurpose::Discovery, PlacePurpose::Rest, PlacePurpose::Companionship})
+    {
+        ObjectiveBook book;
+        auto const person = purpose == PlacePurpose::Companionship
+            ? std::optional<ActorKey>{{ActorKind::Player, 43}} : std::nullopt;
+        auto const* activity = book.ProposeActivity(9, purpose, "Visit", "Known destination", person);
+        ASSERT_NE(activity, nullptr);
+        auto const id = activity->id;
+        ASSERT_TRUE(book.ActivatePlace(id, activity->revision, 1000, 1));
+        ASSERT_TRUE(book.ObserveActivity(id, {12, false, false, false, false, {}, true}, 2000));
+        EXPECT_EQ(activity->arrivedMs, 0u);
+        ASSERT_TRUE(book.ObserveActivity(id, {12, true, true, false, false, {}, true}, 3000));
+        EXPECT_EQ(activity->arrivedMs, 3000u);
+        EXPECT_EQ(activity->state, ObjectiveState::Active);
+        EXPECT_EQ(activity->activityMs, 0u);
+        EXPECT_EQ(activity->completedMs, 0u);
+        EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
+    }
+}
+
 TEST(AllesActivityObjective, ReplanningRetainsIntentWithoutClaimingFailureOrCompletion)
 {
     ObjectiveBook book;

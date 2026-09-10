@@ -40,6 +40,7 @@ struct ActivityObservation
     bool discovered = false; // A new personal observation, not arrival or distance traveled.
     bool interaction = false; // Actual comprehended delivery/interaction with the intended companion.
     std::optional<ActorKey> person;
+    bool atDestination = false; // Physically reached the route endpoint; does not establish activity success.
 };
 
 enum class InformationStatus : uint8_t

@@ -2286,6 +2286,7 @@ struct ObjectiveRuntime::Impl
             return;
         }
         ai.rpgInfo.objectiveControl.phase = QuestObjectiveControl::Phase::Attempting;
+        observation.atDestination = true;
         observation.resting = objective->purpose == PlacePurpose::Rest && !bot.isMoving()
             && !bot.IsNonMeleeSpellCast(false);
         if (objective->purpose == PlacePurpose::Companionship && objective->person
