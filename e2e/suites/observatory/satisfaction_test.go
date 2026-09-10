@@ -39,7 +39,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 	if err != nil {
 		e2eharness.Preconditionf(t, "token: %v", err)
 	}
-	a := api{url: strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"), token: strings.TrimSpace(string(token)), http: &http.Client{Timeout: 5 * time.Second}}
+	a := api{url: strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"),
+		token: strings.TrimSpace(string(token)), http: &http.Client{Timeout: 5 * time.Second}}
 	initial := a.frame(t)
 	if !initial.Allowed || initial.Observers != 0 || initial.SimMs > 30000 {
 		e2eharness.Preconditionf(t, "requires a fresh realm with no observers before its first recovery")
@@ -53,7 +54,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 		e2eharness.Preconditionf(t, "GM: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := authDB.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account); err != nil {
+		if _, err := authDB.Exec(
+			"DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account); err != nil {
 			t.Errorf("cleanup GM: %v", err)
 		}
 	})
@@ -111,7 +113,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 					for _, dimension := range bot.Planning.Satisfaction.Dimensions {
 						if dimension.ID == "rest" {
 							matched = true
-							require(t, dimension.Fulfillment >= 0.45 && dimension.Fulfillment <= 0.51, "expected observed recovery from seeded 0.1: %f", dimension.Fulfillment)
+							require(t, dimension.Fulfillment >= 0.45 && dimension.Fulfillment <= 0.51,
+								"expected observed recovery from seeded 0.1: %f", dimension.Fulfillment)
 						}
 					}
 					require(t, matched, "rest dimension missing")
@@ -131,7 +134,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 	defer until.Stop()
 	for !persisted {
 		var payload []byte
-		err := charDB.QueryRow("SELECT payload FROM alles_planning WHERE owner_kind=0 AND owner_id=?", fixture.GUID).Scan(&payload)
+		err := charDB.QueryRow("SELECT payload FROM alles_planning WHERE owner_kind=0 AND owner_id=?",
+			fixture.GUID).Scan(&payload)
 		if err == nil {
 			var saved struct {
 				Satisfaction struct{ NextRestMs uint64 }
@@ -146,7 +150,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 			for _, intention := range saved.Objectives {
 				if intention.ID == completedID && intention.Activity != nil {
 					evidence := intention.Activity
-					persisted = evidence.ObservedMs == 60000 && evidence.CreditedMs == 60000 && evidence.CompletedMs != 0 && saved.Satisfaction.NextRestMs > evidence.CompletedMs
+					persisted = evidence.ObservedMs == 60000 && evidence.CreditedMs == 60000 &&
+						evidence.CompletedMs != 0 && saved.Satisfaction.NextRestMs > evidence.CompletedMs
 				}
 			}
 		}
@@ -156,7 +161,8 @@ func TestObservatory_SatisfactionProducesObservedRest(t *testing.T) {
 		case <-tick.C:
 		}
 	}
-	t.Logf("PASS %s: client-observed stationary rest, grounded fulfillment and committed anti-replay receipt", fixture.Name)
+	t.Logf("PASS %s: client-observed stationary rest, grounded fulfillment and committed anti-replay receipt",
+		fixture.Name)
 }
 
 // A seeded last-observed meeting site can justify travel without quest rewards. Ordinary SAY must reach
@@ -180,7 +186,8 @@ func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
 	if err != nil {
 		e2eharness.Preconditionf(t, "token: %v", err)
 	}
-	a := api{url: strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"), token: strings.TrimSpace(string(token)), http: &http.Client{Timeout: 5 * time.Second}}
+	a := api{url: strings.TrimRight(os.Getenv("E2E_OBSERVATORY_URL"), "/"),
+		token: strings.TrimSpace(string(token)), http: &http.Client{Timeout: 5 * time.Second}}
 	initial := a.wait(t, "previous observer release", func(s snapshot) bool { return s.Observers == 0 })
 	if initial.ExpectedBots != 2 {
 		e2eharness.Preconditionf(t, "exclusive two-bot fixture required")
@@ -295,8 +302,11 @@ func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
 	// Population control goes through the real world admission/logout path, keeping the simulation clock alive.
 	control := func(count int) {
 		var result struct{ Sequence uint64 }
-		a.call(t, "/api/control", map[string]any{"run": initial.Run, "speed": 1, "paused": false, "bots": count}, http.StatusAccepted, &result)
-		a.wait(t, "population change", func(s snapshot) bool { return s.ControlSeq >= result.Sequence && len(s.Bots) == count })
+		a.call(t, "/api/control", map[string]any{"run": initial.Run, "speed": 1, "paused": false, "bots": count},
+			http.StatusAccepted, &result)
+		a.wait(t, "population change", func(s snapshot) bool {
+			return s.ControlSeq >= result.Sequence && len(s.Bots) == count
+		})
 	}
 	control(0)
 	control(2)
@@ -310,7 +320,10 @@ func TestObservatory_SatisfactionSocialTravelAndReload(t *testing.T) {
 		"source owner did not load a new generation after ordinary logout/rejoin")
 	require(t, restored.Planning.Satisfaction.NextSocialMs == completed.Planning.Satisfaction.NextSocialMs,
 		"social cooldown did not survive owner reload")
-	require(t, fulfillment(restored) <= fulfillment(completed)+0.005 && fulfillment(restored) > fulfillment(completed)-0.03,
-		"reload replayed fulfillment or invented offline activity: before=%f after=%f", fulfillment(completed), fulfillment(restored))
-	t.Logf("PASS %s: walked to %s, ordinary greeting, grounded fulfillment and receipt preserved through owner reload", fixture.Name, fixture.Companion)
+	require(t, fulfillment(restored) <= fulfillment(completed)+0.005 &&
+		fulfillment(restored) > fulfillment(completed)-0.03,
+		"reload replayed fulfillment or invented offline activity: before=%f after=%f",
+		fulfillment(completed), fulfillment(restored))
+	t.Logf("PASS %s: walked to %s, ordinary greeting, grounded fulfillment and receipt preserved through owner reload",
+		fixture.Name, fixture.Companion)
 }

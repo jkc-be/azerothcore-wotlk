@@ -16,7 +16,8 @@ Security follows observed health and resources follow actual own money. Other fu
 quest counters, rewards, visits, interactions and rest. Gameplay time drives depletion; unavailable/offline time
 is not simulated as activity. Bounded success counts and mean execution durations update expectations after an
 observed attempt. Up to 32 private route estimates retain observed success and travel-time corrections.
-Failure lowers that approach's reliability without crediting its predicted benefits. Preferences remain authored, rather than changing from a model-generated explanation.
+Failure lowers that approach's reliability without crediting its predicted benefits.
+Preferences remain authored, rather than changing from a model-generated explanation.
 
 The model-assisted planner and deterministic fallback receive the same core-computed valuations. Worker output
 cannot replace the selected preference with a lower-valued activity. A feasible intention has a two-minute

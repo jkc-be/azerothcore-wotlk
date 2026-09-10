@@ -6,8 +6,10 @@ The worker protocol, personal memories, private geography and durable objective 
 
 The brain selects and retains intentions using expected multi-dimensional satisfaction, shared by model-assisted
 planning and fallback. See [Satisfaction and activity choice](SATISFACTION.md) for motive definitions, navigation
-valuation, observed outcomes and configuration. Readiness policies and cooperation constrain execution. The body executes typed skills: travel, investigation, quest work, follow,
-repair, supplies, rendezvous and purpose-specific activities. Follow, preparation and cooperation continue using their existing Alles
+valuation, observed outcomes and configuration. Readiness policies and cooperation constrain execution.
+The body executes typed skills: travel, investigation, quest work, follow,
+repair, supplies, rendezvous and purpose-specific activities. Follow, preparation and cooperation continue using
+their existing Alles
 adapters. Travel, investigation and quest work use Playerbots physical actions through a separate noncombat
 executor. That executor never ticks the ordinary roaming/grinding/quest-selection strategy engine.
 
@@ -47,7 +49,8 @@ path and ordinary gameplay interactions; an anchor does not prove that a target 
 Thirty seconds of active motion without route progress retires a leg. Three failed route attempts report a
 navigation obstruction. A place intention can then try at most three distinct destination anchors before the
 brain defers it through its existing retry policy. At most two local recovery probes can use ordinary walkable
-paths; they never teleport. Current support is ordinary same-map navigation; transport/portal planning is not implemented.
+paths; they never teleport. Current support is ordinary same-map navigation; transport/portal planning
+is not implemented.
 
 Arriving in the requested area transitions travel into investigation. It does not complete a discover-work
 objective: accepting actual new work in that area still supplies the completion evidence. Repeated empty searches
