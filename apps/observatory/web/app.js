@@ -1527,9 +1527,38 @@ function shortGuid(id) {
 // sentence about the decision. A world build without planning simply leaves the block hidden.
 function renderBotObjective(bot) {
   const objective = currentObjective(bot);
+  const satisfaction = bot.planning?.satisfaction;
+  const assessed = satisfaction && Number.isFinite(satisfaction.staying);
   const block = $("bot-objective");
-  block.hidden = !objective;
-  if (!objective) return;
+  block.hidden = !objective && !assessed;
+  if (block.hidden) return;
+  const details = [];
+  if (assessed) {
+    const scores = (satisfaction.alternatives || []).map((alternative) => alternative.expected).filter(Number.isFinite);
+    const comparison = document.createElement("span");
+    comparison.className = "objective-reason";
+    comparison.textContent = `Expected satisfaction: stay ${(100 * satisfaction.staying).toFixed(1)}%` +
+      (scores.length ? ` · best activity ${(100 * Math.max(...scores)).toFixed(1)}%` : " · no assessed alternatives");
+    details.push(comparison);
+    if (Number.isFinite(satisfaction.stayingRisk)) {
+      const danger = document.createElement("span");
+      danger.className = "objective-reason";
+      danger.textContent = `Nearby danger estimate: ${(100 * satisfaction.stayingRisk).toFixed(0)}%`;
+      details.push(danger);
+    }
+    const motives = document.createElement("span");
+    motives.className = "objective-reason";
+    motives.textContent = "Fulfillment: " + (satisfaction.dimensions || [])
+      .filter((dimension) => Number.isFinite(dimension.fulfillment))
+      .map((dimension) => `${dimension.id} ${(100 * dimension.fulfillment).toFixed(0)}%`).join(" · ");
+    details.push(motives);
+  }
+  if (!objective) {
+    const head = document.createElement("b");
+    head.textContent = satisfaction.alternatives?.length ? "Staying nearby" : "No activity selected";
+    block.replaceChildren(head, ...details);
+    return;
+  }
   const head = document.createElement("b");
   head.textContent = objective.outcome || `Objective ${objective.id}`;
   const line = document.createElement("span");
@@ -1548,7 +1577,7 @@ function renderBotObjective(bot) {
   const rest = document.createElement("span");
   rest.className = "objective-reason";
   rest.textContent = `${held} objective${held === 1 ? "" : "s"} held; engine ${bot.planning?.engine || "unknown"}.`;
-  block.replaceChildren(head, line, reason, rest);
+  block.replaceChildren(head, line, reason, ...details, rest);
 }
 
 function renderDetails() {

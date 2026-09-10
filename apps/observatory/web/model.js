@@ -380,10 +380,9 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
 
 // ------------------------------------------------------------------------------------------- world state
 
-// A planning world publishes every objective a bot has held, newest last. The one it is working on is the
-// active objective; with none active the newest proposal or deferral says what it is about to do instead, and
-// a cohort that has finished everything falls back to its last completed objective rather than showing nothing.
-const OBJECTIVE_ORDER = ["active", "proposed", "deferred", "cancelled", "completed"];
+// Show held work first, then the satisfaction planner's actual selection. Zero means staying, not a random
+// proposed activity. Older worlds without selection telemetry retain the historical proposal fallback.
+const OBJECTIVE_ORDER = ["active", "waiting", "blocked", "proposed", "deferred", "cancelled", "completed"];
 
 export function currentObjective(bot) {
   const objectives = bot?.planning?.objectives;
@@ -392,7 +391,12 @@ export function currentObjective(bot) {
     const place = OBJECTIVE_ORDER.indexOf(objective.state);
     return place < 0 ? OBJECTIVE_ORDER.length : place;
   };
-  return [...objectives].sort((a, b) => rank(a) - rank(b) || (b.id ?? 0) - (a.id ?? 0))[0];
+  const ordered = [...objectives].sort((a, b) => rank(a) - rank(b) || (b.id ?? 0) - (a.id ?? 0));
+  const held = ordered.find((objective) => ["active", "waiting", "blocked"].includes(objective.state));
+  if (held) return held;
+  const selected = bot.planning.satisfaction?.selectedObjective;
+  if (Number.isFinite(selected)) return objectives.find((objective) => objective.id === selected) || null;
+  return ordered[0];
 }
 
 // One row per bot: what it is working towards and how that is going. Bots without planning are left out, so a

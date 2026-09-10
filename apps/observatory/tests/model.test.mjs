@@ -40,6 +40,23 @@ const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
   { id: "b", map: 1, zone: 14, level: 3, earnedXp: 250, questCompletions: 3, deaths: 0, x: 200, y: 150 },
 ];
+test("current objective respects waiting, blocked work and the selected staying alternative", () => {
+  const proposed = { id: 9, state: "proposed" };
+  const waiting = { id: 2, state: "waiting" };
+  const blocked = { id: 3, state: "blocked" };
+  const completed = { id: 8, state: "completed" };
+  const bot = { planning: { objectives: [proposed, completed, waiting], satisfaction: { selectedObjective: 0 } } };
+  assert.equal(currentObjective(bot), waiting);
+  bot.planning.objectives = [proposed, completed, blocked];
+  assert.equal(currentObjective(bot), blocked);
+  bot.planning.objectives = [proposed, completed];
+  assert.equal(currentObjective(bot), null);
+  bot.planning.satisfaction.selectedObjective = 9;
+  assert.equal(currentObjective(bot), proposed);
+  bot.planning.satisfaction.selectedObjective = 404;
+  assert.equal(currentObjective(bot), null);
+});
+
 test("progression uses cumulative authoritative counters across level XP resets", () => {
   const result = summarize({ simMs: 80000, bots });
   assert.equal(result.xp, 370);
