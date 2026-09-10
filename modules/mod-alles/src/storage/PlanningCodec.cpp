@@ -43,17 +43,22 @@ object EncodeExperience(std::string const& id, SatisfactionExperience const& exp
     };
     return {{"id", id}, {"samples", experience.samples}, {"successes", experience.successes},
         {"meanDurationMs", experience.meanDurationMs}, {"effects", encodeEffects(experience.effects)},
-        {"failureEffects", encodeEffects(experience.failureEffects)}};
+        {"failureEffects", encodeEffects(experience.failureEffects)}, {"observedMs", experience.observedMs}};
 }
 
-SatisfactionExperience ReadExperience(object const& experience, bool modern)
+SatisfactionExperience ReadExperience(object const& experience, uint32_t version)
 {
-    if (modern)
+    bool const modern = version >= 12;
+    if (version >= 14)
+        Fields(experience, {"id", "samples", "successes", "meanDurationMs", "effects", "failureEffects", "observedMs"});
+    else if (modern)
         Fields(experience, {"id", "samples", "successes", "meanDurationMs", "effects", "failureEffects"});
     else
         Fields(experience, {"id", "samples", "successes", "meanDurationMs"});
     SatisfactionExperience result{UInt<uint32_t>(experience, "samples"), UInt<uint32_t>(experience, "successes"),
         experience.at("meanDurationMs").to_number<double>()};
+    if (version >= 14)
+        result.observedMs = UInt<uint64_t>(experience, "observedMs");
     if (modern)
     {
         auto readEffects = [](value const& data)
@@ -169,7 +174,9 @@ SatisfactionSnapshot ReadSatisfaction(object const& object, uint32_t version)
     for (auto const& value : experiences)
     {
         auto const& experience = value.as_object();
-        auto const item = ReadExperience(experience, modern);
+        auto item = ReadExperience(experience, version);
+        if (version < 14)
+            item.observedMs = result.observedMs;
         if (!result.experiences.emplace(String(experience, "id", 32), item).second)
             throw std::invalid_argument("duplicate satisfaction experience");
     }
@@ -196,7 +203,10 @@ SatisfactionSnapshot ReadSatisfaction(object const& object, uint32_t version)
         for (auto const& value : contexts)
         {
             auto const& experience = value.as_object();
-            if (!result.contexts.emplace(String(experience, "id", 65), ReadExperience(experience, true)).second)
+            auto item = ReadExperience(experience, version);
+            if (version < 14)
+                item.observedMs = result.observedMs;
+            if (!result.contexts.emplace(String(experience, "id", 65), item).second)
                 throw std::invalid_argument("duplicate learned context");
         }
     }
@@ -618,7 +628,7 @@ std::string EncodePlanning(PlanningSnapshot const& snapshot)
         places.push_back(EncodePlace(place));
     for (auto const& [id, report] : snapshot.knowledge.reports)
         reports.push_back(EncodeReport(report));
-    object root{{"version", 13}, {"owner", Actor(snapshot.owner)},
+    object root{{"version", 14}, {"owner", Actor(snapshot.owner)},
         {"revision", snapshot.revision}, {"nextObjectiveId", snapshot.objectives.nextId},
         {"objectives", std::move(objectives)}, {"seedVersion", snapshot.knowledge.seedVersion},
         {"nextReportId", snapshot.knowledge.nextReport}, {"places", std::move(places)},
@@ -647,7 +657,7 @@ std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey e
         auto const decoded = Bridge::Parse(text, MaxPlanningBytes);
         auto const& object = decoded.as_object();
         auto const version = UInt<uint32_t>(object, "version");
-        if (version < 1 || version > 13)
+        if (version < 1 || version > 14)
             return std::nullopt;
         if (version >= 11 && object.contains("contacts"))
             Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",

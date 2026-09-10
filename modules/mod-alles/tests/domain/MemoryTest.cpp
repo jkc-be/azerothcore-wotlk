@@ -204,7 +204,7 @@ TEST(AllesMemoryTest, HiddenKillerDoesNotAppearInWitnessMemoryOrRetelling)
     EXPECT_TRUE(UsesReflexFormation(death));
 }
 
-TEST(AllesMemoryTest, OnlyEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
+TEST(AllesMemoryTest, PersonalDeathsAndEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
 {
     Perception death;
     death.kind = PerceptionKind::WitnessedDeath;
@@ -218,7 +218,7 @@ TEST(AllesMemoryTest, OnlyEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
     EXPECT_EQ(FormFallback(death, {}, 100).claim, "I died after being attacked by Attacker.");
     death.source = death.subject;
     EXPECT_TRUE(UsesReflexFormation(death));
-    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 0.05);
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 1);
     death.source = {ActorKey{ActorKind::Player, 19}, "Attacker"};
     death.subject = {ActorKey{ActorKind::CreatureSpawn, 20}, "Wolf"};
     death.kind = PerceptionKind::WitnessedDeath;

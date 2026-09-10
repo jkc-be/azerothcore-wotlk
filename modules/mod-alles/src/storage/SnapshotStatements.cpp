@@ -82,5 +82,8 @@ void BindMemory(CharacterDatabasePreparedStatement& statement, ActorKey owner, M
     statement.SetData(17, memory.recalledGameTimeMs);
     statement.SetData(18, memory.decayGameTimeMs);
     statement.SetData(19, memory.formation);
+    statement.SetData(20, memory.encounters);
+    statement.SetData(21, memory.lastSeenGameTimeMs);
+    statement.SetData(22, std::string_view(memory.lastSeenPlace));
 }
 }

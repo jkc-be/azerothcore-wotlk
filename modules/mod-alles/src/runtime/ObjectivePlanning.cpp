@@ -41,6 +41,38 @@ bool Associated(LearnedReport const& report, Objective const& objective)
 }
 }
 
+uint64_t MotivationDecisionSignal(SatisfactionSnapshot const& satisfaction)
+{
+    uint64_t hash = 14695981039346656037ULL;
+    for (auto const& [id, dimension] : satisfaction.dimensions)
+    {
+        for (unsigned char c : id)
+            hash = (hash ^ c) * 1099511628211ULL;
+        // Measured growth already enters equipment/finance signals. Needs use five meaningful bands.
+        if (dimension.curve == MotivationCurve::Need)
+            hash = (hash ^ uint64_t(dimension.fulfillment * 5)) * 1099511628211ULL;
+    }
+    for (auto const& [id, experience] : satisfaction.contexts)
+        hash = (hash ^ experience.samples ^ experience.observedMs) * 1099511628211ULL;
+    return hash;
+}
+
+bool PlanningCadence::Ready(uint64_t signal, uint64_t now)
+{
+    if (signal != seen)
+    {
+        seen = signal;
+        sinceMs = now;
+    }
+    return signal != submitted && now >= nextMs && now >= sinceMs && now - sinceMs >= 2000;
+}
+
+void PlanningCadence::Submitted(uint64_t signal, uint64_t now)
+{
+    submitted = signal;
+    nextMs = now + 10000;
+}
+
 CapabilityRegistry ObjectiveCapabilities()
 {
     CapabilityRegistry registry;

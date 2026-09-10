@@ -54,6 +54,17 @@ std::vector<uint64_t> IncomeQuestOrder(ObjectiveBook const& book, QuestFinances 
     uint64_t circumstances, uint64_t now);
 
 CapabilityRegistry ObjectiveCapabilities();
+uint64_t MotivationDecisionSignal(SatisfactionSnapshot const& satisfaction);
+// Changes in needs/evidence use a short debounce; unchanged observations never retry a finished request.
+struct PlanningCadence
+{
+    uint64_t seen = 0;
+    uint64_t sinceMs = 0;
+    uint64_t submitted = 0;
+    uint64_t nextMs = 0;
+    bool Ready(uint64_t signal, uint64_t now);
+    void Submitted(uint64_t signal, uint64_t now);
+};
 uint64_t ObjectiveDecisionSignal(ObjectiveBook const& book, PrivateKnowledge const& knowledge,
     uint8_t level, uint32_t area, uint64_t circumstances, uint64_t now,
     std::optional<QuestFinances> const& finances = std::nullopt);

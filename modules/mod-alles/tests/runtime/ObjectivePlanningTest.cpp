@@ -383,4 +383,29 @@ TEST_F(AllesObjectivePlanningTest, ContextBoundsPreservePrivateReportsAndExclude
     for (auto const& option : job.options)
         EXPECT_NE(book.Find(option.objective), nullptr);
 }
+
+TEST(AllesPlanningCadence, StableSamplesDoNotRetryExpiredWorkButMaterialChangesArePrompt)
+{
+    PlanningCadence cadence;
+    EXPECT_FALSE(cadence.Ready(1, 1000));
+    ASSERT_TRUE(cadence.Ready(1, 3000));
+    cadence.Submitted(1, 3000);
+    for (uint64_t now = 4000; now <= 600000; now += 1000)
+        EXPECT_FALSE(cadence.Ready(1, now));
+    EXPECT_FALSE(cadence.Ready(2, 601000));
+    EXPECT_TRUE(cadence.Ready(2, 603000));
+    cadence.Submitted(2, 603000);
+    EXPECT_FALSE(cadence.Ready(3, 604000));
+    EXPECT_TRUE(cadence.Ready(3, 613000));
+    auto state = DefaultSatisfaction();
+    state.dimensions.at("security").fulfillment = 0.75;
+    auto const signal = MotivationDecisionSignal(state);
+    state.observedMs += 5000;
+    ++state.revision;
+    state.dimensions.at("security").fulfillment = 0.74;
+    EXPECT_EQ(MotivationDecisionSignal(state), signal);
+    state.dimensions.at("security").fulfillment = 0.35;
+    EXPECT_NE(MotivationDecisionSignal(state), signal);
+}
+
 }

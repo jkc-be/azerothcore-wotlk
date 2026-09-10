@@ -597,10 +597,7 @@ struct ObjectiveRuntime::Impl
         };
         std::optional<SharedQuest> sharedQuest;
         std::optional<PendingDecision> decision;
-        uint64_t seenDecisionSignal = 0;
-        uint64_t decisionSignalSinceMs = 0;
-        uint64_t lastPlannedSignal = 0;
-        uint64_t nextPlanningRealMs = 0;
+        PlanningCadence planningCadence;
         std::optional<PendingAdvice> advice;
         std::deque<InformationReply> replies;
         ObjectiveBook book;
@@ -616,6 +613,7 @@ struct ObjectiveRuntime::Impl
         uint64_t intention = 0;
         uint64_t activityObservedMs = 0;
         SatisfactionEffects attemptEffects;
+        bool deathObserved = false;
         std::string attemptContext;
         uint32_t discoveredArea = 0;
         std::map<uint64_t, WorldPosition> destinations;
@@ -630,6 +628,8 @@ struct ObjectiveRuntime::Impl
         std::size_t routeIndex = 0;
         uint64_t nextAssessmentMs = 0;
         uint64_t nextActivityInteractionMs = 0;
+        uint64_t visitGreetingMs = 0;
+        bool visitAcknowledged = false;
         uint64_t activityArrivalObservedMs = 0;
         std::map<uint64_t, double> routeRisks;
         std::map<uint64_t, std::string> routeReasons;
@@ -2052,7 +2052,7 @@ struct ObjectiveRuntime::Impl
 
     void AssessActivities(Owner& state, Player& bot, PlayerbotAI& ai, uint64_t now)
     {
-        if (!brain)
+        if (!brain || !bot.IsAlive())
             return;
         auto const* current = state.book.Current();
         if (now < state.nextAssessmentMs && state.intention == (current ? current->id : 0))
@@ -2064,6 +2064,8 @@ struct ObjectiveRuntime::Impl
             state.intentionSinceMs = now;
             state.activityObservedMs = state.activityArrivalObservedMs = 0;
             state.attemptEffects.clear();
+            state.visitGreetingMs = 0;
+            state.visitAcknowledged = false;
             state.attemptContext = current ? LearningContext(bot, *current) : std::string{};
             state.learningRoute.clear();
             state.observedTravelMs = state.predictedTravelMs = 0;
@@ -2181,7 +2183,7 @@ struct ObjectiveRuntime::Impl
                 : objective.checkpoint.readyToReward ? 0.95
                 : objective.purpose == PlacePurpose::Discovery ? 0.85
                 : objective.purpose == PlacePurpose::Companionship ? 0.65 : 0.6;
-            double success = state.satisfaction.SuccessProbability(activity, prior);
+            double success = state.satisfaction.SuccessProbability(activity, prior, context);
             uint64_t duration = objective.purpose == PlacePurpose::Rest ? 60000 - objective.activityMs
                 : state.satisfaction.ExpectedDuration(activity, objective.checkpoint.readyToReward ? 10000 : 120000)
                     + (supplies ? 30000 : 0);
@@ -2426,11 +2428,13 @@ struct ObjectiveRuntime::Impl
                 && bot.GetExactDist(companion) <= 20)
             {
                 state.nextActivityInteractionMs = now + 30000;
-                observation.person = objective->person;
-                observation.interaction = SendNormalChat(bot, *companion, SpeechRoute{CHAT_MSG_SAY},
-                    "Hello, " + companion->GetName() + ". It is good to see you.");
+                if (SendNormalChat(bot, *companion, SpeechRoute{CHAT_MSG_SAY},
+                    "Hello, " + companion->GetName() + ". It is good to see you."))
+                    state.visitGreetingMs = now;
             }
         }
+        observation.person = objective->person;
+        observation.interaction = companionNearby && state.visitAcknowledged;
         state.book.ObserveActivity(id, observation, now);
         if (objective->state == ObjectiveState::Completed)
         {
@@ -2468,6 +2472,30 @@ struct ObjectiveRuntime::Impl
                 && bot->IsAlive() && !bot->IsInCombat())
                 state.activityArrivalObservedMs = std::min(uint64_t(60000), state.activityArrivalObservedMs + elapsed);
         }
+        if (auto const* current = state.book.Find(state.intention); current && !state.deathObserved
+            && current->state != ObjectiveState::Completed && current->state != ObjectiveState::Cancelled
+            && !bot->IsAlive())
+        {
+            state.deathObserved = true;
+            auto const activity = current->quest ? "pursue_quest" : ActivityCapability(current->purpose);
+            if (state.satisfaction.Capture().dimensions.contains("security"))
+                state.attemptEffects["security"] = -1; // Personally experienced loss of all viable health.
+            state.satisfaction.LearnOutcome(activity, state.attemptContext, false,
+                std::max(uint64_t(1), state.activityObservedMs), state.attemptEffects);
+            if (!state.learningRoute.empty())
+                state.satisfaction.LearnTravel(state.learningRoute, false,
+                    std::max(uint64_t(1), state.observedTravelMs), state.predictedTravelMs);
+            state.attemptEffects.clear();
+            state.activityObservedMs = state.activityArrivalObservedMs = 0;
+            state.learningRoute.clear();
+            state.observedTravelMs = state.predictedTravelMs = 0;
+            state.nextAssessmentMs = 0;
+            if (recorder)
+                recorder->Record(owner, "alles_learning", current->id, "personal_death",
+                    state.attemptContext, realMs);
+        }
+        if (bot->IsAlive())
+            state.deathObserved = false;
         if (!state.learningRoute.empty())
         {
             auto const* intention = state.book.Find(state.intention);
@@ -2500,10 +2528,14 @@ struct ObjectiveRuntime::Impl
         if (dimensions.contains("equipment"))
             measured["equipment"] = MeasuredMotivation(dimensions.at("equipment"), bot->GetTotalItemLevel())
                 - dimensions.at("equipment").fulfillment;
-        if (auto const* intention = state.book.Find(state.intention);
-            intention && intention->purpose == PlacePurpose::Rest && state.attemptContext.ends_with("_hurt")
-                && dimensions.contains("security"))
-            measured["security"] = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
+        if (auto const* intention = state.book.Find(state.intention); intention && dimensions.contains("security"))
+        {
+            double const change = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
+            // Resurrection or passive healing must not cancel the harm suffered in an earlier attempt.
+            if (change < 0 || (bot->IsAlive() && intention->purpose == PlacePurpose::Rest
+                && state.attemptContext.ends_with("_hurt")))
+                measured["security"] = change;
+        }
         if (elapsed && state.intention)
             for (auto const& [id, value] : measured)
             {
@@ -2542,7 +2574,7 @@ struct ObjectiveRuntime::Impl
             {
                 auto const activity = objective.quest ? "pursue_quest" : ActivityCapability(objective.purpose);
                 if (state.intention == id && state.activityObservedMs)
-                    {
+                {
                     state.satisfaction.LearnOutcome(activity, state.attemptContext, completed,
                         state.activityObservedMs, state.attemptEffects);
                     state.attemptEffects.clear();
@@ -2580,11 +2612,13 @@ struct ObjectiveRuntime::Impl
             return;
         auto& pending = *state.decision;
         auto const* anchor = state.book.Find(pending.job.issued.objective);
-        bool const stale = !anchor || anchor->revision != pending.job.issued.revision
-            || state.generation != pending.job.issued.actorGeneration || realMs >= pending.expiresRealMs;
+        std::string const invalid = state.generation != pending.job.issued.actorGeneration ? "ownership_changed"
+            : !anchor ? "objective_missing" : anchor->revision != pending.job.issued.revision ? "objective_changed"
+            : realMs >= pending.expiresRealMs ? "worker_expired" : "";
+        bool const stale = !invalid.empty();
         if (!stale && !pending.result)
             return;
-        ObjectiveChoice choice{"worker_expired_or_stale"};
+        ObjectiveChoice choice{stale ? invalid : "execution_unavailable"};
         if (!stale && pending.result->status == "success" && !bot.IsInCombat() && bot.IsAlive()
             && !bot.IsBeingTeleported() && !bot.IsInFlight())
         {
@@ -2611,8 +2645,6 @@ struct ObjectiveRuntime::Impl
                     {"released", choice.release}, {"question", choice.question}}), realMs);
         bridge->CancelPlanning(pending.id);
         state.decision.reset();
-        if (stale)
-            state.lastPlannedSignal = 0; // A fresh observation may retry after the per-owner cooldown.
         if (choice.release)
             Release(&bot, choice.release);
         if (choice.question)
@@ -2624,21 +2656,20 @@ struct ObjectiveRuntime::Impl
         if (!bridge || state.advice || state.decision || !state.replies.empty()
             || bot.IsInCombat() || !bot.IsAlive() || bot.IsBeingTeleported() || bot.IsInFlight())
             return;
+        if (auto const* current = state.book.Current(); brain && current
+            && current->state == ObjectiveState::Active && current->obstruction == Obstruction::None
+            && current->id == state.satisfactionDecision.selected && current->activeWithoutProgressMs < 60000
+            && !NeedsRecovery(bot))
+            return;
         auto const circumstances = Circumstances(bot);
         auto const finances = OwnQuestFinances(bot);
         auto signal = ObjectiveDecisionSignal(state.book, state.knowledge,
             uint8_t(bot.GetLevel()), state.currentArea, circumstances, now, finances);
         if (brain)
-            signal ^= state.satisfactionDecision.selected * 1099511628211ULL;
-        if (signal != state.seenDecisionSignal)
-        {
-            state.seenDecisionSignal = signal;
-            state.decisionSignalSinceMs = realMs;
-        }
-        if (signal == state.lastPlannedSignal || realMs < state.nextPlanningRealMs
-            || realMs - state.decisionSignalSinceMs < 2000)
+            signal ^= state.satisfactionDecision.selected * 1099511628211ULL
+                ^ MotivationDecisionSignal(state.satisfaction.Capture());
+        if (!state.planningCadence.Ready(signal, realMs))
             return;
-        state.nextPlanningRealMs = realMs + 30000;
         auto job = PrepareObjectivePlanning(owner, state.generation, state.book, state.knowledge,
             uint8_t(bot.GetLevel()), state.currentArea, circumstances,
             CanSeekInformation(owner, state, bot), now, finances, brain ? &state.satisfactionDecision : nullptr);
@@ -2647,7 +2678,7 @@ struct ObjectiveRuntime::Impl
         auto id = "decision-" + std::to_string(owner.id) + "-" + std::to_string(++nextAdviceId);
         if (bridge->QueuePlanning(id, job->context, realMs))
         {
-            state.lastPlannedSignal = signal;
+            state.planningCadence.Submitted(signal, realMs);
             state.decision = PendingDecision{std::move(id), std::move(*job), realMs + 45000, {}};
         }
     }
@@ -2662,7 +2693,7 @@ struct ObjectiveRuntime::Impl
         if (bridge && found->second.decision)
             bridge->CancelPlanning(found->second.decision->id);
         found->second.decision.reset();
-        found->second.lastPlannedSignal = 0;
+        found->second.planningCadence = {};
         found->second.advice.reset();
         found->second.replies.clear();
         if (conversation)
@@ -3042,6 +3073,17 @@ struct ObjectiveRuntime::Impl
             && state.satisfactionDecision.selected != current->id
             && book.Replan(current->id, "Another feasible activity offers greater expected satisfaction", now))
         {
+            if (auto const harm = state.attemptEffects.find("security");
+                harm != state.attemptEffects.end() && harm->second < 0)
+            {
+                auto const activity = current->quest ? "pursue_quest" : ActivityCapability(current->purpose);
+                state.satisfaction.LearnOutcome(activity, state.attemptContext, false,
+                    std::max(uint64_t(1), state.activityObservedMs), state.attemptEffects);
+                if (recorder)
+                    recorder->Record(owner, "alles_learning", current->id, "withdrew_after_harm",
+                        state.attemptContext, realMs);
+                state.attemptEffects.clear();
+            }
             Release(bot, current->id);
             state.activeRoute.clear();
             state.routeIndex = 0;
@@ -3156,6 +3198,8 @@ struct ObjectiveRuntime::Impl
                             state.intentionSinceMs = now;
                             state.activityObservedMs = state.activityArrivalObservedMs = 0;
                             state.attemptEffects.clear();
+                            state.visitGreetingMs = 0;
+                            state.visitAcknowledged = false;
                             state.attemptContext = LearningContext(*bot, *current);
                             state.learningRoute.clear();
                             state.observedTravelMs = state.predictedTravelMs = 0;
@@ -3397,6 +3441,18 @@ ObjectiveRuntime::ObjectiveRuntime(ActorStore& store, std::set<ActorKey> owners,
     if (conversation)
         conversation->SetObjectives(this);
 }
+void ObjectiveRuntime::CompanionReply(ActorKey owner, ActorKey speaker, uint64_t gameMs)
+{
+    auto found = _impl->states.find(owner);
+    if (found == _impl->states.end())
+        return;
+    auto& state = found->second;
+    auto const* current = state.book.Current();
+    if (current && current->purpose == PlacePurpose::Companionship && current->person == speaker
+        && state.visitGreetingMs && gameMs >= state.visitGreetingMs && gameMs - state.visitGreetingMs <= 60000)
+        state.visitAcknowledged = true;
+}
+
 ObjectiveRuntime::~ObjectiveRuntime()
 {
     if (_impl->conversation)
@@ -3541,7 +3597,8 @@ bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, 
         state.satisfaction = std::move(previous);
         return false;
     }
-    state.nextAssessmentMs = state.lastPlannedSignal = 0;
+    state.nextAssessmentMs = 0;
+    state.planningCadence = {};
     return true;
 }
 
@@ -3567,7 +3624,8 @@ bool ObjectiveRuntime::SetEffect(ActorKey owner, std::string activity, std::stri
         state.satisfaction = std::move(previous);
         return false;
     }
-    state.nextAssessmentMs = state.lastPlannedSignal = 0;
+    state.nextAssessmentMs = 0;
+    state.planningCadence = {};
     return true;
 }
 
@@ -3630,7 +3688,7 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             failures[dimension] = boost::json::object{{"samples", effect.samples}, {"mean", effect.mean}};
         return boost::json::object{{"samples", experience.samples}, {"successes", experience.successes},
             {"meanExecutionMs", experience.meanDurationMs}, {"effects", std::move(effects)},
-            {"failureEffects", std::move(failures)}};
+            {"failureEffects", std::move(failures)}, {"observedMs", experience.observedMs}};
     };
     for (auto const& [activity, experience] : satisfaction.experiences)
         experiences[activity] = describeExperience(experience);

@@ -128,6 +128,7 @@ std::optional<uint64_t> ConversationPolicy::Open(uint64_t origin, std::string sc
     uint64_t const id = _next++;
     _threads.emplace(id, DialogueThread{id, origin, 0, now, now + ThreadMs, 0, false,
         std::move(scope), std::move(topic)});
+    _threads.at(id).greeting = IsRoutineGreeting(text);
     return id;
 }
 
@@ -135,7 +136,7 @@ bool ConversationPolicy::CanReply(uint64_t id, uint64_t speaker, uint64_t respon
 {
     auto const* thread = Find(id);
     if (!thread || !speaker || !respondent || speaker == respondent || now < thread->openedMs
-        || now >= thread->expiresMs || thread->pending || thread->attempts >= 4)
+        || now >= thread->expiresMs || thread->pending || thread->closed || thread->attempts >= 4)
         return false;
     if (thread->recruitmentLimit)
     {
@@ -241,6 +242,8 @@ void ConversationPolicy::Delivered(uint64_t id, std::string_view text, uint64_t 
     if (_answers.size() >= 128)
         _answers.pop_front();
     _answers.push_back({thread->scope, ConversationFingerprint(text), now + WindowMs});
+    if (thread->greeting && IsRoutineGreeting(text))
+        _threads.at(id).closed = true;
 }
 
 void ConversationPolicy::Forget(uint64_t actor)

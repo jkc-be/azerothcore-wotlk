@@ -112,16 +112,16 @@ bool ReadPerceptions(PreparedQueryResult const& result, OwnerSnapshot& snapshot,
 
 bool ReadMemories(PreparedQueryResult const& result, OwnerSnapshot& snapshot, std::size_t cap)
 {
-    if (result->GetFieldCount() != 18)
+    if (result->GetFieldCount() != 21)
         return false;
     if (result->Fetch()[0].IsNull())
-        return result->GetRowCount() == 1 && AllNull(result->Fetch(), 18);
+        return result->GetRowCount() == 1 && AllNull(result->Fetch(), 21);
     if (result->GetRowCount() > cap)
         return false;
     do
     {
         auto const* fields = result->Fetch();
-        if (!RequiredFields(fields, {0, 1, 2, 9, 10, 12, 13, 14, 15, 16, 17}))
+        if (!RequiredFields(fields, {0, 1, 2, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20}))
             return false;
         Memory memory;
         memory.id = fields[0].Get<uint64>();
@@ -139,6 +139,9 @@ bool ReadMemories(PreparedQueryResult const& result, OwnerSnapshot& snapshot, st
         memory.recalledGameTimeMs = fields[15].Get<uint64>();
         memory.decayGameTimeMs = fields[16].Get<uint64>();
         memory.formation = FormationMode(fields[17].Get<uint8>());
+        memory.encounters = fields[18].Get<uint32>();
+        memory.lastSeenGameTimeMs = fields[19].Get<uint64>();
+        memory.lastSeenPlace = fields[20].Get<std::string>();
         snapshot.memories.push_back(std::move(memory));
     } while (result->NextRow());
     return true;

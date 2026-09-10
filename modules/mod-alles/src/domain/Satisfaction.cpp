@@ -60,9 +60,26 @@ bool ValidExperience(SatisfactionExperience const& experience, SatisfactionSnaps
     return true;
 }
 
-void UpdateExperience(SatisfactionExperience& experience, bool success, uint64_t durationMs,
-    SatisfactionEffects const& effects)
+double EvidenceWeight(SatisfactionExperience const& experience, uint64_t now)
 {
+    // Six game hours without new evidence halves an estimate's influence.
+    auto const age = now >= experience.observedMs ? now - experience.observedMs : 0;
+    return std::exp2(-double(age) / 21600000);
+}
+
+void UpdateExperience(SatisfactionExperience& experience, bool success, uint64_t durationMs,
+    SatisfactionEffects const& effects, uint64_t now)
+{
+    if (experience.samples && EvidenceWeight(experience, now) < 0.5)
+    {
+        double const weight = EvidenceWeight(experience, now);
+        experience.samples = uint32_t(experience.samples * weight);
+        experience.successes = uint32_t(experience.successes * weight);
+        for (auto* values : {&experience.effects, &experience.failureEffects})
+            for (auto& [id, effect] : *values)
+                effect.samples = std::max(1u, uint32_t(effect.samples * weight));
+    }
+    experience.observedMs = now;
     if (experience.samples == 1000)
     {
         experience.samples /= 2;
@@ -229,7 +246,7 @@ bool SatisfactionModel::LearnOutcome(std::string const& activity, std::string co
         || (!context.empty() && !Identifier(context)) || !ValidEffects(observedEffects, _state)
         || _state.revision >= std::numeric_limits<uint64_t>::max() - 2)
         return false;
-    UpdateExperience(_state.experiences[activity], success, durationMs, observedEffects);
+    UpdateExperience(_state.experiences[activity], success, durationMs, observedEffects, _state.observedMs);
     if (!context.empty())
     {
         auto const key = activity + ":" + context;
@@ -239,7 +256,7 @@ bool SatisfactionModel::LearnOutcome(std::string const& activity, std::string co
                 [](auto const& left, auto const& right) { return left.second.samples < right.second.samples; });
             _state.contexts.erase(least);
         }
-        UpdateExperience(_state.contexts[key], success, durationMs, observedEffects);
+        UpdateExperience(_state.contexts[key], success, durationMs, observedEffects, _state.observedMs);
     }
     ++_state.revision;
     return true;
@@ -249,26 +266,37 @@ SatisfactionEffects SatisfactionModel::ExpectedEffects(std::string const& activi
     bool success) const
 {
     auto effects = success ? Effects(activity) : SatisfactionEffects{};
-    auto blend = [&](SatisfactionExperience const& experience)
+    auto blend = [&](SatisfactionExperience const& experience, bool transferable = false)
     {
         for (auto const& [id, effect] : success ? experience.effects : experience.failureEffects)
-            effects[id] = (effect.mean * effect.samples + 4 * effects[id]) / (effect.samples + 4);
+        {
+            if (transferable && effect.mean < 0)
+                continue;
+            double const samples = effect.samples * EvidenceWeight(experience, _state.observedMs);
+            effects[id] = (effect.mean * samples + 4 * effects[id]) / (samples + 4);
+        }
     };
-    if (auto const found = _state.experiences.find(activity); found != _state.experiences.end())
-        blend(found->second);
+    // Successful capabilities can transfer; harm and failure remain local to the observed context.
+    // A caller without a context explicitly requests the pooled estimate.
+    if (context.empty() || success)
+        if (auto const found = _state.experiences.find(activity); found != _state.experiences.end())
+            blend(found->second, !context.empty());
     if (auto const found = _state.contexts.find(activity + ":" + context); found != _state.contexts.end())
         blend(found->second);
     return effects;
 }
 
-double SatisfactionModel::SuccessProbability(std::string const& activity, double prior) const
+double SatisfactionModel::SuccessProbability(std::string const& activity, double prior,
+    std::string const& context) const
 {
     if (!Range(prior, 0, 1))
         return 0;
-    auto const found = _state.experiences.find(activity);
-    if (found == _state.experiences.end())
+    auto const& estimates = context.empty() ? _state.experiences : _state.contexts;
+    auto const found = estimates.find(context.empty() ? activity : activity + ":" + context);
+    if (found == estimates.end())
         return prior;
-    return (found->second.successes + 4 * prior) / (found->second.samples + 4);
+    double const weight = EvidenceWeight(found->second, _state.observedMs);
+    return (found->second.successes * weight + 4 * prior) / (found->second.samples * weight + 4);
 }
 
 uint64_t SatisfactionModel::ExpectedDuration(std::string const& activity, uint64_t priorMs) const

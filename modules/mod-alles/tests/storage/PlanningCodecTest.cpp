@@ -249,7 +249,7 @@ TEST(AllesPlanningCodec, RejectsForeignOwnersUnknownVersionsFieldsAndDuplicateKe
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::CreatureSpawn, Owner.id}));
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::Player, Owner.id + 1}));
     auto value = Bridge::Parse(encoded).as_object();
-    value["version"] = 14;
+    value["version"] = 15;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
     value["version"] = 13;
     value["movementHandle"] = 123;
@@ -585,6 +585,28 @@ TEST(AllesPlanningCodec, NeedUrgencyPersistsAndVersionTwelveKeepsItsExistingPref
     auto invalid = Bridge::Parse(encoded).as_object();
     invalid.at("satisfaction").as_object().at("dimensions").as_array()[0].as_object()["urgency"] = 11;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(invalid), Owner));
+}
+
+TEST(AllesPlanningCodec, ContextualConsequencesRetainEvidenceTimeAndLegacyLearningStartsAtItsLastObservation)
+{
+    auto snapshot = Fixture();
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Observe(1789060000000, 0, {}));
+    ASSERT_TRUE(model.LearnOutcome("explore_place", "danger", false, 40000, {{"security", -1}}));
+    snapshot.satisfaction = model.Capture();
+    auto encoded = EncodePlanning(snapshot);
+    auto decoded = DecodePlanning(encoded, Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    auto legacy = Bridge::Parse(encoded).as_object();
+    legacy["version"] = 13;
+    auto& satisfaction = legacy.at("satisfaction").as_object();
+    for (auto const key : {"experiences", "contexts"})
+        for (auto& experience : satisfaction.at(key).as_array())
+            experience.as_object().erase("observedMs");
+    decoded = DecodePlanning(boost::json::serialize(legacy), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded->satisfaction, snapshot.satisfaction);
 }
 
 }

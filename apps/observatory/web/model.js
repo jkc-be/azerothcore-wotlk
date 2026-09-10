@@ -711,6 +711,7 @@ export function filterMemories(memories, filter = "", sort = "salience") {
     memory.kind,
     memory.formation,
     memory.attribution,
+    memory.lastSeenPlace,
     memory.subject?.name,
     memory.source?.name,
   ];

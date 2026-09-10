@@ -1058,8 +1058,8 @@ DEFAULT_WORLD_CONF = Path(__file__).resolve().parents[2] / 'env' / 'dist' / 'etc
 DEFAULT_ALLES_CONF = Path(__file__).resolve().parents[2] / 'env' / 'dist' / 'etc' / 'modules' / 'alles.conf'
 OWNER_KINDS = ('player', 'creature')
 # Keep in step with Alles::MemoryKind, Alles::PerceptionKind and Alles::FormationMode (mod-alles Memory.h).
-MEMORY_KINDS = ('heard statement', 'unintelligible speech', 'emote', 'witnessed death', 'own death', 'met')
-PERCEPTION_KINDS = ('speech', 'emote', 'witnessed death', 'own death', 'met')
+MEMORY_KINDS = ('heard statement', 'unintelligible speech', 'emote', 'witnessed death', 'own death', 'familiarity')
+PERCEPTION_KINDS = ('speech', 'emote', 'witnessed death', 'own death', 'familiarity')
 FORMATION_MODES = ('model', 'fake', 'reflex', 'fallback')
 RACES = {1: 'Human', 2: 'Orc', 3: 'Dwarf', 4: 'Night Elf', 5: 'Undead', 6: 'Tauren', 7: 'Gnome', 8: 'Troll',
          10: 'Blood Elf', 11: 'Draenei'}
@@ -1195,7 +1195,8 @@ class CharacterDatabase:
         return self.query(
             'SELECT memory_id, content_revision, kind, subject_kind, subject_id, subject_name, source_kind, '
             'source_id, source_name, claim, attribution, reported_depth, confidence, salience, '
-            'formed_game_time_ms, recalled_game_time_ms, decay_game_time_ms, formation_mode FROM alles_memory '
+            'formed_game_time_ms, recalled_game_time_ms, decay_game_time_ms, formation_mode, '
+            'encounters, last_seen_game_time_ms, last_seen_place FROM alles_memory '
             f'WHERE owner_kind = {int(kind)} AND owner_id = {int(owner_id)} '
             f'ORDER BY salience DESC, memory_id DESC LIMIT {int(limit)}')
 
@@ -1242,6 +1243,9 @@ def memory_row(row):
         'formedUnixMs': number(row['formed_game_time_ms']), 'recalledUnixMs': number(row['recalled_game_time_ms']),
         'decayUnixMs': number(row['decay_game_time_ms']),
         'formation': label(FORMATION_MODES, row['formation_mode']),
+        'encounters': number(row.get('encounters')) or 0,
+        'lastSeenUnixMs': number(row.get('last_seen_game_time_ms')) or 0,
+        'lastSeenPlace': row.get('last_seen_place') or '',
     }
     memory['text'] = render_memory(memory)
     return memory

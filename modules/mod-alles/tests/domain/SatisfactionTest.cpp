@@ -445,4 +445,34 @@ TEST(AllesSatisfaction, InjuryMakesFurtherHarmCostlierAndKeepsSaferOpportunities
     EXPECT_FALSE(model.SetDimension("wealth", {2, 10, 0, 0, MotivationCurve::Growth, 1, 4}));
 }
 
+TEST(AllesSatisfaction, PersonalHarmChangesOnlyItsContextAndSurvivesRecoveryWithRevisableEvidence)
+{
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Observe(1000, 0, {}));
+    auto value = [&](std::string const& context)
+    {
+        auto forecast = ForecastAttempt(10000, 60000, model.SuccessProbability("explore_place", 0.85, context),
+            model.ExpectedEffects("explore_place", context), {},
+            model.ExpectedEffects("explore_place", context, false));
+        return Value(model, forecast);
+    };
+    double const safe = value("safe");
+    for (unsigned i = 0; i < 4; ++i)
+        ASSERT_TRUE(model.LearnOutcome("explore_place", "danger", false, 30000, {{"security", -1}}));
+    EXPECT_LT(value("danger"), safe);
+    EXPECT_DOUBLE_EQ(value("safe"), safe);
+    double const harmed = model.SuccessProbability("explore_place", 0.85, "danger");
+    ASSERT_TRUE(model.Observe(2000, 1000, {{"security", -1}}));
+    ASSERT_TRUE(model.Observe(3000, 0, {{"security", 1}})); // Actual recovery does not erase learned outcomes.
+    SatisfactionModel restored;
+    ASSERT_TRUE(restored.Restore(model.Capture()));
+    EXPECT_NEAR(restored.SuccessProbability("explore_place", 0.85, "danger"), harmed, 0.001);
+    for (unsigned i = 0; i < 8; ++i)
+        ASSERT_TRUE(model.LearnOutcome("explore_place", "danger", true, 60000, {{"security", 0}}));
+    EXPECT_GT(model.SuccessProbability("explore_place", 0.85, "danger"), harmed);
+    ASSERT_TRUE(restored.Observe(216000000, 0, {}));
+    EXPECT_GT(restored.SuccessProbability("explore_place", 0.85, "danger"), harmed);
+    EXPECT_NEAR(restored.SuccessProbability("explore_place", 0.85, "danger"), 0.85, 0.002);
+}
+
 }

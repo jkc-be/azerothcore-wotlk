@@ -208,7 +208,8 @@ bool IsValidMemory(Memory const& memory)
     return memory.kind <= MemoryKind::Met && memory.formation <= FormationMode::Fallback
         && IsValidReference(memory.subject) && IsValidReference(memory.source)
         && !memory.claim.empty() && IsBoundedText(memory.claim, 512) && IsBoundedText(memory.attribution, 100)
-        && IsProbability(memory.confidence) && IsProbability(memory.salience) && memory.contentRevision != 0;
+        && IsProbability(memory.confidence) && IsProbability(memory.salience) && memory.contentRevision != 0
+        && IsBoundedText(memory.lastSeenPlace, 100);
 }
 
 bool GatePerception(Perception& perception)
@@ -270,7 +271,10 @@ Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, ui
             break;
         case PerceptionKind::Met:
             memory.kind = MemoryKind::Met;
-            memory.claim = "I met " + NameOrSomeone(gated.subject) + ".";
+            memory.claim = "I saw " + NameOrSomeone(gated.subject) + ".";
+            memory.encounters = 1;
+            memory.lastSeenGameTimeMs = gated.gameTimeMs;
+            memory.lastSeenPlace = gated.place;
             memory.salience = 0.3;
             memory.formation = FormationMode::Reflex;
             break;
@@ -296,6 +300,11 @@ bool UsesReflexFormation(Perception const& perception)
             && !PlayerKilledByPlayer(perception.subject, perception.source));
 }
 
+bool IsRoutineGreeting(std::string_view text)
+{
+    return RoutineGreeting(text);
+}
+
 bool IsRoutineMemory(Memory const& memory)
 {
     return memory.kind == MemoryKind::HeardStatement && RoutineGreeting(memory.claim);
@@ -314,7 +323,7 @@ double SalienceCeiling(Memory const& memory)
 {
     if (IsRoutineMemory(memory))
         return 0.05;
-    if ((memory.kind == MemoryKind::WitnessedDeath || memory.kind == MemoryKind::OwnDeath)
+    if (memory.kind == MemoryKind::WitnessedDeath
         && !PlayerKilledByPlayer(memory.subject, memory.source))
         return 0.05;
     return 1;

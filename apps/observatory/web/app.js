@@ -2775,7 +2775,10 @@ function renderMemory() {
     return;
   }
   const now = Date.now();
-  const shown = filterMemories(detail.memories, $("memory-filter").value, $("memory-sort").value);
+  const category = $("memory-kind").value;
+  const records = detail.memories.filter((memory) => category === "all"
+    || (category === "familiarity") === (memory.kind === "familiarity"));
+  const shown = filterMemories(records, $("memory-filter").value, $("memory-sort").value);
   memoryBody.replaceChildren(
     ...shown.map((memory) => {
       const tr = document.createElement("tr");
@@ -2784,12 +2787,13 @@ function renderMemory() {
       const via = memory.attribution && memory.attribution !== memory.source.name ? ` via ${memory.attribution}` : "";
       const depth = memory.reportedDepth == null ? "" : `, depth ${memory.reportedDepth}`;
       tr.append(
-        cell(memory.text, "text"),
+        cell(memory.encounters ? `${memory.text} Seen ${memory.encounters} time${memory.encounters === 1 ? "" : "s"}.`
+          + (memory.lastSeenPlace ? ` Last seen in ${memory.lastSeenPlace}.` : "") : memory.text, "text"),
         cell(memory.kind, "text"),
         cell(memory.source.name ? `${memory.source.name}${via}${depth}` : memory.subject.name || "", "text"),
         cell((memory.confidence ?? 0).toFixed(2)),
         salience,
-        cell(relativeTime(memory.formedUnixMs, now), "text"),
+        cell(relativeTime(memory.lastSeenUnixMs || memory.formedUnixMs, now), "text"),
         cell(memory.recalledUnixMs ? relativeTime(memory.recalledUnixMs, now) : "never", "text"),
         cell(memory.formation, "text"),
       );
@@ -2929,6 +2933,7 @@ $("memory-refresh").onclick = () => {
 };
 $("memory-filter").oninput = renderMemory;
 $("memory-sort").onchange = renderMemory;
+$("memory-kind").onchange = renderMemory;
 $("talk-form").onsubmit = askMemory;
 $("talk-clear").onclick = () => {
   talkLogs.delete(memoryOwner());

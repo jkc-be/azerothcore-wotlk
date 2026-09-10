@@ -355,6 +355,9 @@ void ConversationRuntime::Heard(Player& bot, Player& human, Perception const& pe
     // Everyone can retain actually heard speech, but an answer only offers its intended peer a reply turn.
     if (impl->emission && impl->emission->recipient && impl->emission->recipient != botId)
         return;
+    if (impl->objectives && !IsRemoteSpeech(route.type))
+        impl->objectives->CompanionReply({ActorKind::Player, botId}, {ActorKind::Player, humanId},
+            perception.gameTimeMs);
     if (!impl->generations.contains(humanId))
         Login(human);
     if (!impl->generations.contains(botId))

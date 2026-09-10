@@ -100,6 +100,9 @@ struct Memory
     uint64_t recalledGameTimeMs = 0;
     uint64_t decayGameTimeMs = 0;
     FormationMode formation = FormationMode::Fallback;
+    uint32_t encounters = 0; // Familiarity from direct sightings, never corroboration of a reported claim.
+    uint64_t lastSeenGameTimeMs = 0;
+    std::string lastSeenPlace;
 };
 
 struct MemoryPolicy
@@ -118,9 +121,10 @@ bool IsValidMemory(Memory const& memory);
 
 // Called before a perception enters any retained buffer. Incomprehensible plaintext is destroyed here.
 bool GatePerception(Perception& perception);
-// Common combat deaths are cheap background observations; only evidenced player-on-player deaths are salient.
+// Background NPC deaths use cheap reflex formation. Personal deaths remain consequential even when reflexive.
 bool UsesReflexFormation(Perception const& perception);
 bool IsRoutineMemory(Memory const& memory);
+bool IsRoutineGreeting(std::string_view text);
 bool CanShareMemory(Memory const& memory, bool relevantQuestion);
 double SalienceCeiling(Memory const& memory);
 Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, uint64_t gameTimeMs);

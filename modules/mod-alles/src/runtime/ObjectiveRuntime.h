@@ -49,6 +49,7 @@ public:
         std::string const& statement, std::string const& action, ObjectGuid const& threat,
         uint64_t gameMs, uint64_t realMs);
     void RequestPacket(Player& receiver, WorldPacket const& packet);
+    void CompanionReply(ActorKey owner, ActorKey speaker, uint64_t gameMs);
     void RequesterLeft(ActorKey person, uint64_t realMs);
     std::size_t FollowingCount() const;
 

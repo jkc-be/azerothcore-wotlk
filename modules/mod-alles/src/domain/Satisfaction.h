@@ -48,6 +48,8 @@ struct SatisfactionExperience
     std::map<std::string, LearnedEffect> effects;
     std::map<std::string, LearnedEffect> failureEffects;
 
+    uint64_t observedMs = 0;
+
     bool operator==(SatisfactionExperience const&) const = default;
 };
 
@@ -158,7 +160,7 @@ public:
         SatisfactionEffects const& observedEffects);
     SatisfactionEffects ExpectedEffects(std::string const& activity, std::string const& context = {},
         bool success = true) const;
-    double SuccessProbability(std::string const& activity, double prior) const;
+    double SuccessProbability(std::string const& activity, double prior, std::string const& context = {}) const;
     uint64_t ExpectedDuration(std::string const& activity, uint64_t priorMs) const;
     bool ActivityReceipt(std::string const& activity, uint64_t now);
     bool LearnTravel(std::string const& route, bool success, uint64_t observedMs, uint64_t predictedMs);
