@@ -1584,7 +1584,7 @@ function renderDetails() {
   const unmeasured = state?.source === "alles-simulation"
     ? "not reported by this simulation feed"
     : "not measured by this world build";
-  $("bot-name").textContent = `${bot.name}, level ${bot.level}${bot.controlGroup ? " · Troll control group" : ""}`;
+  $("bot-name").textContent = `${bot.name}, level ${bot.level}${bot.controlGroup ? " · control group" : ""}`;
   renderBotObjective(bot);
   const health = healthPercent(bot);
   $("bot-bars").replaceChildren(

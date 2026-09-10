@@ -868,7 +868,12 @@ std::string Alles::Runtime::EnrichSnapshot(std::string const& snapshot) const
     for (auto& item : result.at("bots").as_array())
     {
         auto& bot = item.as_object();
-        bot["controlGroup"] = bot.at("race").to_number<uint32>() == RACE_TROLL;
+        bot["controlGroup"] = std::none_of(_impl->settings.owners.begin(), _impl->settings.owners.end(),
+            [&bot](ActorKey owner)
+            {
+                return owner.kind == ActorKind::Player
+                    && ObjectGuid(HighGuid::Player, uint32(owner.id)).ToString() == bot.at("id").as_string();
+            });
         if (!bots)
             continue;
         for (auto const& source : bots->as_array())
