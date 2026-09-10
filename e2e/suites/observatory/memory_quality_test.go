@@ -222,6 +222,7 @@ func TestObservatory_PersonalDeathRetainsLearningAfterRecovery(t *testing.T) {
 	}
 	type botView struct {
 		GUID     uint64
+		Activity string
 		Health   float64
 		Deaths   uint64
 		Planning struct {
@@ -255,7 +256,7 @@ func TestObservatory_PersonalDeathRetainsLearningAfterRecovery(t *testing.T) {
 		for _, objective := range before.Planning.Objectives {
 			active = active || objective.State == "active"
 		}
-		if active && before.Health > 0 {
+		if active && before.Health > 0 && before.Activity != "dead" {
 			break
 		}
 		select {
@@ -274,7 +275,7 @@ func TestObservatory_PersonalDeathRetainsLearningAfterRecovery(t *testing.T) {
 	for {
 		view := read()
 		dead = dead || view.Deaths > before.Deaths || view.Health == 0
-		if dead && view.Health > 0 {
+		if dead && view.Health > 0 && view.Activity != "dead" {
 			recovered = true
 		}
 		learned := ""
