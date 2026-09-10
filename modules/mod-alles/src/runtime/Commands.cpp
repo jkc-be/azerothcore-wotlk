@@ -107,12 +107,22 @@ private:
         std::istringstream input(args);
         std::string kind, rawId, motive, extra;
         double weight = 0, depletion = 0, satiation = 0;
-        if (!(input >> kind >> rawId >> motive >> weight >> depletion >> satiation) || (input >> extra)
-            || kind != "player")
-            return Error(handler, "Usage: .alles motive player id motive weight depletion_per_hour satiation");
+        if (!(input >> kind >> rawId >> motive >> weight >> depletion >> satiation) || kind != "player")
+            return Error(handler,
+                "Usage: .alles motive player id motive weight depletion_per_hour satiation [urgency]");
+        std::optional<double> urgency;
+        input >> std::ws;
+        if (!input.eof())
+        {
+            double value = 0;
+            if (!(input >> value) || (input >> extra))
+                return Error(handler, "Urgency must be a finite number from 0 to 10.");
+            urgency = value;
+        }
         auto const id = Commands::ParsePositiveId(rawId);
         auto* runtime = CommandRuntime(handler);
-        if (!id || !runtime || !runtime->SetMotive({ActorKind::Player, *id}, motive, weight, depletion, satiation))
+        if (!id || !runtime
+            || !runtime->SetMotive({ActorKind::Player, *id}, motive, weight, depletion, satiation, {}, urgency))
             return Error(handler, "Motive rejected: use a ready brain owner, a named motive, weight/depletion 0-10 "
                 "and satiation 0-1. At least one motive must have positive weight.");
         handler->SendSysMessage("Motive updated. Current fulfillment was preserved. "

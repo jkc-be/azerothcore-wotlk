@@ -25,6 +25,7 @@ struct SatisfactionDimension
     double satiation = 1; // 0 is linear; 1 uses 2*x - x*x, with diminishing marginal value.
     MotivationCurve curve = MotivationCurve::Need;
     double scale = 1; // Growth uses log(1 + fulfillment / scale), in adapter-defined measurable units.
+    double urgency = 0; // Needs add an increasing deficit cost: -urgency * (1 - fulfillment)^2.
 
     bool operator==(SatisfactionDimension const&) const = default;
 };

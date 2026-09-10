@@ -412,6 +412,8 @@ export function motivationDetails(satisfaction) {
   const dimensions = (satisfaction.dimensions || []).filter((item) => Number.isFinite(item.fulfillment));
   const needs = dimensions.filter((item) => item.curve !== "growth");
   const ambitions = dimensions.filter((item) => item.curve === "growth");
+  const pressing = needs.filter((item) => item.urgency > 0 && item.weight > 0 && item.fulfillment < 0.6);
+  if (pressing.length) lines.push("Recovery needs: " + pressing.map((item) => item.id).join(" · "));
   if (needs.length) lines.push("Fulfillment: " + needs
     .map((item) => `${item.id} ${(100 * item.fulfillment).toFixed(0)}%`).join(" · "));
   if (ambitions.length) lines.push("Ambitions: " + ambitions

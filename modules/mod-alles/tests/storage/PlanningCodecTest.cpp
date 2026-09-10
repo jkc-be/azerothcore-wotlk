@@ -249,9 +249,9 @@ TEST(AllesPlanningCodec, RejectsForeignOwnersUnknownVersionsFieldsAndDuplicateKe
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::CreatureSpawn, Owner.id}));
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::Player, Owner.id + 1}));
     auto value = Bridge::Parse(encoded).as_object();
-    value["version"] = 13;
+    value["version"] = 14;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
-    value["version"] = 12;
+    value["version"] = 13;
     value["movementHandle"] = 123;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
     EXPECT_FALSE(DecodePlanning("{\"version\":1," + encoded.substr(1), Owner));
@@ -547,6 +547,7 @@ TEST(AllesPlanningCodec, AmbitionsContextualLearningAndLegacyNeedsRoundTrip)
     {
         dimension.as_object().erase("curve");
         dimension.as_object().erase("scale");
+        dimension.as_object().erase("urgency");
     }
     decoded = DecodePlanning(boost::json::serialize(legacy), Owner);
     ASSERT_TRUE(decoded);
@@ -564,6 +565,26 @@ TEST(AllesPlanningCodec, AmbitionsContextualLearningAndLegacyNeedsRoundTrip)
         }
         EXPECT_FALSE(DecodePlanning(boost::json::serialize(data), Owner));
     }
+}
+
+TEST(AllesPlanningCodec, NeedUrgencyPersistsAndVersionTwelveKeepsItsExistingPreferences)
+{
+    auto snapshot = Fixture();
+    snapshot.satisfaction.dimensions.at("security").urgency = 4;
+    auto const encoded = EncodePlanning(snapshot);
+    auto decoded = DecodePlanning(encoded, Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    auto legacy = Bridge::Parse(encoded).as_object();
+    legacy["version"] = 12;
+    for (auto& dimension : legacy.at("satisfaction").as_object().at("dimensions").as_array())
+        dimension.as_object().erase("urgency");
+    decoded = DecodePlanning(boost::json::serialize(legacy), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded->satisfaction, DefaultSatisfaction());
+    auto invalid = Bridge::Parse(encoded).as_object();
+    invalid.at("satisfaction").as_object().at("dimensions").as_array()[0].as_object()["urgency"] = 11;
+    EXPECT_FALSE(DecodePlanning(boost::json::serialize(invalid), Owner));
 }
 
 }

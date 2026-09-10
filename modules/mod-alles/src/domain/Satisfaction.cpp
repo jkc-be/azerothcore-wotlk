@@ -40,7 +40,8 @@ double Response(SatisfactionDimension const& dimension, double fulfillment)
 {
     if (dimension.curve == MotivationCurve::Growth)
         return std::log1p(fulfillment / dimension.scale);
-    return fulfillment + dimension.satiation * fulfillment * (1 - fulfillment);
+    return fulfillment + dimension.satiation * fulfillment * (1 - fulfillment)
+        - dimension.urgency * (1 - fulfillment) * (1 - fulfillment);
 }
 
 bool ValidExperience(SatisfactionExperience const& experience, SatisfactionSnapshot const& state)
@@ -138,7 +139,8 @@ bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot)
         if (!Identifier(id) || !Range(dimension.weight, 0, 10)
             || !Range(dimension.fulfillment, 0, MotivationLimit(dimension))
             || (dimension.curve != MotivationCurve::Need && dimension.curve != MotivationCurve::Growth)
-            || !Range(dimension.scale, 1e-6, 1e12)
+            || !Range(dimension.scale, 1e-6, 1e12) || !Range(dimension.urgency, 0, 10)
+            || (dimension.curve == MotivationCurve::Growth && dimension.urgency != 0)
             || !Range(dimension.depletionPerHour, 0, 10) || !Range(dimension.satiation, 0, 1))
             return false;
         weight += dimension.weight;

@@ -318,7 +318,8 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
         if (satisfaction)
             job.context["satisfaction"] = boost::json::object{{"revision", satisfaction->stateRevision},
                 {"selectedObjective", satisfaction->selected}, {"staying", satisfaction->staying},
-                {"meaning", "Expected satisfaction over ten game minutes, including travel, uncertainty and "
+                {"meaning", "Expected personal value over the actor's planning horizon, including "
+                    "travel, uncertainty and "
                     "observed needs. Selection also accounts for the current commitment and switching threshold."}};
         if (finances)
         {

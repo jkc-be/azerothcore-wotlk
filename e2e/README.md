@@ -488,5 +488,5 @@ with at least two newly initialized Alles owners and GM observers enabled in loc
 `{"Disposable":true,"Name":"<watched bot>","GUID":123}` and the normal `E2E_*` DB/Observatory settings.
 Run `go test -tags=e2e ./suites/observatory -run TestObservatory_IndividualMotivationsLearnObservedOutcomes
 -count=1 -v -timeout 6m` on one line. The oracle requires native movement, distinct ambitions, actual carried
-money, a measured attempt and committed version 12 learning data. The observer never changes preferences or
+money, a measured attempt and committed version 13 learning data. The observer never changes preferences or
 grants money/equipment. Run this separately from throughput comparisons.

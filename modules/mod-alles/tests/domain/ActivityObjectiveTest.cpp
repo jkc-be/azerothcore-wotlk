@@ -195,4 +195,26 @@ TEST(AllesActivityObjective, WorkSuggestionsCannotExcludeEveryNonWorkPurpose)
     EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
 }
 
+TEST(AllesActivityObjective, InjuryCanReopenRestWithoutReplayingItsObservedRecovery)
+{
+    ObjectiveBook book;
+    auto const* rest = book.ProposeActivity(9, PlacePurpose::Rest, "Rest", "Recover");
+    ASSERT_TRUE(book.ActivatePlace(rest->id, rest->revision, 1000, 1));
+    ActivityObservation observed;
+    observed.area = 9;
+    observed.available = true;
+    observed.resting = true;
+    for (uint64_t now = 2000; now <= 63000; now += 1000)
+        book.ObserveActivity(rest->id, observed, now);
+    ASSERT_EQ(rest->state, ObjectiveState::Completed);
+    auto const completed = rest->completedMs;
+    EXPECT_FALSE(book.ReconsiderActivity(rest->id, completed + 30000));
+    EXPECT_FALSE(book.ReconsiderActivity(rest->id, completed + 29999, true));
+    ASSERT_TRUE(book.ReconsiderActivity(rest->id, completed + 30000, true));
+    EXPECT_EQ(rest->activityMs, 0u);
+    EXPECT_EQ(rest->creditedActivityMs, 0u);
+    EXPECT_EQ(book.AccountRest(rest->id), 0u);
+    EXPECT_EQ(rest->state, ObjectiveState::Proposed);
+}
+
 }

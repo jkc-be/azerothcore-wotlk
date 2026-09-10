@@ -61,8 +61,8 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 	t.Cleanup(func() { observer.Close() })
 	chat(t, observer, ".pov watch "+fixture.Name, "RPOV\tSTATE|"+fixture.Name+"|")
 	type dimension struct {
-		ID, Curve                  string
-		Fulfillment, Weight, Scale float64
+		ID, Curve                           string
+		Fulfillment, Weight, Scale, Urgency float64
 	}
 	type effect struct {
 		Samples uint64
@@ -106,6 +106,9 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 				continue
 			}
 			for _, motive := range bot.Planning.Satisfaction.Dimensions {
+				if motive.ID == "security" || motive.ID == "rest" {
+					require(t, motive.Urgency > 0, "survival/recovery urgency is absent")
+				}
 				if motive.ID == "wealth" {
 					require(t, motive.Curve == "growth" && motive.Scale > 0, "wealth ambition is absent")
 					profiles[motive.Weight] = true
@@ -161,7 +164,7 @@ func TestObservatory_IndividualMotivationsLearnObservedOutcomes(t *testing.T) {
 					persisted = persisted || outcome.Effects["wealth"].Samples > 0 ||
 						outcome.FailureEffects["wealth"].Samples > 0
 				}
-				if saved.Version == 12 && persisted {
+				if saved.Version == 13 && persisted {
 					for _, motive := range saved.Satisfaction.Dimensions {
 						require(t, weights[motive.ID] == motive.Weight, "individual preference changed on save")
 					}

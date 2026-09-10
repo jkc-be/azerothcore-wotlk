@@ -83,7 +83,8 @@ object EncodeSatisfaction(SatisfactionSnapshot const& state)
     for (auto const& [id, dimension] : state.dimensions)
         dimensions.emplace_back(object{{"id", id}, {"weight", dimension.weight},
             {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
-            {"satiation", dimension.satiation}, {"curve", uint8_t(dimension.curve)}, {"scale", dimension.scale}});
+            {"satiation", dimension.satiation}, {"curve", uint8_t(dimension.curve)}, {"scale", dimension.scale},
+            {"urgency", dimension.urgency}});
     for (auto const& [id, effects] : state.activities)
     {
         object values;
@@ -105,8 +106,9 @@ object EncodeSatisfaction(SatisfactionSnapshot const& state)
         {"contexts", std::move(contexts)}, {"horizonMs", state.horizonMs}};
 }
 
-SatisfactionSnapshot ReadSatisfaction(object const& object, bool modern)
+SatisfactionSnapshot ReadSatisfaction(object const& object, uint32_t version)
 {
+    bool const modern = version >= 12;
     if (modern)
         Fields(object, {"revision", "observedMs", "dimensions", "activities", "experiences",
             "nextRestMs", "nextSocialMs", "travel", "contexts", "horizonMs"});
@@ -127,7 +129,10 @@ SatisfactionSnapshot ReadSatisfaction(object const& object, bool modern)
     for (auto const& value : dimensions)
     {
         auto const& dimension = value.as_object();
-        if (modern)
+        if (version >= 13)
+            Fields(dimension, {"id", "weight", "fulfillment", "depletionPerHour", "satiation",
+                "curve", "scale", "urgency"});
+        else if (modern)
             Fields(dimension, {"id", "weight", "fulfillment", "depletionPerHour", "satiation", "curve", "scale"});
         else
             Fields(dimension, {"id", "weight", "fulfillment", "depletionPerHour", "satiation"});
@@ -139,6 +144,8 @@ SatisfactionSnapshot ReadSatisfaction(object const& object, bool modern)
             item.curve = MotivationCurve(UInt<uint8_t>(dimension, "curve"));
             item.scale = dimension.at("scale").to_number<double>();
         }
+        if (version >= 13)
+            item.urgency = dimension.at("urgency").to_number<double>();
         if (!result.dimensions.emplace(String(dimension, "id", 32), item).second)
             throw std::invalid_argument("duplicate satisfaction dimension");
     }
@@ -611,7 +618,7 @@ std::string EncodePlanning(PlanningSnapshot const& snapshot)
         places.push_back(EncodePlace(place));
     for (auto const& [id, report] : snapshot.knowledge.reports)
         reports.push_back(EncodeReport(report));
-    object root{{"version", 12}, {"owner", Actor(snapshot.owner)},
+    object root{{"version", 13}, {"owner", Actor(snapshot.owner)},
         {"revision", snapshot.revision}, {"nextObjectiveId", snapshot.objectives.nextId},
         {"objectives", std::move(objectives)}, {"seedVersion", snapshot.knowledge.seedVersion},
         {"nextReportId", snapshot.knowledge.nextReport}, {"places", std::move(places)},
@@ -640,7 +647,7 @@ std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey e
         auto const decoded = Bridge::Parse(text, MaxPlanningBytes);
         auto const& object = decoded.as_object();
         auto const version = UInt<uint32_t>(object, "version");
-        if (version < 1 || version > 12)
+        if (version < 1 || version > 13)
             return std::nullopt;
         if (version >= 11 && object.contains("contacts"))
             Fields(object, {"version", "owner", "revision", "nextObjectiveId", "objectives", "seedVersion",
@@ -653,7 +660,7 @@ std::optional<PlanningSnapshot> DecodePlanning(std::string_view text, ActorKey e
                 "nextReportId", "places", "reports"});
         PlanningSnapshot snapshot;
         if (version >= 11)
-            snapshot.satisfaction = ReadSatisfaction(object.at("satisfaction").as_object(), version >= 12);
+            snapshot.satisfaction = ReadSatisfaction(object.at("satisfaction").as_object(), version);
         if (version >= 11 && object.contains("contacts"))
         {
             auto const& contacts = object.at("contacts").as_array();

@@ -223,7 +223,7 @@ public:
     Objective const* ProposeActivity(uint32_t place, PlacePurpose purpose, std::string outcome,
         std::string reason, std::optional<ActorKey> companion = std::nullopt);
     bool ObserveActivity(uint64_t id, ActivityObservation const& observation, uint64_t now);
-    bool ReconsiderActivity(uint64_t id, uint64_t now);
+    bool ReconsiderActivity(uint64_t id, uint64_t now, bool urgentRecovery = false);
     bool Replan(uint64_t id, std::string reason, uint64_t now);
     std::pair<uint32_t, bool> AccountQuestProgress(uint64_t id, QuestProgress const& observed);
     bool AssessAttempt(uint64_t id);

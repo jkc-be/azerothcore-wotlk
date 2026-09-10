@@ -474,12 +474,14 @@ bool ObjectiveBook::ObserveActivity(uint64_t id, ActivityObservation const& obse
     return true;
 }
 
-bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now)
+bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now, bool urgentRecovery)
 {
     auto found = _objectives.find(id);
     if (found == _objectives.end() || found->second.purpose == PlacePurpose::Work
         || found->second.purpose == PlacePurpose::Discovery || found->second.state != ObjectiveState::Completed
-        || now < found->second.completedMs || now - found->second.completedMs < 600000
+        || now < found->second.completedMs
+        || now - found->second.completedMs < (urgentRecovery && found->second.purpose == PlacePurpose::Rest
+            ? 30000u : 600000u)
         || found->second.revision >= std::numeric_limits<uint64_t>::max() - 2)
         return false;
     auto& objective = found->second;
@@ -487,7 +489,9 @@ bool ObjectiveBook::ReconsiderActivity(uint64_t id, uint64_t now)
     objective.activityMs = objective.creditedActivityMs = objective.completedMs = objective.arrivedMs
         = objective.lastSampleMs = 0;
     objective.step = ObjectiveStep::Select;
-    objective.reason = "Reconsider this activity after the previous observed outcome and cooldown";
+    objective.reason = urgentRecovery && objective.purpose == PlacePurpose::Rest
+        ? "Reconsider recovery after observed injury"
+        : "Reconsider this activity after the previous observed outcome and cooldown";
     ++objective.revision;
     return true;
 }

@@ -403,4 +403,46 @@ TEST(AllesSatisfaction, InvalidCurvesScalesAndBoundedLearningCannotCorruptState)
     EXPECT_TRUE(IsValidSatisfaction(model.Capture()));
 }
 
+TEST(AllesSatisfaction, SurvivalUrgencyYieldsToPersonalAmbitionAfterRecovery)
+{
+    SatisfactionSnapshot state;
+    state.dimensions = {
+        {"vitality", {1, 0.2, 0, 1, MotivationCurve::Need, 1, 4}},
+        {"wealth", {4, 100, 0, 0, MotivationCurve::Growth, 100}}
+    };
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    auto const heal = ForecastAttempt(0, 60000, 1, {{"vitality", 0.5}});
+    auto const work = ForecastAttempt(0, 60000, 1, {{"wealth", 50}});
+    std::vector<SatisfactionCandidate> choices{{1, 1, heal}, {2, 1, work}};
+    EXPECT_EQ(model.Choose(choices).selected, 1u);
+    auto const weights = model.Capture().dimensions;
+    ASSERT_TRUE(model.Observe(1000, 0, {{"vitality", 0.8}}));
+    EXPECT_EQ(model.Choose(choices).selected, 2u);
+    EXPECT_EQ(model.Capture().dimensions.at("wealth"), weights.at("wealth"));
+    EXPECT_EQ(model.Capture().dimensions.at("vitality").weight, weights.at("vitality").weight);
+}
+
+TEST(AllesSatisfaction, InjuryMakesFurtherHarmCostlierAndKeepsSaferOpportunitiesValuable)
+{
+    SatisfactionSnapshot state;
+    state.dimensions = {
+        {"vitality", {2, 0.8, 0, 1, MotivationCurve::Need, 1, 4}},
+        {"discovery", {1, 0.3, 0, 1}}
+    };
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    auto const harm = ForecastAttempt(0, 60000, 1, {{"vitality", -0.1}});
+    double const healthyLoss = Value(model, {}) - Value(model, harm);
+    state.dimensions.at("vitality").fulfillment = 0.3;
+    ASSERT_TRUE(model.Restore(state));
+    EXPECT_GT(Value(model, {}) - Value(model, harm), healthyLoss);
+    auto const safe = ForecastAttempt(0, 60000, 1, {{"discovery", 0.2}});
+    auto const reckless = ForecastAttempt(0, 60000, 0.5, {{"discovery", 0.6}}, {}, {{"vitality", -0.3}});
+    EXPECT_EQ(model.Choose({{1, 1, safe}, {2, 1, reckless}}).selected, 1u);
+    EXPECT_GT(Value(model, safe), Value(model, {})); // Survival pressure does not require permanent inaction.
+    EXPECT_FALSE(model.SetDimension("vitality", {2, 0.3, 0, 1, MotivationCurve::Need, 1, -1}));
+    EXPECT_FALSE(model.SetDimension("wealth", {2, 10, 0, 0, MotivationCurve::Growth, 1, 4}));
+}
+
 }

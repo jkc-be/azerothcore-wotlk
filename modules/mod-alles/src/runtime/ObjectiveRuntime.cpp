@@ -334,7 +334,19 @@ SatisfactionSnapshot InitialPlayerMotivations(ActorKey owner)
     // Explicit uncertain priors for not-yet-known work; accepted quest rewards replace these estimates.
     state.activities["pursue_quest"]["wealth"] = 50;
     state.activities["pursue_quest"]["equipment"] = 5;
-    return PersonalizeMotivations(std::move(state), owner.id);
+    state.dimensions.at("security").urgency = 4;
+    state.dimensions.at("rest").urgency = 2;
+    // A bounded prior for a minute of uninterrupted recovery; observations, not this prediction, change health.
+    state.activities.at("rest")["security"] = 0.35;
+    state = PersonalizeMotivations(std::move(state), owner.id);
+    state.dimensions.at("security").weight = std::max(1.5, state.dimensions.at("security").weight);
+    return state;
+}
+
+bool NeedsRecovery(Player const& bot)
+{
+    return bot.IsAlive() && !bot.IsInCombat() && !bot.IsBeingTeleported() && !bot.IsInFlight()
+        && bot.GetHealthPct() < 60;
 }
 
 double MeasuredMotivation(SatisfactionDimension const& dimension, double amount)
@@ -346,7 +358,8 @@ double MeasuredMotivation(SatisfactionDimension const& dimension, double amount)
 std::string LearningContext(Player const& bot, Objective const& objective)
 {
     return "area_" + std::to_string(objective.place ? objective.place : bot.GetAreaId())
-        + "_level_" + std::to_string(bot.GetLevel() / 5);
+        + "_level_" + std::to_string(bot.GetLevel() / 5)
+        + (bot.GetHealthPct() < 60 ? "_hurt" : "_well");
 }
 
 double KnownEquipmentReward(Player& bot, PlayerbotAI& ai, uint32_t quest)
@@ -1864,8 +1877,8 @@ struct ObjectiveRuntime::Impl
         if (brain)
         {
             for (auto const& [id, objective] : state.book.All())
-                state.book.ReconsiderActivity(id, now);
-            if (state.currentArea && now >= state.satisfaction.Capture().nextRestMs)
+                state.book.ReconsiderActivity(id, now, NeedsRecovery(bot));
+            if (state.currentArea && (now >= state.satisfaction.Capture().nextRestMs || NeedsRecovery(bot)))
                 state.book.ProposeActivity(state.currentArea, PlacePurpose::Rest,
                     "Rest here", "Consider recovering through observed stationary rest");
             std::vector<KnownContact const*> contacts;
@@ -2098,7 +2111,8 @@ struct ObjectiveRuntime::Impl
             }
             else if (objective.purpose == PlacePurpose::Rest)
             {
-                if (objective.place != state.currentArea || now < state.satisfaction.Capture().nextRestMs)
+                if (objective.place != state.currentArea
+                    || (now < state.satisfaction.Capture().nextRestMs && !NeedsRecovery(bot)))
                     continue;
                 destination = WorldPosition(&bot);
             }
@@ -2143,7 +2157,8 @@ struct ObjectiveRuntime::Impl
                 for (auto const& [dimension, effect] : state.satisfaction.Effects("help_companion"))
                     effects[dimension] = std::clamp(effects[dimension] + effect, -1.0, 1.0);
             if (objective.purpose == PlacePurpose::Rest)
-                effects = state.satisfaction.Effects(activity, double(60000 - objective.activityMs) / 60000);
+                for (auto& [dimension, effect] : effects)
+                    effect *= double(60000 - objective.activityMs) / 60000;
             if (objective.quest)
                 if (auto const money = finances.money.find(objective.quest); money != finances.money.end())
                 {
@@ -2308,7 +2323,8 @@ struct ObjectiveRuntime::Impl
             state.predictedTravelMs = state.geometricTravelTimes.at(current->id);
             state.observedTravelMs = 0;
         }
-        bool const danger = current && (bot.GetHealthPct() < 35 || committedRisk >= 0.3 || state.stayingRisk >= 0.3);
+        bool const danger = current && (NeedsRecovery(bot) || bot.GetHealthPct() < 35
+            || committedRisk >= 0.3 || state.stayingRisk >= 0.3);
         bool const committed = current && !danger && now >= state.intentionSinceMs
             && now - state.intentionSinceMs < 120000;
         state.satisfactionDecision = state.satisfaction.Choose(routed, current ? current->id : 0, committed,
@@ -2484,6 +2500,10 @@ struct ObjectiveRuntime::Impl
         if (dimensions.contains("equipment"))
             measured["equipment"] = MeasuredMotivation(dimensions.at("equipment"), bot->GetTotalItemLevel())
                 - dimensions.at("equipment").fulfillment;
+        if (auto const* intention = state.book.Find(state.intention);
+            intention && intention->purpose == PlacePurpose::Rest && state.attemptContext.ends_with("_hurt")
+                && dimensions.contains("security"))
+            measured["security"] = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
         if (elapsed && state.intention)
             for (auto const& [id, value] : measured)
             {
@@ -3492,7 +3512,7 @@ void ObjectiveRuntime::Stop(uint64_t gameMs, uint64_t realMs)
 }
 
 bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
-    uint64_t realMs, std::optional<double> ambitionScale)
+    uint64_t realMs, std::optional<double> ambitionScale, std::optional<double> urgency)
 {
     auto found = _impl->states.find(owner);
     if (found == _impl->states.end() || !found->second.generation || !_impl->brain)
@@ -3508,7 +3528,10 @@ bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, 
     {
         dimension.curve = MotivationCurve::Growth;
         dimension.scale = *ambitionScale;
+        dimension.urgency = 0;
     }
+    if (urgency)
+        dimension.urgency = *urgency;
     if (!staged.SetDimension(std::move(id), dimension))
         return false;
     auto previous = state.satisfaction;
@@ -3563,7 +3586,8 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
             {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
             {"satiation", dimension.satiation},
             {"curve", dimension.curve == MotivationCurve::Growth ? "growth" : "need"}, {"scale", dimension.scale},
-            {"unit", id == "wealth" ? "copper" : id == "equipment" ? "equipment points" : ""}});
+            {"unit", id == "wealth" ? "copper" : id == "equipment" ? "equipment points" : ""},
+            {"urgency", dimension.urgency}});
     for (auto const& candidate : found->second.satisfactionDecision.alternatives)
     {
         boost::json::object contributions;

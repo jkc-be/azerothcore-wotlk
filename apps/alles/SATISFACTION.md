@@ -68,7 +68,8 @@ GM diagnostics operate on a loaded managed player:
 .alles flush player 123
 ```
 
-`motive` takes an identifier, weight (0–10), depletion per hour (0–10), and satiation (0–1). It preserves existing
+`motive` takes an identifier, weight (0–10), depletion per hour (0–10), satiation (0–1), and optional
+need urgency (0–10). Omitting urgency preserves it. It preserves existing
 fulfillment and curve. `ambition` takes an identifier, weight and positive scale in observation units; it selects
 the continuing growth curve while retaining the observed quantity. New authored dimensions start unfulfilled. At most 32 dimensions are accepted and total weight
 must remain positive. `effect` binds an installed activity to a defined motive with a net effect in [-1,1] for needs, or measured units for ambitions (up to 1e12).
@@ -78,8 +79,9 @@ The installed activity names are `pursue_quest`, `discover_work`, `explore_place
 `planning.satisfaction` includes dimensions, authored activity effects, learned outcomes, selected objective,
 maintain-state value, alternative contributions, travel estimates, perceived risk, route reasoning and cooldowns.
 `planning.body` reports the owning intention and physical progress/failure counters. Objective purpose, observed
-activity time and completion time distinguish arrival from actual achievement. Version 12 planning snapshots
-persist ambitions, contextual outcomes and the horizon. Version 11 retains its existing needs and preferences;
+activity time and completion time distinguish arrival from actual achievement. Version 13 planning snapshots
+persist ambitions, contextual outcomes, the horizon and need urgency. Version 12 retains its existing
+preferences with urgency zero; version 11 retains its existing needs and preferences;
 versions 1–10 load explicit legacy defaults. Older owners can acquire ambitions through the commands above.
 
 Unit tests cover valuation, safer routes, ownership, invalid inputs, replay prevention and snapshot migration.
@@ -147,3 +149,34 @@ requires measured behavioral evaluation; the framework and its tests do not esta
 `TestObservatory_IndividualMotivationsLearnObservedOutcomes` covers distinct priorities, native client movement,
 measured wealth and persisted outcome learning. Pure tests run the separate farming/research example, reverse
 choices after learned outcomes, and cover continued ambition, failure effects, transfer and legacy migration.
+
+
+## Surviving and thriving
+
+Essential needs can carry `urgency`: a deficit subtracts `urgency * (1 - fulfillment)^2` from their response.
+As injury or exhaustion deepens, another loss becomes more costly and recovery becomes more valuable. Once
+healthy and rested, characters retain their individual ambitions and can choose rewarding opportunities again.
+The mechanism is a generic need parameter, not a hard-coded ban on risk or a universal ordering of desires.
+New WoW owners start with security urgency 4, rest urgency 2, and a security weight of at least 1.5 after initial
+personality variation. Explicitly authored priorities and existing saved characters remain under operator control.
+
+Rest initially predicts up to 0.35 health/security recovery over a minute, subject to the same local danger as
+staying. This is an uncertain prior: actual health is always read from the body. Rest episodes that began below
+60% health learn their observed recovery; healthy rest supplies no evidence that healing is ineffective. Contexts
+now distinguish hurt and well starts. Observing an injury below 60% health outside combat permits reconsidering
+commitment and reopening rest, even during its ordinary ten-minute cooldown. A completed rest retains a minimum
+30-second interval and starts with zero observed/credited duration when reopened; social cooldowns are unaffected.
+Combat and body maintenance still own immediate execution and healing. No predicted recovery grants hit points.
+
+For an existing actor, for example:
+
+```
+.alles motive player 123 security 2 0 1 4
+.alles motive player 123 rest 1 0.6 1 2
+.alles effect player 123 rest security 0.35
+```
+
+The dashboard labels currently depleted urgent needs as recovery needs. Injury-versus-health choices, avoiding
+further harm, continued worthwhile exploration, cooldown exception fencing and version migration have regression
+coverage. These mechanisms express a desire to survive and thrive; they do not guarantee zero deaths or implement
+new combat escape, medical or consumable abilities outside the body's supported actions.

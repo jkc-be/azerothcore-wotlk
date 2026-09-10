@@ -700,3 +700,11 @@ test("motivation details distinguish continuing ambitions from bounded fulfillme
   assert.ok(motivationDetails({ staying: 0, dimensions: [{ id: "rest", fulfillment: 1 }] })
     .includes("Fulfillment: rest 100%"));
 });
+
+test("urgent survival needs are visible without treating ambitions as deficits", () => {
+  const details = motivationDetails({ staying: -0.1, dimensions: [
+    { id: "security", curve: "need", urgency: 4, weight: 1.5, fulfillment: 0.2 },
+    { id: "wealth", curve: "growth", urgency: 0, weight: 4, fulfillment: 0 },
+  ] });
+  assert.ok(details.includes("Recovery needs: security"));
+});
