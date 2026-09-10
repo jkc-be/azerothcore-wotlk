@@ -478,3 +478,15 @@ profile, and add `companion` and `companionGUID` to the fixture JSON. Run after 
 exclusive realm with `-run '^TestObservatory_Satisfaction' -timeout=7m`. GM setup changes only the source's
 motive weights. The client must observe travel and an ordinary greeting; population logout/rejoin must preserve
 the source's social receipt and fulfillment. The test restores observer permissions afterward.
+
+
+### Individual motivations and outcome learning
+
+`TestObservatory_IndividualMotivationsLearnObservedOutcomes` requires an exclusive fresh Observatory cohort
+with at least two newly initialized Alles owners and GM observers enabled in locked mode. Set
+`E2E_OBSERVATORY_MOTIVATIONS_FIXTURE` to private JSON containing
+`{"Disposable":true,"Name":"<watched bot>","GUID":123}` and the normal `E2E_*` DB/Observatory settings.
+Run `go test -tags=e2e ./suites/observatory -run TestObservatory_IndividualMotivationsLearnObservedOutcomes
+-count=1 -v -timeout 6m` on one line. The oracle requires native movement, distinct ambitions, actual carried
+money, a measured attempt and committed version 12 learning data. The observer never changes preferences or
+grants money/equipment. Run this separately from throughput comparisons.

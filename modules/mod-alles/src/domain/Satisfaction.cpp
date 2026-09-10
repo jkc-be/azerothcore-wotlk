@@ -29,13 +29,76 @@ bool ValidEffects(SatisfactionEffects const& effects, SatisfactionSnapshot const
 {
     return effects.size() <= state.dimensions.size()
         && std::all_of(effects.begin(), effects.end(), [&](auto const& entry)
-            { return state.dimensions.contains(entry.first) && Range(entry.second, -1, 1); });
+            {
+                auto const dimension = state.dimensions.find(entry.first);
+                return dimension != state.dimensions.end() && Range(entry.second,
+                    -MotivationLimit(dimension->second), MotivationLimit(dimension->second));
+            });
 }
 
 double Response(SatisfactionDimension const& dimension, double fulfillment)
 {
+    if (dimension.curve == MotivationCurve::Growth)
+        return std::log1p(fulfillment / dimension.scale);
     return fulfillment + dimension.satiation * fulfillment * (1 - fulfillment);
 }
+
+bool ValidExperience(SatisfactionExperience const& experience, SatisfactionSnapshot const& state)
+{
+    if (!experience.samples || experience.samples > 1000 || experience.successes > experience.samples
+        || !Range(experience.meanDurationMs, 0, 3600000) || experience.effects.size() > state.dimensions.size())
+        return false;
+    for (auto const* effects : {&experience.effects, &experience.failureEffects})
+        for (auto const& [id, effect] : *effects)
+        {
+            auto const dimension = state.dimensions.find(id);
+            if (dimension == state.dimensions.end() || !effect.samples || effect.samples > 1000
+                || !Range(effect.mean, -MotivationLimit(dimension->second), MotivationLimit(dimension->second)))
+                return false;
+        }
+    return true;
+}
+
+void UpdateExperience(SatisfactionExperience& experience, bool success, uint64_t durationMs,
+    SatisfactionEffects const& effects)
+{
+    if (experience.samples == 1000)
+    {
+        experience.samples /= 2;
+        experience.successes /= 2;
+    }
+    ++experience.samples;
+    experience.successes += success ? 1 : 0;
+    experience.meanDurationMs += (double(durationMs) - experience.meanDurationMs) / experience.samples;
+    for (auto const& [id, value] : effects)
+    {
+        auto& effect = (success ? experience.effects : experience.failureEffects)[id];
+        if (effect.samples == 1000)
+            effect.samples /= 2;
+        effect.mean += (value - effect.mean) / ++effect.samples;
+    }
+}
+}
+
+double MotivationLimit(SatisfactionDimension const& dimension)
+{
+    return dimension.curve == MotivationCurve::Growth ? 1e12 : 1;
+}
+
+SatisfactionSnapshot PersonalizeMotivations(SatisfactionSnapshot snapshot, uint64_t seed)
+{
+    // Stable integer mixing varies each motive independently, without a fixed list of personality classes.
+    for (auto& [id, dimension] : snapshot.dimensions)
+    {
+        uint64_t hash = seed ^ 14695981039346656037ULL;
+        for (unsigned char character : id)
+            hash = (hash ^ character) * 1099511628211ULL;
+        hash = (hash ^ (hash >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        hash = (hash ^ (hash >> 27)) * 0x94d049bb133111ebULL;
+        hash ^= hash >> 31;
+        dimension.weight = std::min(10.0, dimension.weight * (0.35 + double(hash % 10001) / 4000));
+    }
+    return snapshot;
 }
 
 SatisfactionSnapshot DefaultSatisfaction()
@@ -65,13 +128,17 @@ bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot)
         || snapshot.observedMs >= std::numeric_limits<uint64_t>::max() - 3600000
         || snapshot.dimensions.empty() || snapshot.dimensions.size() > 32 || snapshot.activities.size() > 32
         || snapshot.experiences.size() > 32 || snapshot.travel.size() > 32
+        || snapshot.contexts.size() > 128 || snapshot.horizonMs < 1000 || snapshot.horizonMs > 3600000
         || snapshot.nextRestMs >= std::numeric_limits<uint64_t>::max() - 3600000
         || snapshot.nextSocialMs >= std::numeric_limits<uint64_t>::max() - 3600000)
         return false;
     double weight = 0;
     for (auto const& [id, dimension] : snapshot.dimensions)
     {
-        if (!Identifier(id) || !Range(dimension.weight, 0, 10) || !Range(dimension.fulfillment, 0, 1)
+        if (!Identifier(id) || !Range(dimension.weight, 0, 10)
+            || !Range(dimension.fulfillment, 0, MotivationLimit(dimension))
+            || (dimension.curve != MotivationCurve::Need && dimension.curve != MotivationCurve::Growth)
+            || !Range(dimension.scale, 1e-6, 1e12)
             || !Range(dimension.depletionPerHour, 0, 10) || !Range(dimension.satiation, 0, 1))
             return false;
         weight += dimension.weight;
@@ -80,9 +147,15 @@ bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot)
         if (!Identifier(id) || !ValidEffects(effects, snapshot))
             return false;
     for (auto const& [id, experience] : snapshot.experiences)
-        if (!snapshot.activities.contains(id) || !experience.samples || experience.samples > 1000
-            || experience.successes > experience.samples || !Range(experience.meanDurationMs, 0, 3600000))
+        if (!snapshot.activities.contains(id) || !ValidExperience(experience, snapshot))
             return false;
+    for (auto const& [key, experience] : snapshot.contexts)
+    {
+        auto const separator = key.find(':');
+        if (separator == std::string::npos || !snapshot.activities.contains(key.substr(0, separator))
+            || !Identifier(key.substr(separator + 1)) || !ValidExperience(experience, snapshot))
+            return false;
+    }
     for (auto const& [route, experience] : snapshot.travel)
         if (!Identifier(route) || !experience.samples || experience.samples > 1000
             || experience.successes > experience.samples || !Range(experience.durationRatio, 0.1, 10))
@@ -109,7 +182,7 @@ bool SatisfactionModel::Observe(uint64_t now, uint64_t activeMs, SatisfactionEff
         auto const found = effects.find(id);
         double const effect = found == effects.end() ? 0 : found->second;
         dimension.fulfillment = std::clamp(dimension.fulfillment + effect
-            - dimension.depletionPerHour * double(activeMs) / 3600000, 0.0, 1.0);
+            - dimension.depletionPerHour * double(activeMs) / 3600000, 0.0, MotivationLimit(dimension));
     }
     _state.observedMs = now;
     ++_state.revision;
@@ -144,21 +217,46 @@ SatisfactionEffects SatisfactionModel::Effects(std::string const& activity, doub
 
 bool SatisfactionModel::Learn(std::string const& activity, bool success, uint64_t durationMs)
 {
+    return LearnOutcome(activity, {}, success, durationMs, {});
+}
+
+bool SatisfactionModel::LearnOutcome(std::string const& activity, std::string const& context, bool success,
+    uint64_t durationMs, SatisfactionEffects const& observedEffects)
+{
     if (!_state.activities.contains(activity) || durationMs > 3600000
+        || (!context.empty() && !Identifier(context)) || !ValidEffects(observedEffects, _state)
         || _state.revision >= std::numeric_limits<uint64_t>::max() - 2)
         return false;
-    auto& experience = _state.experiences[activity];
-    // Bounded sufficient statistics favor recent outcomes after a long history, without forgetting the prior.
-    if (experience.samples == 1000)
+    UpdateExperience(_state.experiences[activity], success, durationMs, observedEffects);
+    if (!context.empty())
     {
-        experience.samples /= 2;
-        experience.successes /= 2;
+        auto const key = activity + ":" + context;
+        if (!_state.contexts.contains(key) && _state.contexts.size() == 128)
+        {
+            auto least = std::min_element(_state.contexts.begin(), _state.contexts.end(),
+                [](auto const& left, auto const& right) { return left.second.samples < right.second.samples; });
+            _state.contexts.erase(least);
+        }
+        UpdateExperience(_state.contexts[key], success, durationMs, observedEffects);
     }
-    ++experience.samples;
-    experience.successes += success ? 1 : 0;
-    experience.meanDurationMs += (double(durationMs) - experience.meanDurationMs) / experience.samples;
     ++_state.revision;
     return true;
+}
+
+SatisfactionEffects SatisfactionModel::ExpectedEffects(std::string const& activity, std::string const& context,
+    bool success) const
+{
+    auto effects = success ? Effects(activity) : SatisfactionEffects{};
+    auto blend = [&](SatisfactionExperience const& experience)
+    {
+        for (auto const& [id, effect] : success ? experience.effects : experience.failureEffects)
+            effects[id] = (effect.mean * effect.samples + 4 * effects[id]) / (effect.samples + 4);
+    };
+    if (auto const found = _state.experiences.find(activity); found != _state.experiences.end())
+        blend(found->second);
+    if (auto const found = _state.contexts.find(activity + ":" + context); found != _state.contexts.end())
+        blend(found->second);
+    return effects;
 }
 
 double SatisfactionModel::SuccessProbability(std::string const& activity, double prior) const
@@ -275,7 +373,8 @@ std::optional<SatisfactionValue> SatisfactionModel::Evaluate(SatisfactionForecas
                 while (elapsed)
                 {
                     auto const step = std::min(elapsed, uint64_t(5000));
-                    double const next = std::clamp(fulfillment + rate * double(step), 0.0, 1.0);
+                    double const next = std::clamp(fulfillment + rate * double(step),
+                        0.0, MotivationLimit(dimension));
                     // Bounded numerical integration of satisfaction held over time, rather than positive gains.
                     integral += (Response(dimension, fulfillment) + Response(dimension, next)) * double(step) / 2;
                     fulfillment = next;
@@ -291,7 +390,7 @@ std::optional<SatisfactionValue> SatisfactionModel::Evaluate(SatisfactionForecas
                 if (stage.durationMs)
                     advance(stage.durationMs, effect);
                 else
-                    fulfillment = std::clamp(fulfillment + effect, 0.0, 1.0);
+                    fulfillment = std::clamp(fulfillment + effect, 0.0, MotivationLimit(dimension));
             }
             advance(remaining, 0);
             result.contributions[id] += outcome.probability * dimension.weight * integral
@@ -302,17 +401,27 @@ std::optional<SatisfactionValue> SatisfactionModel::Evaluate(SatisfactionForecas
     return result;
 }
 
+SatisfactionForecast ForecastAttempt(uint64_t travelMs, uint64_t activityMs, double successProbability,
+    SatisfactionEffects benefits, SatisfactionEffects travelCosts, SatisfactionEffects failureEffects)
+{
+    if (!Range(successProbability, 0, 1))
+        return {false};
+    return {true, {
+        {successProbability, {{travelMs, travelCosts}, {activityMs, std::move(benefits)}}},
+        {1 - successProbability, {{travelMs, travelCosts}, {activityMs, std::move(failureEffects)}}}
+    }};
+}
+
 SatisfactionForecast ForecastActivity(uint64_t travelMs, double risk, double successProbability,
-    uint64_t activityMs, SatisfactionEffects effects)
+    uint64_t activityMs, SatisfactionEffects effects, SatisfactionEffects failureEffects)
 {
     if (!Range(risk, 0, 1) || !Range(successProbability, 0, 1))
         return {false};
     double const success = successProbability * (1 - risk);
     SatisfactionEffects travelEffects{{"rest", -std::min(0.5, double(travelMs) / 3600000 * 0.2)}};
-    return {true, {
-        {success, {{travelMs, travelEffects}, {activityMs, std::move(effects)}}},
-        {1 - success, {{travelMs, travelEffects}, {activityMs, {{"security", -risk * 0.4}}}}}
-    }};
+    failureEffects["security"] = std::clamp(failureEffects["security"] - risk * 0.4, -1.0, 1.0);
+    return ForecastAttempt(travelMs, activityMs, success, std::move(effects), travelEffects,
+        std::move(failureEffects));
 }
 
 SatisfactionDecision SatisfactionModel::Choose(std::vector<SatisfactionCandidate> const& candidates,
@@ -345,7 +454,8 @@ SatisfactionDecision SatisfactionModel::Choose(std::vector<SatisfactionCandidate
         : std::max(result.staying, result.alternatives.front().value.total);
     if (active != result.alternatives.end() && (committed || best <= active->value.total + switchThreshold))
         result.selected = current;
-    else if (!result.alternatives.empty() && result.alternatives.front().value.total > result.staying + 1e-6)
+    else if (!result.alternatives.empty() && result.alternatives.front().value.total > result.staying
+        + 8 * std::numeric_limits<double>::epsilon() * std::max(1.0, std::abs(result.staying)))
         result.selected = result.alternatives.front().id;
     return result;
 }

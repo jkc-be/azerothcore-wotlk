@@ -280,4 +280,127 @@ TEST(AllesSatisfaction, RouteOutcomesChangeExpectationsWithoutAwardingFulfillmen
     EXPECT_TRUE(IsValidSatisfaction(model.Capture()));
 }
 
+TEST(AllesSatisfaction, ContinuingAmbitionsValueFurtherProgressAndAccountForLoss)
+{
+    SatisfactionSnapshot state;
+    state.dimensions = {{"wealth", {1, 1000000, 0, 0, MotivationCurve::Growth, 1000}}};
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    auto const before = model.Capture();
+    auto const earn = ForecastAttempt(0, 60000, 1, {{"wealth", 10000}});
+    EXPECT_GT(Value(model, earn), Value(model, {}));
+    EXPECT_EQ(model.Choose({{1, 1, earn}}).selected, 1u);
+    EXPECT_LT(Value(model, ForecastAttempt(0, 60000, 1, {{"wealth", -10000}})), Value(model, {}));
+    SatisfactionForecast loseThenRecover{true, {{1, {{0, {{"wealth", -10000}}},
+        {30000, {}}, {0, {{"wealth", 10000}}}}}}};
+    EXPECT_LT(Value(model, loseThenRecover), Value(model, {}));
+    EXPECT_EQ(model.Capture(), before);
+    ASSERT_TRUE(model.Observe(1000, 0, {{"wealth", 10000}}));
+    EXPECT_DOUBLE_EQ(model.Capture().dimensions.at("wealth").fulfillment, 1010000);
+    state.dimensions.at("wealth").fulfillment = 1e9;
+    ASSERT_TRUE(model.Restore(state));
+    EXPECT_EQ(model.Choose({{1, 1, ForecastAttempt(0, 60000, 1, {{"wealth", 10}})}}).selected, 1u);
+}
+
+TEST(AllesSatisfaction, AnotherScenarioUsesItsOwnMetricsActionsAndPersonalPriorities)
+{
+    SatisfactionSnapshot state;
+    state.dimensions = {
+        {"credits", {4, 10, 0, 0, MotivationCurve::Growth, 10}},
+        {"knowledge", {1, 10, 0, 0, MotivationCurve::Growth, 10}},
+        {"energy", {1, 0.8, 0.1, 1}}
+    };
+    state.activities = {{"sell_crop", {{"credits", 20}}}, {"research", {{"knowledge", 20}}}};
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    std::vector<SatisfactionCandidate> actions{
+        {1, 1, ForecastAttempt(10000, 60000, 1, model.Effects("sell_crop"), {{"energy", -0.1}})},
+        {2, 1, ForecastAttempt(10000, 60000, 1, model.Effects("research"), {{"energy", -0.1}})}};
+    EXPECT_EQ(model.Choose(actions).selected, 1u);
+    state.dimensions.at("credits").weight = 1;
+    state.dimensions.at("knowledge").weight = 4;
+    ASSERT_TRUE(model.Restore(state));
+    EXPECT_EQ(model.Choose(actions).selected, 2u);
+    // No WoW need names, item IDs, quests, actor classes or navigation APIs are needed by the model.
+    EXPECT_EQ(model.Capture().dimensions.size(), 3u);
+}
+
+TEST(AllesSatisfaction, OutcomeLearningChangesChoicesAndTransfersToUnseenContexts)
+{
+    SatisfactionSnapshot state;
+    state.dimensions = {{"credits", {1, 10, 0, 0, MotivationCurve::Growth, 10}}};
+    state.activities = {{"harvest", {{"credits", 5}}}, {"trade", {{"credits", 20}}}};
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    auto choose = [&]()
+    {
+        return model.Choose({
+            {1, 1, ForecastAttempt(0, 60000, 1, model.ExpectedEffects("harvest", "field"))},
+            {2, 1, ForecastAttempt(0, 60000, 1, model.ExpectedEffects("trade", "market"))}}).selected;
+    };
+    EXPECT_EQ(choose(), 2u);
+    for (unsigned sample = 0; sample < 20; ++sample)
+        ASSERT_TRUE(model.LearnOutcome("harvest", "field", true, 60000, {{"credits", 50}}));
+    EXPECT_EQ(choose(), 1u);
+    EXPECT_GT(model.ExpectedEffects("harvest", "new_field").at("credits"), 20);
+    EXPECT_GT(model.ExpectedEffects("harvest", "field").at("credits"),
+        model.ExpectedEffects("harvest", "new_field").at("credits"));
+    for (unsigned sample = 0; sample < 100; ++sample)
+        ASSERT_TRUE(model.LearnOutcome("harvest", "field", true, 60000, {{"credits", 0}}));
+    EXPECT_EQ(choose(), 2u); // Repeated zero yield corrects the old optimistic belief.
+    EXPECT_EQ(model.Capture().dimensions, state.dimensions); // Knowledge changes, possessions do not.
+}
+
+TEST(AllesSatisfaction, FailedOutcomesLearnConsequencesSeparatelyFromSuccessfulBenefits)
+{
+    SatisfactionModel model;
+    ASSERT_TRUE(model.SetDimension("wealth", {2, 100, 0, 0, MotivationCurve::Growth, 100}));
+    ASSERT_TRUE(model.SetActivity("experiment", {{"wealth", 50}}));
+    for (unsigned sample = 0; sample < 20; ++sample)
+        ASSERT_TRUE(model.LearnOutcome("experiment", "lab", false, 10000, {{"wealth", -10}}));
+    EXPECT_DOUBLE_EQ(model.ExpectedEffects("experiment", "lab").at("wealth"), 50);
+    EXPECT_LT(model.ExpectedEffects("experiment", "lab", false).at("wealth"), -8);
+    EXPECT_LT(model.SuccessProbability("experiment", 0.5), 0.1);
+    auto const saved = model.Capture();
+    EXPECT_FALSE(model.LearnOutcome("experiment", "lab", true, 10000,
+        {{"wealth", std::numeric_limits<double>::quiet_NaN()}}));
+    EXPECT_FALSE(model.LearnOutcome("experiment", "invalid:context", true, 10000, {}));
+    EXPECT_EQ(model.Capture(), saved);
+}
+
+TEST(AllesSatisfaction, IndividualPrioritiesAreStableAndPlanningHorizonIsAuthored)
+{
+    auto state = DefaultSatisfaction();
+    state.dimensions.at("rest").weight = 0;
+    EXPECT_EQ(PersonalizeMotivations(state, 42), PersonalizeMotivations(state, 42));
+    EXPECT_NE(PersonalizeMotivations(state, 42).dimensions, PersonalizeMotivations(state, 43).dimensions);
+    EXPECT_DOUBLE_EQ(PersonalizeMotivations(state, 42).dimensions.at("rest").weight, 0);
+    state.dimensions = {{"knowledge", {1, 10, 0, 0, MotivationCurve::Growth, 10}}};
+    state.activities.clear();
+    state.horizonMs = 60000;
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Restore(state));
+    auto const delayed = ForecastAttempt(120000, 60000, 1, {{"knowledge", 20}});
+    EXPECT_EQ(model.Choose({{1, 1, delayed}}).selected, 0u);
+    state.horizonMs = 600000;
+    ASSERT_TRUE(model.Restore(state));
+    EXPECT_EQ(model.Choose({{1, 1, delayed}}).selected, 1u);
+    state.horizonMs = 0;
+    EXPECT_FALSE(model.Restore(state));
+}
+
+TEST(AllesSatisfaction, InvalidCurvesScalesAndBoundedLearningCannotCorruptState)
+{
+    SatisfactionModel model;
+    auto const before = model.Capture();
+    EXPECT_FALSE(model.SetDimension("wealth", {1, 10, 0, 0, MotivationCurve::Growth, 0}));
+    EXPECT_FALSE(model.SetDimension("wealth", {1, 10, 0, 0, MotivationCurve(9), 1}));
+    EXPECT_FALSE(model.SetDimension("wealth", {1, -1, 0, 0, MotivationCurve::Growth, 1}));
+    EXPECT_EQ(model.Capture(), before);
+    for (unsigned index = 0; index < 150; ++index)
+        ASSERT_TRUE(model.LearnOutcome("rest", "site_" + std::to_string(index), true, 60000, {{"rest", 0.2}}));
+    EXPECT_EQ(model.Capture().contexts.size(), 128u);
+    EXPECT_TRUE(IsValidSatisfaction(model.Capture()));
+}
+
 }

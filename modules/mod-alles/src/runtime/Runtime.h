@@ -44,7 +44,8 @@ public:
     std::vector<std::string> Recall(Player const& player, std::size_t count) const;
     std::optional<OwnerStatus> Status(ActorKey owner) const;
     std::optional<uint64_t> Flush(ActorKey owner);
-    bool SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation);
+    bool SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
+        std::optional<double> ambitionScale = {});
     bool SetEffect(ActorKey owner, std::string activity, std::string motive, double effect);
     std::string SatisfactionStatus(ActorKey owner) const;
     bool IsMainThread() const;

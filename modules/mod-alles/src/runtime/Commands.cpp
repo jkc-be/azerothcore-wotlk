@@ -80,6 +80,7 @@ public:
             {"flush", Flush, SEC_GAMEMASTER, Console::Yes},
             {"motives", Motives, SEC_GAMEMASTER, Console::Yes},
             {"motive", Motive, SEC_GAMEMASTER, Console::Yes},
+            {"ambition", Ambition, SEC_GAMEMASTER, Console::Yes},
             {"effect", Effect, SEC_GAMEMASTER, Console::Yes}
         };
         return {{"alles", allesCommands}};
@@ -119,6 +120,23 @@ private:
         return true;
     }
 
+    static bool Ambition(ChatHandler* handler, char const* args)
+    {
+        if (!IsDiagnosticCaller(handler) || !args || std::string_view(args).size() > 256)
+            return false;
+        std::istringstream input(args);
+        std::string kind, rawId, motive, extra;
+        double weight = 0, scale = 0;
+        if (!(input >> kind >> rawId >> motive >> weight >> scale) || (input >> extra) || kind != "player")
+            return Error(handler, "Usage: .alles ambition player id motive weight scale");
+        auto const id = Commands::ParsePositiveId(rawId);
+        auto* runtime = CommandRuntime(handler);
+        if (!id || !runtime || !runtime->SetMotive({ActorKind::Player, *id}, motive, weight, 0, 0, scale))
+            return Error(handler, "Ambition rejected: use a ready brain owner, weight 0-10 and positive scale.");
+        handler->SendSysMessage("Continuing ambition updated. Observed value preserved. Use .alles flush to save.");
+        return true;
+    }
+
     static bool Effect(ChatHandler* handler, char const* args)
     {
         if (!IsDiagnosticCaller(handler) || !args || std::string_view(args).size() > 256)
@@ -132,7 +150,7 @@ private:
         auto* runtime = CommandRuntime(handler);
         if (!id || !runtime || !runtime->SetEffect({ActorKind::Player, *id}, activity, motive, effect))
             return Error(handler, "Effect rejected: use a ready brain owner, an installed activity, an existing "
-                "motive and a finite effect from -1 to 1.");
+                "motive and a finite effect in its units (needs -1 to 1, ambitions up to 1e12).");
         handler->SendSysMessage("Activity effect updated. Use .alles flush for a save receipt.");
         return true;
     }

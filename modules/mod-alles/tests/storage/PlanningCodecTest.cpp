@@ -249,9 +249,9 @@ TEST(AllesPlanningCodec, RejectsForeignOwnersUnknownVersionsFieldsAndDuplicateKe
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::CreatureSpawn, Owner.id}));
     EXPECT_FALSE(DecodePlanning(encoded, {ActorKind::Player, Owner.id + 1}));
     auto value = Bridge::Parse(encoded).as_object();
-    value["version"] = 12;
+    value["version"] = 13;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
-    value["version"] = 11;
+    value["version"] = 12;
     value["movementHandle"] = 123;
     EXPECT_FALSE(DecodePlanning(boost::json::serialize(value), Owner));
     EXPECT_FALSE(DecodePlanning("{\"version\":1," + encoded.substr(1), Owner));
@@ -516,6 +516,53 @@ TEST(AllesPlanningCodec, SatisfactionReceiptsAndAuthoredEffectsSurviveSerializat
             case 2: malformed.objectives.objectives.begin()->second.satisfactionReceipt->inLog = true; break;
         }
         EXPECT_FALSE(IsValidPlanningSnapshot(malformed));
+    }
+}
+
+TEST(AllesPlanningCodec, AmbitionsContextualLearningAndLegacyNeedsRoundTrip)
+{
+    auto snapshot = Fixture();
+    SatisfactionModel model;
+    ASSERT_TRUE(model.SetDimension("wealth", {4, 20000, 0, 0, MotivationCurve::Growth, 1000}));
+    ASSERT_TRUE(model.LearnOutcome("pursue_quest", "forest", true, 120000, {{"wealth", 300}}));
+    ASSERT_TRUE(model.LearnOutcome("pursue_quest", "forest", false, 30000, {{"wealth", -50}}));
+    snapshot.satisfaction = model.Capture();
+    snapshot.satisfaction.horizonMs = 900000;
+    auto decoded = DecodePlanning(EncodePlanning(snapshot), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(*decoded, snapshot);
+    SatisfactionModel restored;
+    ASSERT_TRUE(restored.Restore(decoded->satisfaction));
+    EXPECT_EQ(restored.ExpectedEffects("pursue_quest", "forest"),
+        model.ExpectedEffects("pursue_quest", "forest"));
+    EXPECT_EQ(restored.ExpectedEffects("pursue_quest", "forest", false),
+        model.ExpectedEffects("pursue_quest", "forest", false));
+
+    auto legacy = Bridge::Parse(EncodePlanning(Fixture())).as_object();
+    legacy["version"] = 11;
+    auto& state = legacy.at("satisfaction").as_object();
+    state.erase("contexts");
+    state.erase("horizonMs");
+    for (auto& dimension : state.at("dimensions").as_array())
+    {
+        dimension.as_object().erase("curve");
+        dimension.as_object().erase("scale");
+    }
+    decoded = DecodePlanning(boost::json::serialize(legacy), Owner);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded->satisfaction, DefaultSatisfaction());
+    for (unsigned invalid = 0; invalid < 4; ++invalid)
+    {
+        auto data = Bridge::Parse(EncodePlanning(snapshot)).as_object();
+        auto& motives = data.at("satisfaction").as_object();
+        switch (invalid)
+        {
+            case 0: motives.at("dimensions").as_array()[0].as_object()["curve"] = 9; break;
+            case 1: motives.at("dimensions").as_array()[0].as_object()["scale"] = 0; break;
+            case 2: motives["horizonMs"] = 0; break;
+            case 3: motives.at("contexts").as_array()[0].as_object()["id"] = "absent:forest"; break;
+        }
+        EXPECT_FALSE(DecodePlanning(boost::json::serialize(data), Owner));
     }
 }
 

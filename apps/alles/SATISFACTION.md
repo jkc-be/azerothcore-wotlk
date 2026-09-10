@@ -1,8 +1,10 @@
-# Satisfaction and activity choice
+# Individual motivations and learned activity choice
 
 With `Alles.Brain.Enable=1`, each managed character compares expected satisfaction over the next ten minutes.
 The score combines named motives with individual weights, current fulfillment, depletion rates and diminishing
-returns. The initial authored motives are security, rest, discovery, achievement, companionship and resources.
+returns. New WoW owners have security, rest, discovery, achievement, companionship and resources needs, alongside
+continuing wealth and equipment ambitions. Each new owner gets independently varied, persistent weights; existing
+saved preferences are retained. There is no fixed personality class restricting the possible combinations.
 They describe simulation preferences; they are not a claim to model human subjective experience.
 
 An activity can affect several motives. Accepted quests can provide achievement and resources; helping a
@@ -21,7 +23,7 @@ quest counters, rewards, visits, interactions and rest. Gameplay time drives dep
 is not simulated as activity. Bounded success counts and mean execution durations update expectations after an
 observed attempt. Up to 32 private route estimates retain observed success and travel-time corrections.
 Failure lowers that approach's reliability without crediting its predicted benefits.
-Preferences remain authored, rather than changing from a model-generated explanation.
+Preferences remain authored; learning improves expectations of how to fulfill them without rewriting priorities.
 
 The model-assisted planner and deterministic fallback receive the same core-computed valuations. Worker output
 cannot replace the selected preference with a lower-valued activity. A feasible intention has a two-minute
@@ -60,22 +62,88 @@ GM diagnostics operate on a loaded managed player:
 .alles motives player 123
 .alles motive player 123 companionship 4 0.3 1
 .alles motive player 123 craftsmanship 2 0 0.5
+.alles ambition player 123 wealth 8 1000
+.alles ambition player 123 equipment 6 100
 .alles effect player 123 pursue_quest craftsmanship 0.2
 .alles flush player 123
 ```
 
 `motive` takes an identifier, weight (0–10), depletion per hour (0–10), and satiation (0–1). It preserves existing
-fulfillment. New authored dimensions start unfulfilled. At most 32 dimensions are accepted and total weight
-must remain positive. `effect` binds an installed activity to a defined motive with a net effect in [-1,1].
+fulfillment and curve. `ambition` takes an identifier, weight and positive scale in observation units; it selects
+the continuing growth curve while retaining the observed quantity. New authored dimensions start unfulfilled. At most 32 dimensions are accepted and total weight
+must remain positive. `effect` binds an installed activity to a defined motive with a net effect in [-1,1] for needs, or measured units for ambitions (up to 1e12).
 The installed activity names are `pursue_quest`, `discover_work`, `explore_place`, `rest`, `visit_companion` and
 `help_companion`. Use the flush receipt to distinguish requested persistence from an acknowledged save.
 
 `planning.satisfaction` includes dimensions, authored activity effects, learned outcomes, selected objective,
 maintain-state value, alternative contributions, travel estimates, perceived risk, route reasoning and cooldowns.
 `planning.body` reports the owning intention and physical progress/failure counters. Objective purpose, observed
-activity time and completion time distinguish arrival from actual achievement. Version 11 planning snapshots
-persist the model and receipts; versions 1–10 load explicit defaults.
+activity time and completion time distinguish arrival from actual achievement. Version 12 planning snapshots
+persist ambitions, contextual outcomes and the horizon. Version 11 retains its existing needs and preferences;
+versions 1–10 load explicit legacy defaults. Older owners can acquire ambitions through the commands above.
 
 Unit tests cover valuation, safer routes, ownership, invalid inputs, replay prevention and snapshot migration.
 The live rest keeper is `TestObservatory_SatisfactionProducesObservedRest`; see the e2e inventory for its fixture.
 Large-cohort performance and long-term behavioral quality require separate measured runs.
+
+
+## Needs, ambitions and learning
+
+Needs use fulfillment in [0,1], depletion and a diminishing-return response. Continuing ambitions use measurable
+nonnegative quantities and `log(1 + value / scale)`: another improvement stays valuable as possessions grow.
+Losing and regaining possessions cannot beat retaining them. Weights express relative personal importance;
+scale defines meaningful units. `SatisfactionSnapshot.horizonMs` selects one second to one hour of lookahead,
+with ten minutes as the default. The score compares one actor's alternatives; it is not a percentage of happiness
+or a comparison between people. The browser distinguishes need fulfillment, raw ambitions and personal priorities.
+
+Successful and failed owned attempts teach separate net wealth/equipment outcomes, including explicitly observed
+zero yield. Estimates transfer through a global activity prior and specialize by area and level band. Four prior
+observations regularize each estimate. Missing measurements do not count as zero. Counts decay after 1,000 samples;
+32 activity histories and 128 contexts bound work and storage, without imposing a fixed list of objectives.
+Learning changes predictions; only grounded observations change holdings. Reload starts a fresh observation
+baseline, and existing objective receipts prevent the same completed attempt being learned again.
+
+Wealth follows carried copper. Equipment uses the core's `GetTotalItemLevel()` quality-adjusted equipped item-level
+sum, excluding shirt, tabard, offhand and ranged slots. This is a gear-quality proxy, not optimal combat performance.
+Accepted quests supply known net money and currently usable equipment upgrades, respecting reward choices and
+replacement slots. These known rewards supersede uncertain priors. Seeking work includes one possible subsequent
+quest plus its travel/activity time; finding work cannot grant that later reward. Unknown-work priors initially
+expect 50 copper and five equipment points per quest, then measured outcomes revise them. Actual loot and
+equipment execution remain with the existing body. Delayed rewards may occur in a later activity's observation
+window; the estimates describe observed episodes, not a proven causal model of every item acquisition.
+
+## Reusing the decision model
+
+`SatisfactionModel`, `ForecastAttempt` and their data structures use only the C++ standard library. An environment
+adapter supplies observable metrics, preferences, capabilities, costs, consequences and unique outcome receipts.
+Names do not have to be WoW concepts. For example, a farming/research simulation can use the following state:
+
+```cpp
+SatisfactionSnapshot state;
+state.dimensions = {
+    {"energy", {1, 0.8, 0.1, 1}},
+    {"credits", {4, 10, 0, 0, MotivationCurve::Growth, 10}},
+    {"knowledge", {1, 10, 0, 0, MotivationCurve::Growth, 10}}
+};
+state.activities = {{"sell_crop", {{"credits", 20}}}, {"research", {{"knowledge", 20}}}};
+SatisfactionModel model;
+model.Restore(state);
+auto forecast = ForecastAttempt(10000, 60000, 0.8, model.ExpectedEffects("sell_crop", "market"),
+    {{"energy", -0.1}}, {{"credits", -2}});
+// Compare candidates with Choose, execute in the environment, and learn only from the observed result.
+model.LearnOutcome("sell_crop", "market", true, 60000, {{"credits", 12}});
+```
+
+Keep observation application (`Observe`) separate from expectation learning (`LearnOutcome`), and accept each
+receipt once. The existing objective receipts provide this fence in WoW. `ForecastAttempt` has no implicit need
+names; the older `ForecastActivity` convenience function retains WoW rest/security conventions. New activities
+still require real executors: naming an activity does not invent a capability.
+
+Knowledge reuse can improve future choices, but no exponential multiplier is applied to learning or rewards.
+This is bounded outcome learning, not neural retraining or arbitrary code generation. Richer plans, markets,
+professions and another game's body need corresponding adapters and observations. Long-term human likeness
+requires measured behavioral evaluation; the framework and its tests do not establish that by themselves.
+
+`TestObservatory_IndividualMotivationsLearnObservedOutcomes` covers distinct priorities, native client movement,
+measured wealth and persisted outcome learning. Pure tests run the separate farming/research example, reverse
+choices after learned outcomes, and cover continued ambition, failure effects, transfer and legacy migration.

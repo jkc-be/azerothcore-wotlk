@@ -815,11 +815,12 @@ std::optional<OwnerStatus> Runtime::Status(ActorKey owner) const
     return Contains(owner) ? _impl->store.Status(owner) : std::nullopt;
 }
 
-bool Runtime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation)
+bool Runtime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
+    std::optional<double> ambitionScale)
 {
     _impl->CheckThread();
     return _impl->objectives
-        && _impl->objectives->SetMotive(owner, std::move(id), weight, depletion, satiation, RealNow());
+        && _impl->objectives->SetMotive(owner, std::move(id), weight, depletion, satiation, RealNow(), ambitionScale);
 }
 
 bool Runtime::SetEffect(ActorKey owner, std::string activity, std::string motive, double effect)

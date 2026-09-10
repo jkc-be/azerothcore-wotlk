@@ -29,6 +29,7 @@ import {
   filterMemories,
   relativeTime,
   currentObjective,
+  motivationDetails,
   objectiveTable,
   objectiveTally,
   worldTalk,
@@ -681,4 +682,21 @@ test("attention does not warn about a budget the world is not enforcing", () => 
   });
   assert.deepEqual(uncapped, []);
   assert.ok(capped.some((note) => note.text.includes("budget spent")));
+});
+
+test("motivation details distinguish continuing ambitions from bounded fulfillment", () => {
+  const details = motivationDetails({ staying: 1.7, horizonMs: 600000, stayingRisk: 0.3,
+    alternatives: [{ expected: 1.9 }, { expected: NaN }],
+    dimensions: [
+      { id: "rest", curve: "need", fulfillment: 0.8, weight: 1 },
+      { id: "wealth", curve: "growth", fulfillment: 50, weight: 4 },
+    ], experiences: { work: { samples: 3 } }, contexts: { work_here: {} } });
+  assert.ok(details.includes("Expected value: stay 1.700 · best activity 1.900"));
+  assert.ok(details.includes("Fulfillment: rest 80%"));
+  assert.ok(details.includes("Ambitions: wealth 50"));
+  assert.ok(details.includes("Priorities: wealth 4.0 · rest 1.0"));
+  assert.ok(details.includes("Learning: 3 retained attempts · 1 context"));
+  assert.deepEqual(motivationDetails(null), []);
+  assert.ok(motivationDetails({ staying: 0, dimensions: [{ id: "rest", fulfillment: 1 }] })
+    .includes("Fulfillment: rest 100%"));
 });

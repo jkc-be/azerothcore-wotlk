@@ -399,6 +399,37 @@ export function currentObjective(bot) {
   return ordered[0];
 }
 
+// Utility is comparable between this actor's alternatives, not a percent or an interpersonal happiness scale.
+export function motivationDetails(satisfaction) {
+  if (!satisfaction || !Number.isFinite(satisfaction.staying)) return [];
+  const scores = (satisfaction.alternatives || []).map((item) => item.expected).filter(Number.isFinite);
+  const lines = [`Expected value: stay ${satisfaction.staying.toFixed(3)}` +
+    (scores.length ? ` · best activity ${Math.max(...scores).toFixed(3)}` : " · no assessed alternatives")];
+  if (Number.isFinite(satisfaction.horizonMs)) lines.push(`Looking ahead ${duration(satisfaction.horizonMs)}`);
+  if (Number.isFinite(satisfaction.stayingRisk)) {
+    lines.push(`Nearby danger estimate: ${(100 * satisfaction.stayingRisk).toFixed(0)}%`);
+  }
+  const dimensions = (satisfaction.dimensions || []).filter((item) => Number.isFinite(item.fulfillment));
+  const needs = dimensions.filter((item) => item.curve !== "growth");
+  const ambitions = dimensions.filter((item) => item.curve === "growth");
+  if (needs.length) lines.push("Fulfillment: " + needs
+    .map((item) => `${item.id} ${(100 * item.fulfillment).toFixed(0)}%`).join(" · "));
+  if (ambitions.length) lines.push("Ambitions: " + ambitions
+    .map((item) => {
+      const value = item.unit === "copper" ? formatMoney(item.fulfillment)
+        : item.fulfillment.toLocaleString(undefined, { maximumFractionDigits: 1 }) + (item.unit ? ` ${item.unit}` : "");
+      return `${item.id} ${value}`;
+    }).join(" · "));
+  const priorities = dimensions.filter((item) => Number.isFinite(item.weight) && item.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+  if (priorities.length) lines.push("Priorities: " + priorities
+    .map((item) => `${item.id} ${item.weight.toFixed(1)}`).join(" · "));
+  const experiences = Object.values(satisfaction.experiences || {});
+  const attempts = experiences.reduce((sum, item) => sum + (item.samples || 0), 0);
+  lines.push(`Learning: ${attempts} retained attempts · ${Object.keys(satisfaction.contexts || {}).length} context${Object.keys(satisfaction.contexts || {}).length === 1 ? "" : "s"}`);
+  return lines;
+}
+
 // One row per bot: what it is working towards and how that is going. Bots without planning are left out, so a
 // world build that publishes none produces an empty table rather than a column of blanks.
 export function objectiveTable(bots) {

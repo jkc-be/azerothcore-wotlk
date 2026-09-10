@@ -7,6 +7,7 @@
 #include "PartyActions.h"
 #include "ObjectivePlanning.h"
 #include "Item.h"
+#include "ItemUsageValue.h"
 #include "Bag.h"
 #include "Creature.h"
 #include "AdvicePlanning.h"
@@ -325,6 +326,67 @@ QuestFinances OwnQuestFinances(Player& bot)
     return result;
 }
 
+SatisfactionSnapshot InitialPlayerMotivations(ActorKey owner)
+{
+    auto state = DefaultSatisfaction();
+    state.dimensions["wealth"] = {2, 0, 0, 0, MotivationCurve::Growth, 1000};
+    state.dimensions["equipment"] = {2, 0, 0, 0, MotivationCurve::Growth, 100};
+    // Explicit uncertain priors for not-yet-known work; accepted quest rewards replace these estimates.
+    state.activities["pursue_quest"]["wealth"] = 50;
+    state.activities["pursue_quest"]["equipment"] = 5;
+    return PersonalizeMotivations(std::move(state), owner.id);
+}
+
+double MeasuredMotivation(SatisfactionDimension const& dimension, double amount)
+{
+    amount = std::clamp(amount, 0.0, 1e12);
+    return dimension.curve == MotivationCurve::Growth ? amount : amount / (amount + dimension.scale);
+}
+
+std::string LearningContext(Player const& bot, Objective const& objective)
+{
+    return "area_" + std::to_string(objective.place ? objective.place : bot.GetAreaId())
+        + "_level_" + std::to_string(bot.GetLevel() / 5);
+}
+
+double KnownEquipmentReward(Player& bot, PlayerbotAI& ai, uint32_t quest)
+{
+    auto const* definition = sObjectMgr->GetQuestTemplate(quest);
+    if (!definition || bot.FindQuestSlot(quest) >= MAX_QUEST_LOG_SIZE)
+        return 0;
+    auto upgrade = [&](uint32_t item) -> std::pair<uint8_t, double>
+    {
+        auto const* prototype = sObjectMgr->GetItemTemplate(item);
+        if (!prototype || bot.CanUseItem(prototype) != EQUIP_ERR_OK
+            || ai.GetAiObjectContext()->GetValue<ItemUsage>("item usage", std::to_string(item))->Get()
+                != ITEM_USAGE_EQUIP)
+            return {NULL_SLOT, 0};
+        auto const slot = bot.FindEquipSlot(prototype, NULL_SLOT, true);
+        // Match the core's GetTotalItemLevel observable, a gear-quality proxy rather than combat simulation.
+        if (slot >= EQUIPMENT_SLOT_END || slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD
+            || slot == EQUIPMENT_SLOT_OFFHAND || slot == EQUIPMENT_SLOT_RANGED)
+            return {NULL_SLOT, 0};
+        auto const* current = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        double const before = current ? current->GetTemplate()->GetItemLevelIncludingQuality(bot.GetLevel()) : 0;
+        return {slot, std::max(0.0, prototype->GetItemLevelIncludingQuality(bot.GetLevel()) - before)};
+    };
+    std::map<uint8_t, double> guaranteed;
+    for (auto const item : definition->RewardItemId)
+    {
+        auto const [slot, gain] = upgrade(item);
+        guaranteed[slot] = std::max(guaranteed[slot], gain);
+    }
+    double bestChoice = 0;
+    for (auto const item : definition->RewardChoiceItemId)
+    {
+        auto const [slot, gain] = upgrade(item);
+        bestChoice = std::max(bestChoice, gain - guaranteed[slot]);
+    }
+    for (auto const& [slot, gain] : guaranteed)
+        bestChoice += gain;
+    return bestChoice;
+}
+
 std::string ReadinessReason(QuestReadiness const& readiness)
 {
     switch (QuestReadinessObstruction(readiness))
@@ -540,6 +602,8 @@ struct ObjectiveRuntime::Impl
         uint64_t intentionSinceMs = 0;
         uint64_t intention = 0;
         uint64_t activityObservedMs = 0;
+        SatisfactionEffects attemptEffects;
+        std::string attemptContext;
         uint32_t discoveredArea = 0;
         std::map<uint64_t, WorldPosition> destinations;
         std::map<uint64_t, uint64_t> travelTimes;
@@ -1986,6 +2050,8 @@ struct ObjectiveRuntime::Impl
             state.intention = current ? current->id : 0;
             state.intentionSinceMs = now;
             state.activityObservedMs = state.activityArrivalObservedMs = 0;
+            state.attemptEffects.clear();
+            state.attemptContext = current ? LearningContext(bot, *current) : std::string{};
             state.learningRoute.clear();
             state.observedTravelMs = state.predictedTravelMs = 0;
         }
@@ -2070,7 +2136,9 @@ struct ObjectiveRuntime::Impl
             }
             state.travelTimes[id] = travelMs;
             auto const activity = objective.quest ? "pursue_quest" : ActivityCapability(objective.purpose);
-            auto effects = state.satisfaction.Effects(activity);
+            auto const context = LearningContext(bot, objective);
+            auto effects = state.satisfaction.ExpectedEffects(activity, context);
+            auto failureEffects = state.satisfaction.ExpectedEffects(activity, context, false);
             if (objective.quest && objective.cooperation.state == CooperationState::Working)
                 for (auto const& [dimension, effect] : state.satisfaction.Effects("help_companion"))
                     effects[dimension] = std::clamp(effects[dimension] + effect, -1.0, 1.0);
@@ -2083,17 +2151,41 @@ struct ObjectiveRuntime::Impl
                     double const expense = supplies ? supplies->maximumPrice : 0;
                     effects["resources"] = value(std::max(0.0, double(finances.ownMoney) + money->second - expense))
                         - value(finances.ownMoney);
+                    if (auto const found = state.satisfaction.Capture().dimensions.find("wealth");
+                        found != state.satisfaction.Capture().dimensions.end())
+                        effects["wealth"] = MeasuredMotivation(found->second,
+                            double(finances.ownMoney) + money->second - expense) - found->second.fulfillment;
                 }
+            if (objective.quest)
+                if (auto const found = state.satisfaction.Capture().dimensions.find("equipment");
+                    found != state.satisfaction.Capture().dimensions.end())
+                    effects["equipment"] = MeasuredMotivation(found->second,
+                        bot.GetTotalItemLevel() + KnownEquipmentReward(bot, ai, objective.quest))
+                        - found->second.fulfillment;
             double const prior = objective.purpose == PlacePurpose::Rest ? 1
                 : objective.checkpoint.readyToReward ? 0.95
                 : objective.purpose == PlacePurpose::Discovery ? 0.85
                 : objective.purpose == PlacePurpose::Companionship ? 0.65 : 0.6;
-            double const success = state.satisfaction.SuccessProbability(activity, prior);
-            uint64_t const duration = objective.purpose == PlacePurpose::Rest ? 60000 - objective.activityMs
+            double success = state.satisfaction.SuccessProbability(activity, prior);
+            uint64_t duration = objective.purpose == PlacePurpose::Rest ? 60000 - objective.activityMs
                 : state.satisfaction.ExpectedDuration(activity, objective.checkpoint.readyToReward ? 10000 : 120000)
                     + (supplies ? 30000 : 0);
+            if (!objective.quest && objective.purpose == PlacePurpose::Work)
+            {
+                // Seeking work opens a possible subsequent task. Value that bounded continuation, while
+                // observation credits only the actual discovery and later pays only the actual quest reward.
+                auto const future = state.satisfaction.ExpectedEffects("pursue_quest", context);
+                for (auto const& [dimension, effect] : future)
+                {
+                    auto const limit = MotivationLimit(state.satisfaction.Capture().dimensions.at(dimension));
+                    effects[dimension] = std::clamp(effects[dimension] + effect, -limit, limit);
+                }
+                success *= state.satisfaction.SuccessProbability("pursue_quest", 0.6);
+                duration = std::min(uint64_t(3600000), duration + 120000
+                    + state.satisfaction.ExpectedDuration("pursue_quest", 120000));
+            }
             candidates.push_back({id, objective.revision,
-                ForecastActivity(travelMs, risk, success, duration, effects)});
+                ForecastActivity(travelMs, risk, success, duration, effects, failureEffects)});
         }
         // First score all bounded known candidates cheaply. Retain the current intention plus the best of
         // each purpose before filling the eight pathfinding slots; quests cannot consume every route query.
@@ -2139,10 +2231,12 @@ struct ObjectiveRuntime::Impl
             }
             experience(*direct);
             auto const& effects = candidate.forecast.outcomes.front().stages.back().effects;
+            auto const& failureEffects = candidate.forecast.outcomes.back().stages.back().effects;
             auto const duration = candidate.forecast.outcomes.front().stages.back().durationMs;
             auto const probability = candidate.forecast.outcomes.front().probability;
             auto bestRoute = *direct;
-            auto bestForecast = ForecastActivity(direct->durationMs, direct->risk, probability, duration, effects);
+            auto bestForecast = ForecastActivity(direct->durationMs, direct->risk, probability, duration,
+                effects, failureEffects);
             auto const assessedRoute = state.satisfaction.Evaluate(bestForecast);
             if (!assessedRoute)
                 continue;
@@ -2166,7 +2260,8 @@ struct ObjectiveRuntime::Impl
                     if (!detour)
                         continue;
                     experience(*detour);
-                    auto forecast = ForecastActivity(detour->durationMs, detour->risk, probability, duration, effects);
+                    auto forecast = ForecastActivity(detour->durationMs, detour->risk, probability, duration,
+                        effects, failureEffects);
                     auto const assessedDetour = state.satisfaction.Evaluate(forecast);
                     if (!assessedDetour)
                         continue;
@@ -2190,7 +2285,7 @@ struct ObjectiveRuntime::Impl
                     experience(*held);
                     committedRisk = held->risk;
                     auto const heldValue = state.satisfaction.Evaluate(
-                        ForecastActivity(held->durationMs, held->risk, probability, duration, effects));
+                        ForecastActivity(held->durationMs, held->risk, probability, duration, effects, failureEffects));
                     reviseRoute = !heldValue || bestValue > heldValue->total + 0.01
                         || remaining.back().distance(destination->second) >= 5;
                 }
@@ -2350,7 +2445,8 @@ struct ObjectiveRuntime::Impl
         {
             // Learning estimates execution time separately from the remaining route cost in forecasts.
             if (auto const* intention = state.book.Find(state.intention);
-                intention && (intention->step == ObjectiveStep::Attempt || bot->IsInCombat()))
+                intention && (intention->step == ObjectiveStep::Attempt || bot->IsInCombat()
+                    || (intention->arrivedMs && intention->purpose != PlacePurpose::Work)))
                 state.activityObservedMs = std::min(uint64_t(3600000), state.activityObservedMs + elapsed);
             if (auto const* current = state.book.Current(); current && current->arrivedMs && !bot->isMoving()
                 && bot->IsAlive() && !bot->IsInCombat())
@@ -2380,6 +2476,20 @@ struct ObjectiveRuntime::Impl
             }
         }
         SatisfactionEffects effects;
+        auto const& dimensions = state.satisfaction.Capture().dimensions;
+        SatisfactionEffects measured;
+        if (dimensions.contains("wealth"))
+            measured["wealth"] = MeasuredMotivation(dimensions.at("wealth"), bot->GetMoney())
+                - dimensions.at("wealth").fulfillment;
+        if (dimensions.contains("equipment"))
+            measured["equipment"] = MeasuredMotivation(dimensions.at("equipment"), bot->GetTotalItemLevel())
+                - dimensions.at("equipment").fulfillment;
+        if (elapsed && state.intention)
+            for (auto const& [id, value] : measured)
+            {
+                double const limit = MotivationLimit(dimensions.at(id));
+                state.attemptEffects[id] = std::clamp(state.attemptEffects[id] + value, -limit, limit);
+            }
         auto add = [&](SatisfactionEffects const& additions)
         {
             for (auto const& [dimension, effect] : additions)
@@ -2412,7 +2522,12 @@ struct ObjectiveRuntime::Impl
             {
                 auto const activity = objective.quest ? "pursue_quest" : ActivityCapability(objective.purpose);
                 if (state.intention == id && state.activityObservedMs)
-                    state.satisfaction.Learn(activity, completed, state.activityObservedMs);
+                    {
+                    state.satisfaction.LearnOutcome(activity, state.attemptContext, completed,
+                        state.activityObservedMs, state.attemptEffects);
+                    state.attemptEffects.clear();
+                    state.nextAssessmentMs = 0;
+                }
                 if (completed && objective.purpose == PlacePurpose::Companionship
                     && state.satisfaction.ActivityReceipt(activity, now))
                     add(state.satisfaction.Effects(activity));
@@ -2422,12 +2537,13 @@ struct ObjectiveRuntime::Impl
                     state.satisfaction.ActivityReceipt(activity, now);
             }
         }
-        auto const& dimensions = state.satisfaction.Capture().dimensions;
         if (dimensions.contains("security"))
             effects["security"] = double(bot->GetHealthPct()) / 100 - dimensions.at("security").fulfillment;
         if (dimensions.contains("resources"))
             effects["resources"] = double(bot->GetMoney()) / (double(bot->GetMoney()) + 1000 * bot->GetLevel())
                 - dimensions.at("resources").fulfillment;
+        for (auto const& [id, value] : measured)
+            effects[id] = value; // Predictions and authored effects cannot mint money or equipment.
         state.satisfaction.Observe(now, elapsed, effects);
         Publish(owner, state, realMs);
     }
@@ -2618,7 +2734,10 @@ struct ObjectiveRuntime::Impl
             }
             state.book = std::move(book);
             state.knowledge = std::move(knowledge);
-            state.satisfaction.Restore(snapshot->planning ? snapshot->planning->satisfaction : DefaultSatisfaction());
+            state.satisfaction.Restore(snapshot->planning ? snapshot->planning->satisfaction
+                : InitialPlayerMotivations(owner));
+            state.attemptEffects.clear();
+            state.attemptContext.clear();
             state.satisfactionSampleMs = state.intention = state.intentionSinceMs = state.activityObservedMs = 0;
             state.learningRoute.clear();
             state.observedTravelMs = state.predictedTravelMs = 0;
@@ -3016,6 +3135,8 @@ struct ObjectiveRuntime::Impl
                             state.intention = current->id;
                             state.intentionSinceMs = now;
                             state.activityObservedMs = state.activityArrivalObservedMs = 0;
+                            state.attemptEffects.clear();
+                            state.attemptContext = LearningContext(*bot, *current);
                             state.learningRoute.clear();
                             state.observedTravelMs = state.predictedTravelMs = 0;
                             if (state.geometricTravelTimes.contains(current->id)
@@ -3371,7 +3492,7 @@ void ObjectiveRuntime::Stop(uint64_t gameMs, uint64_t realMs)
 }
 
 bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
-    uint64_t realMs)
+    uint64_t realMs, std::optional<double> ambitionScale)
 {
     auto found = _impl->states.find(owner);
     if (found == _impl->states.end() || !found->second.generation || !_impl->brain)
@@ -3379,8 +3500,16 @@ bool ObjectiveRuntime::SetMotive(ActorKey owner, std::string id, double weight, 
     auto& state = found->second;
     auto staged = state.satisfaction;
     auto const known = staged.Capture().dimensions.find(id);
-    double const fulfillment = known == staged.Capture().dimensions.end() ? 0 : known->second.fulfillment;
-    if (!staged.SetDimension(std::move(id), {weight, fulfillment, depletion, satiation}))
+    auto dimension = known == staged.Capture().dimensions.end() ? SatisfactionDimension{1, 0} : known->second;
+    dimension.weight = weight;
+    dimension.depletionPerHour = depletion;
+    dimension.satiation = satiation;
+    if (ambitionScale)
+    {
+        dimension.curve = MotivationCurve::Growth;
+        dimension.scale = *ambitionScale;
+    }
+    if (!staged.SetDimension(std::move(id), dimension))
         return false;
     auto previous = state.satisfaction;
     state.satisfaction = std::move(staged);
@@ -3432,7 +3561,9 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
     for (auto const& [id, dimension] : found->second.satisfaction.Capture().dimensions)
         dimensions.emplace_back(boost::json::object{{"id", id}, {"weight", dimension.weight},
             {"fulfillment", dimension.fulfillment}, {"depletionPerHour", dimension.depletionPerHour},
-            {"satiation", dimension.satiation}});
+            {"satiation", dimension.satiation},
+            {"curve", dimension.curve == MotivationCurve::Growth ? "growth" : "need"}, {"scale", dimension.scale},
+            {"unit", id == "wealth" ? "copper" : id == "equipment" ? "equipment points" : ""}});
     for (auto const& candidate : found->second.satisfactionDecision.alternatives)
     {
         boost::json::object contributions;
@@ -3466,9 +3597,22 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
     for (auto const& [route, experience] : satisfaction.travel)
         travelExperiences[route] = boost::json::object{{"samples", experience.samples},
             {"successes", experience.successes}, {"durationRatio", experience.durationRatio}};
+    auto describeExperience = [](SatisfactionExperience const& experience)
+    {
+        boost::json::object effects, failures;
+        for (auto const& [dimension, effect] : experience.effects)
+            effects[dimension] = boost::json::object{{"samples", effect.samples}, {"mean", effect.mean}};
+        for (auto const& [dimension, effect] : experience.failureEffects)
+            failures[dimension] = boost::json::object{{"samples", effect.samples}, {"mean", effect.mean}};
+        return boost::json::object{{"samples", experience.samples}, {"successes", experience.successes},
+            {"meanExecutionMs", experience.meanDurationMs}, {"effects", std::move(effects)},
+            {"failureEffects", std::move(failures)}};
+    };
     for (auto const& [activity, experience] : satisfaction.experiences)
-        experiences[activity] = boost::json::object{{"samples", experience.samples},
-            {"successes", experience.successes}, {"meanExecutionMs", experience.meanDurationMs}};
+        experiences[activity] = describeExperience(experience);
+    boost::json::object contexts;
+    for (auto const& [key, experience] : satisfaction.contexts)
+        contexts[key] = describeExperience(experience);
     for (auto const& [activity, effects] : satisfaction.activities)
     {
         boost::json::object values;
@@ -3483,7 +3627,8 @@ boost::json::object ObjectiveRuntime::Status(ActorKey owner) const
         {"satisfaction", boost::json::object{{"revision", found->second.satisfaction.Capture().revision},
             {"dimensions", std::move(dimensions)}, {"alternatives", std::move(alternatives)},
             {"activityEffects", std::move(bindings)}, {"experiences", std::move(experiences)},
-            {"travelExperiences", std::move(travelExperiences)},
+            {"contexts", std::move(contexts)},
+            {"travelExperiences", std::move(travelExperiences)}, {"horizonMs", satisfaction.horizonMs},
             {"nextRestMs", satisfaction.nextRestMs}, {"nextSocialMs", satisfaction.nextSocialMs},
             {"routeLimitations", std::move(routeFailures)}, {"routeIndex", found->second.routeIndex},
             {"selectedObjective", found->second.satisfactionDecision.selected},

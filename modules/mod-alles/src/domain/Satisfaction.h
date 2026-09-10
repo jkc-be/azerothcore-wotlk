@@ -14,6 +14,8 @@
 
 namespace Alles
 {
+enum class MotivationCurve : uint8_t { Need, Growth };
+
 // Authored simulation parameters, not a universal hierarchy of human needs. IDs are extensible data.
 struct SatisfactionDimension
 {
@@ -21,17 +23,29 @@ struct SatisfactionDimension
     double fulfillment = 0.5;
     double depletionPerHour = 0;
     double satiation = 1; // 0 is linear; 1 uses 2*x - x*x, with diminishing marginal value.
+    MotivationCurve curve = MotivationCurve::Need;
+    double scale = 1; // Growth uses log(1 + fulfillment / scale), in adapter-defined measurable units.
 
     bool operator==(SatisfactionDimension const&) const = default;
 };
 
 using SatisfactionEffects = std::map<std::string, double>;
 
+struct LearnedEffect
+{
+    uint32_t samples = 0;
+    double mean = 0;
+
+    bool operator==(LearnedEffect const&) const = default;
+};
+
 struct SatisfactionExperience
 {
     uint32_t samples = 0;
     uint32_t successes = 0;
     double meanDurationMs = 0;
+    std::map<std::string, LearnedEffect> effects;
+    std::map<std::string, LearnedEffect> failureEffects;
 
     bool operator==(SatisfactionExperience const&) const = default;
 };
@@ -55,12 +69,18 @@ struct SatisfactionSnapshot
     uint64_t nextRestMs = 0;
     uint64_t nextSocialMs = 0;
     std::map<std::string, TravelExperience> travel;
+    std::map<std::string, SatisfactionExperience> contexts;
+    uint64_t horizonMs = 600000;
 
     bool operator==(SatisfactionSnapshot const&) const = default;
 };
 
 SatisfactionSnapshot DefaultSatisfaction();
 bool IsValidSatisfaction(SatisfactionSnapshot const& snapshot);
+double MotivationLimit(SatisfactionDimension const& dimension);
+
+// Stable individual variation, applied only when creating an actor. Saved or explicitly edited priorities win.
+SatisfactionSnapshot PersonalizeMotivations(SatisfactionSnapshot snapshot, uint64_t seed);
 
 struct SatisfactionStage
 {
@@ -84,9 +104,13 @@ struct SatisfactionForecast
     std::vector<SatisfactionOutcome> outcomes{{}};
 };
 
+// Portable attempt composition: the environment supplies all named costs, consequences and capabilities.
+SatisfactionForecast ForecastAttempt(uint64_t travelMs, uint64_t activityMs, double successProbability,
+    SatisfactionEffects benefits, SatisfactionEffects travelCosts = {}, SatisfactionEffects failureEffects = {});
+
 // Shared activity/route forecast. Risk is grounded in perceived threats; duration is remaining travel.
 SatisfactionForecast ForecastActivity(uint64_t travelMs, double risk, double successProbability,
-    uint64_t activityMs, SatisfactionEffects effects);
+    uint64_t activityMs, SatisfactionEffects effects, SatisfactionEffects failureEffects = {});
 
 struct SatisfactionValue
 {
@@ -129,14 +153,21 @@ public:
     bool SetActivity(std::string id, SatisfactionEffects effects);
     SatisfactionEffects Effects(std::string const& activity, double fraction = 1) const;
     bool Learn(std::string const& activity, bool success, uint64_t durationMs);
+    bool LearnOutcome(std::string const& activity, std::string const& context, bool success, uint64_t durationMs,
+        SatisfactionEffects const& observedEffects);
+    SatisfactionEffects ExpectedEffects(std::string const& activity, std::string const& context = {},
+        bool success = true) const;
     double SuccessProbability(std::string const& activity, double prior) const;
     uint64_t ExpectedDuration(std::string const& activity, uint64_t priorMs) const;
     bool ActivityReceipt(std::string const& activity, uint64_t now);
     bool LearnTravel(std::string const& route, bool success, uint64_t observedMs, uint64_t predictedMs);
     double TravelSuccess(std::string const& route) const;
     uint64_t TravelDuration(std::string const& route, uint64_t remainingMs) const;
-    std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast,
-        uint64_t horizonMs = 600000) const;
+    std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast) const
+    {
+        return Evaluate(forecast, _state.horizonMs);
+    }
+    std::optional<SatisfactionValue> Evaluate(SatisfactionForecast const& forecast, uint64_t horizonMs) const;
     SatisfactionDecision Choose(std::vector<SatisfactionCandidate> const& candidates, uint64_t current = 0,
         bool committed = false, double switchThreshold = 0.01, SatisfactionForecast const& staying = {}) const;
 
