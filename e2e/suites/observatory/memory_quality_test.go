@@ -57,7 +57,8 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 		e2eharness.Preconditionf(t, "GM: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := authDB.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account); err != nil {
+		_, err := authDB.Exec("DELETE aa FROM account_access aa JOIN account a ON a.id=aa.id WHERE a.username=?", id.Account)
+		if err != nil {
 			t.Errorf("cleanup GM: %v", err)
 		}
 	})
@@ -70,7 +71,8 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 	}
 	var echoes atomic.Uint32
 	cancel := observer.AddPacketHook(func(op uint16, b []byte) {
-		if op == client.SmsgMessageChat && bytes.Contains(b, []byte("told me")) && bytes.Contains(b, []byte("good to see you")) {
+		if op == client.SmsgMessageChat && bytes.Contains(b, []byte("told me")) &&
+			bytes.Contains(b, []byte("good to see you")) {
 			echoes.Add(1)
 		}
 	})
@@ -107,7 +109,8 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 			e2eharness.HarnessFailf(t, "committed memory: %v", err)
 		}
 		if count > 0 {
-			require(t, count == 1 && salience <= 0.05 && formation == 2, "greeting duplicated or promoted: count=%d salience=%g formation=%d", count, salience, formation)
+			require(t, count == 1 && salience <= 0.05 && formation == 2,
+				"greeting duplicated or promoted: count=%d salience=%g formation=%d", count, salience, formation)
 			if !retained {
 				firstID, retained = memoryID, true
 			}
@@ -130,7 +133,8 @@ func TestObservatory_GreetingsDoNotBecomeRecursiveNews(t *testing.T) {
 			err = charDB.QueryRow(`SELECT COUNT(*) FROM alles_perception WHERE owner_kind=0 AND owner_id=?
 			 AND source_kind=0 AND source_id=? AND gated_text=?`, fixture.GUID, observer.CharGUID(), greeting).Scan(&pending)
 			require(t, err == nil && pending == 0 && count == 1, "repeat remains pending or memory was lost: %v", err)
-			t.Logf("PASS: ordinary greeting persisted once as low-salience reflex memory %d; useful report retained and no recursive news over 75 game seconds", memoryID)
+			t.Logf("PASS: greeting persisted once as low-salience reflex memory %d; "+
+				"useful report retained and no recursive news over 75 game seconds", memoryID)
 			return
 		}
 		select {
