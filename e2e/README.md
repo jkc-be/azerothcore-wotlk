@@ -490,3 +490,12 @@ Run `go test -tags=e2e ./suites/observatory -run TestObservatory_IndividualMotiv
 -count=1 -v -timeout 6m` on one line. The oracle requires native movement, distinct ambitions, actual carried
 money, a measured attempt and committed version 13 learning data. The observer never changes preferences or
 grants money/equipment. Run this separately from throughput comparisons.
+
+### Conversational memory quality
+
+`TestObservatory_GreetingsDoNotBecomeRecursiveNews` reuses the exclusive disposable motivation fixture and
+Observatory environment above. It temporarily enables full GM observation, moves only its disposable human
+to the target, sends an ordinary greeting twice beyond the ingress deduplication window, and requires one
+committed low-salience reflex memory with the same identity and no recursive greeting SAY over 75 game seconds.
+It restores observer mode and revokes its test GM access. Run separately from timing comparisons with
+`-run TestObservatory_GreetingsDoNotBecomeRecursiveNews -count=1 -v -timeout=4m`.

@@ -386,6 +386,17 @@ bool ActorStore::ApplyMutations(ActorKey owner, uint64_t generation, std::vector
         if (mutation.kind == MemoryMutationKind::Create)
         {
             auto memory = mutation.memory;
+            DecayMemory(memory, _policy, memory.decayGameTimeMs);
+            auto const duplicate = std::find_if(updated.memories.begin(), updated.memories.end(),
+                [&](Memory const& existing)
+                {
+                    return memory.kind == MemoryKind::HeardStatement && existing.kind == memory.kind
+                        && existing.claim == memory.claim && existing.source == memory.source
+                        && existing.subject == memory.subject && existing.attribution == memory.attribution
+                        && existing.reportedDepth == memory.reportedDepth;
+                });
+            if (duplicate != updated.memories.end())
+                continue; // Hearing the same claim again consumes input, not another slot or corroboration.
             memory.id = updated.nextMemoryId++;
             memory.contentRevision = 1;
             memory.formedGameTimeMs = gameTimeMs;

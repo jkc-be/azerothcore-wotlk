@@ -67,6 +67,22 @@ MemoryMutation Target(MemoryMutationKind kind, uint64_t id, Memory memory,
     return {kind, MemoryTarget{owner, {id, revision}}, std::move(memory)};
 }
 
+TEST(AllesMemoryMutationTest, RepeatedCreateConsumesEvidenceWithoutDuplicatingOrPromotingAClaim)
+{
+    Fixture fixture;
+    ASSERT_TRUE(fixture.Load());
+    ASSERT_TRUE(fixture.Observe("first belief"));
+    auto const before = fixture.Snapshot();
+    ASSERT_TRUE(fixture.store.Apply(Owner, fixture.generation, {before.perceptions.front().id}, {},
+        {Belief(0, "first belief", 1)}, 0, 0));
+    auto const after = fixture.Snapshot();
+    EXPECT_TRUE(after.perceptions.empty());
+    ASSERT_EQ(after.memories.size(), before.memories.size());
+    EXPECT_EQ(after.nextMemoryId, before.nextMemoryId);
+    EXPECT_DOUBLE_EQ(after.memories.front().salience, before.memories.front().salience);
+    EXPECT_DOUBLE_EQ(after.memories.front().confidence, before.memories.front().confidence);
+}
+
 void ExpectUnchanged(OwnerSnapshot const& before, OwnerSnapshot const& after)
 {
     EXPECT_EQ(after.owner, before.owner);

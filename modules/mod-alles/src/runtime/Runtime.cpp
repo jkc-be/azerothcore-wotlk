@@ -378,16 +378,15 @@ struct Runtime::Impl
                 && gameMs - runtime.questionTimeMs <= 30000;
             for (auto const& memory : snapshot->memories)
             {
-                if ((memory.kind != MemoryKind::WitnessedDeath && memory.kind != MemoryKind::HeardStatement)
-                    || memory.salience < settings.memory.provenanceFloor)
+                bool const relevant = questionActive && !memory.subject.name.empty()
+                    && runtime.question.find(memory.subject.name) != std::string::npos;
+                if (!CanShareMemory(memory, relevant) || memory.salience < settings.memory.provenanceFloor)
                     continue;
                 auto const text = RenderMemory(memory);
                 // Local player chat uses a 255-byte input limit. Never cut a quote/name halfway through a claim.
                 if (text.empty() || text.size() > 255 || std::any_of(runtime.spoken.begin(), runtime.spoken.end(),
                     [&](auto const& receipt) { return receipt.first == text; }))
                     continue;
-                bool const relevant = questionActive && !memory.subject.name.empty()
-                    && runtime.question.find(memory.subject.name) != std::string::npos;
                 if (!selected || (relevant && !selectedRelevant)
                     || (relevant == selectedRelevant && memory.salience > selected->salience))
                 {
@@ -411,7 +410,7 @@ struct Runtime::Impl
                 recorder->RecordSpeech(owner, line, speechDelivered, realMs);
             if (!speechDelivered)
                 continue;
-            store.Rehearse(owner, memoryId, gameMs, realMs, 0.05);
+            store.Rehearse(owner, memoryId, gameMs, realMs, 0);
             runtime.spoken.emplace_back(line, gameMs);
             if (runtime.spoken.size() > 32)
                 runtime.spoken.pop_front();

@@ -317,7 +317,8 @@ struct PilotCoordinator::Impl
             return std::nullopt;
         std::vector<Memory const*> strongest;
         for (auto const& memory : current->memories)
-            strongest.push_back(&memory);
+            if (!IsRoutineMemory(memory))
+                strongest.push_back(&memory);
         std::sort(strongest.begin(), strongest.end(), [](Memory const* left, Memory const* right)
         {
             return left->salience > right->salience || (left->salience == right->salience && left->id < right->id);
@@ -416,9 +417,11 @@ struct PilotCoordinator::Impl
                     return Acceptance::InvalidProposal;
                 memory.confidence = std::min(memory.confidence, derived.confidence);
             }
+            double const evidenceCeiling = SalienceCeiling(memory);
             memory.claim = proposal.text;
+            DecayMemory(memory, policy, gameMs);
             memory.confidence = std::min(memory.confidence, proposal.confidence);
-            memory.salience = std::min(proposal.salience, SalienceCeiling(memory));
+            memory.salience = std::min({proposal.salience, evidenceCeiling, SalienceCeiling(memory)});
             memory.formation = external ? FormationMode::Model : FormationMode::InProcessFake;
             MemoryMutation mutation;
             mutation.memory = std::move(memory);

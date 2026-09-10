@@ -246,6 +246,20 @@ TEST(AllesConversationKnowledgeTest, OrdinaryDeathsCannotOutrankUsefulMatchingMe
     EXPECT_EQ(advice.memories[0].as_string(), RenderMemory(lead));
     EXPECT_EQ(advice.memories[1].as_string(), RenderMemory(death));
 }
+TEST(AllesConversationKnowledgeTest, GreetingsDoNotBecomeEvidenceJustBecauseTheNameMatches)
+{
+    OwnerSnapshot owner;
+    Perception speech;
+    speech.source.name = "Humana";
+    speech.text = "Hello, Humanb. It is good to see you.";
+    owner.memories.push_back(FormFallback(speech, {}, 100));
+    speech.text = "Humana found work at the abbey.";
+    owner.memories.push_back(FormFallback(speech, {}, 100));
+    auto advice = RetrieveConversationKnowledge(owner, "What did Humana find?", 1, 1000);
+    ASSERT_EQ(advice.memories.size(), 1u);
+    EXPECT_EQ(advice.memories[0].as_string(), RenderMemory(owner.memories.back()));
+}
+
 TEST(AllesConversationKnowledgeTest, ContextBoundCountsEscapingAndKeepsTheActualQuestion)
 {
     boost::json::object context{{"message", "Where can I hunt?"}, {"localActions", false},

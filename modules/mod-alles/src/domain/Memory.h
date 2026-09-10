@@ -120,6 +120,8 @@ bool IsValidMemory(Memory const& memory);
 bool GatePerception(Perception& perception);
 // Common combat deaths are cheap background observations; only evidenced player-on-player deaths are salient.
 bool UsesReflexFormation(Perception const& perception);
+bool IsRoutineMemory(Memory const& memory);
+bool CanShareMemory(Memory const& memory, bool relevantQuestion);
 double SalienceCeiling(Memory const& memory);
 Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, uint64_t gameTimeMs);
 std::string RenderMemory(Memory const& memory);

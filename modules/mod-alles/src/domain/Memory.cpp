@@ -10,7 +10,11 @@
 #include "Memory.h"
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <limits>
+#include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace Alles
 {
@@ -37,32 +41,103 @@ bool PlayerKilledByPlayer(Reference const& victim, Reference const& killer)
         && killer.actor->kind == ActorKind::Player && victim.actor != killer.actor;
 }
 
-void ParseAttribution(Memory& memory, std::string const& text)
+bool PlainName(std::string_view name)
 {
-    // These are exact audible English forms, not a general natural-language parser.
-    if (text.starts_with("I saw ") && text.size() > 6)
+    return !name.empty() && IsBoundedText(name, 100)
+        && name.find_first_of(".,:;!?\n\r\"") == std::string_view::npos;
+}
+
+void ParseAttribution(Memory& memory, std::string text)
+{
+    // Only exact audible forms are recognized. The deepest named source remains an attribution, not evidence.
+    uint32_t depth = memory.reportedDepth.value_or(1);
+    while (!text.empty())
     {
-        memory.claim = text.substr(6);
-        memory.attribution = memory.source.name;
-        memory.reportedDepth = 1;
-    }
-    else if (text.starts_with("I heard ") && text.size() > 8)
-        memory.claim = text.substr(8);
-    else
-    {
-        auto const separator = text.find(" told me ");
-        if (separator != std::string::npos && separator > 0 && separator + 9 < text.size())
+        if (text.starts_with("I saw ") && text.size() > 6)
         {
-            auto const name = text.substr(0, separator);
-            // Only a bounded plain name is recognized; arbitrary prose stays an opaque statement.
-            if (IsBoundedText(name, 100) && name.find_first_of(".,:;!?\n\r\"") == std::string::npos)
+            text.erase(0, text.starts_with("I saw that ") ? 11 : 6);
+            if (memory.attribution.empty())
+                memory.attribution = memory.source.name;
+            memory.reportedDepth = depth;
+            break;
+        }
+        if (text.starts_with("I heard ") && text.size() > 8)
+        {
+            text.erase(0, 8);
+            memory.reportedDepth.reset();
+            break; // The number of unnamed intermediaries is unknown.
+        }
+        bool parsed = false;
+        auto const firstMarker = std::min(text.find(" told me "), text.find(" reported that "));
+        for (std::string_view const marker : {" told me ", " reported that "})
+        {
+            auto const separator = text.find(marker);
+            if (separator == std::string::npos || separator != firstMarker
+                || !PlainName(std::string_view(text).substr(0, separator))
+                || separator + marker.size() >= text.size())
+                continue;
+            memory.attribution = text.substr(0, separator);
+            text.erase(0, separator + marker.size());
+            if (depth < std::numeric_limits<uint32_t>::max())
+                ++depth;
+            memory.reportedDepth = depth;
+            parsed = true;
+            break;
+        }
+        if (!parsed)
+            break;
+    }
+    if (!text.empty())
+        memory.claim = std::move(text);
+}
+
+bool RoutineGreeting(std::string_view text)
+{
+    std::string normalized;
+    for (unsigned char c : text)
+        normalized += c < 128 && !std::isalnum(c) ? ' ' : char(c < 128 ? std::tolower(c) : c);
+    std::istringstream input(normalized);
+    std::vector<std::string> words;
+    for (std::string word; input >> word;)
+        words.push_back(std::move(word));
+    if (words.empty() || (words[0] != "hello" && words[0] != "hi" && words[0] != "hey"
+        && words[0] != "greetings" && words[0] != "it" && words[0] != "good" && words[0] != "nice"))
+        return false;
+    // Whole utterance patterns only: a greeting followed by useful information must remain available.
+    // Compile these once; salience ceilings are evaluated repeatedly during world updates.
+    static auto const patterns = []
+    {
+        std::vector<std::vector<std::string>> result;
+        for (auto const* phrase : {"it is good to see you", "it s good to see you", "good to see you",
+            "nice to meet you", "it is nice to meet you"})
+            for (auto const* suffix : {"", " *", " too", " too *", " again", " again *"})
             {
-                memory.attribution = name;
-                memory.claim = text.substr(separator + 9);
-                memory.reportedDepth = 2;
+                std::istringstream parts(std::string(phrase) + suffix);
+                std::vector<std::string> pattern;
+                for (std::string part; parts >> part;)
+                    pattern.push_back(std::move(part));
+                result.push_back(std::move(pattern));
             }
+        return result;
+    }();
+    for (std::size_t start : {0u, 1u, 2u})
+    {
+        if (start && (words[0] != "hello" && words[0] != "hi" && words[0] != "hey" && words[0] != "greetings"))
+            continue;
+        if (start && start == words.size())
+            return true;
+        for (auto const& pattern : patterns)
+        {
+            if (start + pattern.size() != words.size())
+                continue;
+            bool matches = true;
+            for (std::size_t i = 0; i < pattern.size(); ++i)
+                matches = matches && (pattern[i] == "*" || pattern[i] == words[start + i]);
+            if (matches)
+                return true;
         }
     }
+    return false;
 }
 }
 
@@ -208,13 +283,37 @@ Memory FormFallback(Perception const& perception, MemoryPolicy const& policy, ui
 
 bool UsesReflexFormation(Perception const& perception)
 {
+    if (perception.kind == PerceptionKind::Speech && perception.comprehended)
+    {
+        Memory heard;
+        heard.claim = perception.text;
+        ParseAttribution(heard, heard.claim);
+        if (IsRoutineMemory(heard))
+            return true;
+    }
     return perception.kind == PerceptionKind::Met
         || ((perception.kind == PerceptionKind::WitnessedDeath || perception.kind == PerceptionKind::OwnDeath)
             && !PlayerKilledByPlayer(perception.subject, perception.source));
 }
 
+bool IsRoutineMemory(Memory const& memory)
+{
+    return memory.kind == MemoryKind::HeardStatement && RoutineGreeting(memory.claim);
+}
+
+bool CanShareMemory(Memory const& memory, bool relevantQuestion)
+{
+    if (IsRoutineMemory(memory))
+        return false;
+    // Unprompted reports must come from this character's own observation. Conversation has its own reply policy.
+    return memory.kind == MemoryKind::WitnessedDeath
+        || (memory.kind == MemoryKind::HeardStatement && relevantQuestion);
+}
+
 double SalienceCeiling(Memory const& memory)
 {
+    if (IsRoutineMemory(memory))
+        return 0.05;
     if ((memory.kind == MemoryKind::WitnessedDeath || memory.kind == MemoryKind::OwnDeath)
         && !PlayerKilledByPlayer(memory.subject, memory.source))
         return 0.05;
@@ -242,15 +341,29 @@ bool DecayMemory(Memory& memory, MemoryPolicy const& policy, uint64_t gameTimeMs
 {
     if (!IsValidPolicy(policy))
         throw std::invalid_argument("Invalid alles memory policy");
+    bool normalized = false;
+    if (memory.kind == MemoryKind::HeardStatement)
+    {
+        auto const claim = memory.claim;
+        auto const attribution = memory.attribution;
+        auto const depth = memory.reportedDepth;
+        ParseAttribution(memory, memory.claim);
+        normalized = claim != memory.claim || attribution != memory.attribution || depth != memory.reportedDepth;
+        if (normalized)
+            ++memory.contentRevision;
+    }
     double const previous = memory.salience;
     memory.salience = std::min(memory.salience, SalienceCeiling(memory));
     if (gameTimeMs <= memory.decayGameTimeMs)
-        return memory.salience != previous;
+        return normalized || memory.salience != previous;
 
     auto const elapsed = gameTimeMs - memory.decayGameTimeMs;
-    memory.salience *= std::exp2(-static_cast<double>(elapsed) / policy.salienceHalfLifeMs);
+    bool const routine = IsRoutineMemory(memory);
+    auto const halfLife = routine ? std::min(policy.salienceHalfLifeMs, uint64_t(600000))
+        : policy.salienceHalfLifeMs;
+    memory.salience *= std::exp2(-static_cast<double>(elapsed) / halfLife);
     memory.decayGameTimeMs = gameTimeMs;
-    if (memory.kind == MemoryKind::HeardStatement && memory.salience < policy.provenanceFloor)
+    if (memory.kind == MemoryKind::HeardStatement && !routine && memory.salience < policy.provenanceFloor)
     {
         // Opaque heard text can itself contain attribution. Remove it as well, including from future context.
         std::string const eroded = "something, but I no longer remember what or from whom";
