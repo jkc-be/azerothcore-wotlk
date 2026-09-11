@@ -159,7 +159,8 @@ def prepare(root, worker_config, initial_races=None):
         "RealmID": "1",
         "LogsDir": str(base / "logs"),
         "PidFile": str(base / "world.pid"),
-        "Updates.EnableDatabases": "0",
+        # Cloned fixtures can predate the binary's schema; the native updater runs before statement preparation.
+        "Updates.EnableDatabases": "15",
         "Ra.Enable": "0",
         "SOAP.Enabled": "0",
         "Console.Enable": "0",
@@ -325,6 +326,9 @@ def deploy(root, base):
         subprocess.run(["systemctl", "--user", "start", *SERVICES], check=True)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
+            for service in SERVICES:
+                if subprocess.run(["systemctl", "--user", "is-active", "--quiet", service]).returncode:
+                    raise RuntimeError(f"{service} exited during startup; see {base / 'logs'} and its journal")
             try:
                 snapshot = json.loads((base / "simulation/latest.json").read_text())
                 bots = snapshot.get("bots", [])
