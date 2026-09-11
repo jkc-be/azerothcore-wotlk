@@ -49,6 +49,27 @@ TEST(AllesPlanningStore, IndependentPlanningRevisionPreservesConcurrentMemoryIng
     EXPECT_EQ(snapshot->revision, outerRevision);
 }
 
+TEST(AllesPlanningStore, SatisfactionSharesAtomicRevisionAndCannotBeLostByAnUnrelatedUpdate)
+{
+    ActorStore store;
+    auto const generation = Load(store);
+    SatisfactionModel model;
+    ASSERT_TRUE(model.Observe(1000, 0, {{"discovery", 0.3}}));
+    ASSERT_EQ(store.UpdatePlanning(Owner, generation, 0, {}, {}, 1000, model.Capture()), 1u);
+    EXPECT_EQ(store.FindReady(Owner)->planning->satisfaction, model.Capture());
+    auto const first = model.Capture();
+    ASSERT_TRUE(model.Observe(2000, 1000, {{"companionship", 0.1}}));
+    EXPECT_FALSE(store.UpdatePlanning(Owner, generation, 0, {}, {}, 2000, model.Capture()));
+    EXPECT_EQ(store.FindReady(Owner)->planning->satisfaction, first);
+    ASSERT_EQ(store.UpdatePlanning(Owner, generation, 1, {}, {}, 2000, model.Capture()), 2u);
+    EXPECT_EQ(store.UpdatePlanning(Owner, generation, 2, {}, {}, 3000), 2u);
+    EXPECT_EQ(store.FindReady(Owner)->planning->satisfaction, model.Capture());
+    auto corrupt = model.Capture();
+    corrupt.dimensions.begin()->second.fulfillment = -1;
+    EXPECT_FALSE(store.UpdatePlanning(Owner, generation, 2, {}, {}, 3000, corrupt));
+    EXPECT_EQ(store.FindReady(Owner)->planning->satisfaction, model.Capture());
+}
+
 TEST(AllesPlanningStore, StaleGenerationRevisionAndMalformedStateAreAtomicRejections)
 {
     ActorStore store;

@@ -41,6 +41,38 @@ bool Associated(LearnedReport const& report, Objective const& objective)
 }
 }
 
+uint64_t MotivationDecisionSignal(SatisfactionSnapshot const& satisfaction)
+{
+    uint64_t hash = 14695981039346656037ULL;
+    for (auto const& [id, dimension] : satisfaction.dimensions)
+    {
+        for (unsigned char c : id)
+            hash = (hash ^ c) * 1099511628211ULL;
+        // Measured growth already enters equipment/finance signals. Needs use five meaningful bands.
+        if (dimension.curve == MotivationCurve::Need)
+            hash = (hash ^ uint64_t(dimension.fulfillment * 5)) * 1099511628211ULL;
+    }
+    for (auto const& [id, experience] : satisfaction.contexts)
+        hash = (hash ^ experience.samples ^ experience.observedMs) * 1099511628211ULL;
+    return hash;
+}
+
+bool PlanningCadence::Ready(uint64_t signal, uint64_t now)
+{
+    if (signal != seen)
+    {
+        seen = signal;
+        sinceMs = now;
+    }
+    return signal != submitted && now >= nextMs && now >= sinceMs && now - sinceMs >= 2000;
+}
+
+void PlanningCadence::Submitted(uint64_t signal, uint64_t now)
+{
+    submitted = signal;
+    nextMs = now + 10000;
+}
+
 CapabilityRegistry ObjectiveCapabilities()
 {
     CapabilityRegistry registry;
@@ -64,6 +96,15 @@ CapabilityRegistry ObjectiveCapabilities()
         "Bound the purchase; retain the quest"});
     registry.Register({"discover_work", false, true, false, "A privately known place suitable for investigation",
         "Prefer ordinary travel and investigation; arrival alone is not success", "Release investigation ownership"});
+    registry.Register({"explore_place", false, true, false, "A privately known place with unobserved surroundings",
+        "Travel normally and observe something personally new; no quest reward is required", "Release exploration"});
+    registry.Register({"develop_skills", false, true, false, "A suitable practice opportunity is personally visible",
+        "Use ordinary gameplay to gain experience; only observed progress completes the activity", "Release practice"});
+    registry.Register({"rest", false, true, false, "A known place where stationary rest is currently feasible",
+        "Observe stationary rest outside combat; an idle command alone is not recovery", "Resume on interruption"});
+    registry.Register({"visit_companion", false, true, true, "A personally observed companion at a known place",
+        "Travel to the observed meeting site and deliver an ordinary interaction to that person",
+        "Reconsider if the person is absent; never follow hidden global coordinates"});
     registry.Register({"ask_quest_advice", true, false, false, "An eligible information-blocked accepted quest",
         "Attempt a bounded normal question; only a received usable answer changes the plan", "Expire the question"});
     registry.Register({"ask_place_advice", false, true, false, "An eligible information-blocked private place",
@@ -175,7 +216,8 @@ uint64_t ObjectiveDecisionSignal(ObjectiveBook const& book, PrivateKnowledge con
 
 std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uint64_t generation,
     ObjectiveBook const& book, PrivateKnowledge const& knowledge, uint8_t level, uint32_t area,
-    uint64_t circumstances, bool canAsk, uint64_t now, std::optional<QuestFinances> const& finances)
+    uint64_t circumstances, bool canAsk, uint64_t now, std::optional<QuestFinances> const& finances,
+    SatisfactionDecision const* satisfaction)
 {
     if (!IsValidActor(owner) || !generation || !level || level > 80 || book.Preparing())
         return std::nullopt;
@@ -183,10 +225,24 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
     auto const income = finances ? IncomeQuestOrder(book, *finances, circumstances, now) : std::vector<uint64_t>{};
     auto const* current = book.Current();
     for (auto const& [id, objective] : book.All())
-        if (!Terminal(objective) && (objective.quest || knowledge.Places().contains(objective.place)))
+        if (!Terminal(objective) && (objective.quest || knowledge.Places().contains(objective.place))
+            && (objective.purpose != PlacePurpose::Companionship
+                || (objective.person && knowledge.Contacts().contains(*objective.person))))
             candidates.push_back(&objective);
     std::stable_sort(candidates.begin(), candidates.end(), [&](auto const* left, auto const* right)
     {
+        if (satisfaction)
+        {
+            auto rank = [&](Objective const* objective)
+            {
+                auto const found = std::find_if(satisfaction->alternatives.begin(), satisfaction->alternatives.end(),
+                    [&](auto const& value) { return value.id == objective->id; });
+                return std::tuple{objective->id == satisfaction->selected,
+                    found != satisfaction->alternatives.end(),
+                    found == satisfaction->alternatives.end() ? 0.0 : found->value.total, objective == current};
+            };
+            return rank(left) > rank(right);
+        }
         auto rank = [&](Objective const* value)
         {
             return std::tuple{value == current, value->checkpoint.readyToReward,
@@ -204,6 +260,8 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
     auto registry = ObjectiveCapabilities();
     ObjectivePlanningJob job;
     job.createdMs = now;
+    if (satisfaction)
+        job.satisfactionSelection = satisfaction->selected;
     job.issued = {owner, generation, anchor->id, anchor->revision, true, {}, {}, {}};
     auto encode = [&]()
     {
@@ -211,19 +269,38 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
         job.reports.clear();
         job.issued.quests.clear();
         job.issued.places.clear();
-        boost::json::array quests, places, objectives, evidence, options, specs;
+        job.issued.people.clear();
+        boost::json::array quests, places, people, objectives, evidence, options, specs;
         std::set<std::string> available{"none"};
         for (auto const* objective : candidates)
         {
             auto add = [&](std::string name)
             {
-                job.options.push_back({name, objective->id, objective->revision, objective->quest, objective->place});
+                auto const person = registry.All().at(name).person ? objective->person : std::nullopt;
+                job.options.push_back({name, objective->id, objective->revision, objective->quest,
+                    objective->place, person});
                 available.insert(name);
-                options.emplace_back(boost::json::object{{"capability", name}, {"quest", objective->quest},
-                    {"place", objective->place}, {"person", nullptr}, {"evidence", Token(objective->id)}});
+                boost::json::object option{{"capability", name}, {"quest", objective->quest},
+                    {"place", objective->place}, {"person", person ? boost::json::value(boost::json::object{
+                        {"kind", uint8_t(person->kind)}, {"id", person->id}}) : boost::json::value(nullptr)},
+                    {"evidence", Token(objective->id)}};
+                if (person && job.issued.people.insert(*person).second)
+                    people.emplace_back(boost::json::object{{"kind", uint8_t(person->kind)}, {"id", person->id}});
+                if (satisfaction)
+                    for (auto const& assessed : satisfaction->alternatives)
+                        if (assessed.id == objective->id)
+                        {
+                            boost::json::object contributions;
+                            for (auto const& [dimension, value] : assessed.value.contributions)
+                                contributions[dimension] = value;
+                            option["satisfaction"] = boost::json::object{{"expected", assessed.value.total},
+                                {"contributions", std::move(contributions)}};
+                            break;
+                        }
+                options.emplace_back(std::move(option));
             };
             if (Pursuable(*objective, book, now, circumstances))
-                add(objective->quest ? "pursue_quest" : "discover_work");
+                add(objective->quest ? "pursue_quest" : ActivityCapability(objective->purpose));
             if (book.CanRepair(objective->id, now))
                 add("repair_equipment");
             if (book.CanBuySupplies(objective->id, now))
@@ -250,7 +327,7 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
             }
             objectives.emplace_back(boost::json::object{{"id", objective->id}, {"quest", objective->quest},
                 {"place", objective->place}, {"state", Name(objective->state)}, {"step", Name(objective->step)},
-                {"reason", objective->reason}, {"outcome", objective->outcome},
+                {"reason", objective->reason}, {"outcome", objective->outcome}, {"purpose", Name(objective->purpose)},
                 {"obstruction", Name(objective->obstruction)}, {"gainedCredit", objective->gainedCredit},
                 {"activeWithoutProgressMs", objective->activeWithoutProgressMs}, {"deaths", objective->deaths},
                 {"plannedMs", objective->plannedMs}, {"nextReconsiderationMs", objective->nextReconsiderationMs},
@@ -271,7 +348,13 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
         job.context = {{"purpose", "decision"}, {"gameTimeMs", now}, {"level", level}, {"currentArea", area},
             {"currentObjective", current ? current->id : 0}, {"objectives", std::move(objectives)},
             {"capabilities", std::move(specs)}, {"options", std::move(options)}, {"quests", std::move(quests)},
-            {"places", std::move(places)}, {"people", boost::json::array{}}, {"evidence", std::move(evidence)}};
+            {"places", std::move(places)}, {"people", std::move(people)}, {"evidence", std::move(evidence)}};
+        if (satisfaction)
+            job.context["satisfaction"] = boost::json::object{{"revision", satisfaction->stateRevision},
+                {"selectedObjective", satisfaction->selected}, {"staying", satisfaction->staying},
+                {"meaning", "Expected personal value over the actor's planning horizon, including "
+                    "travel, uncertainty and "
+                    "observed needs. Selection also accounts for the current commitment and switching threshold."}};
         if (finances)
         {
             boost::json::array amounts;
@@ -316,7 +399,7 @@ std::optional<ObjectivePlanningJob> PrepareObjectivePlanning(ActorKey owner, uin
 
 ObjectiveChoice ApplyObjectiveChoice(ObjectivePlanningJob const& job, Bridge::PlanningDecision const& decision,
     CapabilityContext const& live, ObjectiveBook& book, PrivateKnowledge const& knowledge,
-    uint64_t circumstances, bool canAsk, uint64_t now)
+    uint64_t circumstances, bool canAsk, uint64_t now, SatisfactionDecision const* satisfaction)
 {
     auto registry = ObjectiveCapabilities();
     if (auto const invalid = registry.Validate(decision.request, job.issued); !invalid.empty())
@@ -331,7 +414,8 @@ ObjectiveChoice ApplyObjectiveChoice(ObjectivePlanningJob const& job, Bridge::Pl
         return {decision.evidence.empty() ? "kept_current_plan" : "invalid_evidence"};
     auto option = std::find_if(job.options.begin(), job.options.end(), [&](auto const& value)
     {
-        return value.capability == request.capability && value.quest == request.quest && value.place == request.place;
+        return value.capability == request.capability && value.quest == request.quest && value.place == request.place
+            && value.person == request.person;
     });
     if (option == job.options.end())
         return {"option_not_supplied"};
@@ -348,6 +432,9 @@ ObjectiveChoice ApplyObjectiveChoice(ObjectivePlanningJob const& job, Bridge::Pl
             return {"invalid_evidence"};
         report = found->second;
     }
+    if (job.satisfactionSelection && (!satisfaction || satisfaction->selected != target->id
+        || *job.satisfactionSelection != target->id))
+        return {"satisfaction_preference_changed"};
     if (request.capability == "repair_equipment")
         return book.BeginRepair(target->id, target->revision, now)
             ? ObjectiveChoice{"equipment_preparation_started", target->id} : ObjectiveChoice{"preparation_unavailable"};

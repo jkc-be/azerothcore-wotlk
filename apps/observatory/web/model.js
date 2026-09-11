@@ -380,10 +380,9 @@ export function alerts(state, { stale = false, gaps = 0, silentSince = null } = 
 
 // ------------------------------------------------------------------------------------------- world state
 
-// A planning world publishes every objective a bot has held, newest last. The one it is working on is the
-// active objective; with none active the newest proposal or deferral says what it is about to do instead, and
-// a cohort that has finished everything falls back to its last completed objective rather than showing nothing.
-const OBJECTIVE_ORDER = ["active", "proposed", "deferred", "cancelled", "completed"];
+// Show held work first, then the satisfaction planner's actual selection. Zero means staying, not a random
+// proposed activity. Older worlds without selection telemetry retain the historical proposal fallback.
+const OBJECTIVE_ORDER = ["active", "waiting", "blocked", "proposed", "deferred", "cancelled", "completed"];
 
 export function currentObjective(bot) {
   const objectives = bot?.planning?.objectives;
@@ -392,7 +391,45 @@ export function currentObjective(bot) {
     const place = OBJECTIVE_ORDER.indexOf(objective.state);
     return place < 0 ? OBJECTIVE_ORDER.length : place;
   };
-  return [...objectives].sort((a, b) => rank(a) - rank(b) || (b.id ?? 0) - (a.id ?? 0))[0];
+  const ordered = [...objectives].sort((a, b) => rank(a) - rank(b) || (b.id ?? 0) - (a.id ?? 0));
+  const held = ordered.find((objective) => ["active", "waiting", "blocked"].includes(objective.state));
+  if (held) return held;
+  const selected = bot.planning.satisfaction?.selectedObjective;
+  if (Number.isFinite(selected)) return objectives.find((objective) => objective.id === selected) || null;
+  return ordered[0];
+}
+
+// Utility is comparable between this actor's alternatives, not a percent or an interpersonal happiness scale.
+export function motivationDetails(satisfaction) {
+  if (!satisfaction || !Number.isFinite(satisfaction.staying)) return [];
+  const scores = (satisfaction.alternatives || []).map((item) => item.expected).filter(Number.isFinite);
+  const lines = [`Expected value: stay ${satisfaction.staying.toFixed(3)}` +
+    (scores.length ? ` · best activity ${Math.max(...scores).toFixed(3)}` : " · no assessed alternatives")];
+  if (Number.isFinite(satisfaction.horizonMs)) lines.push(`Looking ahead ${duration(satisfaction.horizonMs)}`);
+  if (Number.isFinite(satisfaction.stayingRisk)) {
+    lines.push(`Nearby danger estimate: ${(100 * satisfaction.stayingRisk).toFixed(0)}%`);
+  }
+  const dimensions = (satisfaction.dimensions || []).filter((item) => Number.isFinite(item.fulfillment));
+  const needs = dimensions.filter((item) => item.curve !== "growth");
+  const ambitions = dimensions.filter((item) => item.curve === "growth");
+  const pressing = needs.filter((item) => item.urgency > 0 && item.weight > 0 && item.fulfillment < 0.6);
+  if (pressing.length) lines.push("Recovery needs: " + pressing.map((item) => item.id).join(" · "));
+  if (needs.length) lines.push("Fulfillment: " + needs
+    .map((item) => `${item.id} ${(100 * item.fulfillment).toFixed(0)}%`).join(" · "));
+  if (ambitions.length) lines.push("Ambitions: " + ambitions
+    .map((item) => {
+      const value = item.unit === "copper" ? formatMoney(item.fulfillment)
+        : item.fulfillment.toLocaleString(undefined, { maximumFractionDigits: 1 }) + (item.unit ? ` ${item.unit}` : "");
+      return `${item.id} ${value}`;
+    }).join(" · "));
+  const priorities = dimensions.filter((item) => Number.isFinite(item.weight) && item.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+  if (priorities.length) lines.push("Priorities: " + priorities
+    .map((item) => `${item.id} ${item.weight.toFixed(1)}`).join(" · "));
+  const experiences = Object.values(satisfaction.experiences || {});
+  const attempts = experiences.reduce((sum, item) => sum + (item.samples || 0), 0);
+  lines.push(`Learning: ${attempts} retained attempts · ${Object.keys(satisfaction.contexts || {}).length} context${Object.keys(satisfaction.contexts || {}).length === 1 ? "" : "s"}`);
+  return lines;
 }
 
 // One row per bot: what it is working towards and how that is going. Bots without planning are left out, so a
@@ -674,6 +711,7 @@ export function filterMemories(memories, filter = "", sort = "salience") {
     memory.kind,
     memory.formation,
     memory.attribution,
+    memory.lastSeenPlace,
     memory.subject?.name,
     memory.source?.name,
   ];

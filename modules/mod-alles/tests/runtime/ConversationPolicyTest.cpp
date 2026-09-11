@@ -226,7 +226,7 @@ TEST(AllesConversationKnowledgeTest, ActivityRetrievalUsesOnlyTheGivenOwnersPriv
     EXPECT_EQ(unknown.relevance, 0u);
 }
 
-TEST(AllesConversationKnowledgeTest, OrdinaryDeathsCannotOutrankUsefulMatchingMemories)
+TEST(AllesConversationKnowledgeTest, PersonallyExperiencedHarmRemainsUsefulEvidenceForMatchingQuestions)
 {
     OwnerSnapshot owner;
     owner.owner = {ActorKind::Player, 1};
@@ -243,9 +243,23 @@ TEST(AllesConversationKnowledgeTest, OrdinaryDeathsCannotOutrankUsefulMatchingMe
     owner.memories.push_back(lead);
     auto advice = RetrieveConversationKnowledge(owner, "Where is work?", 5, 1000);
     ASSERT_EQ(advice.memories.size(), 2u);
-    EXPECT_EQ(advice.memories[0].as_string(), RenderMemory(lead));
-    EXPECT_EQ(advice.memories[1].as_string(), RenderMemory(death));
+    EXPECT_EQ(advice.memories[0].as_string(), RenderMemory(death));
+    EXPECT_EQ(advice.memories[1].as_string(), RenderMemory(lead));
 }
+TEST(AllesConversationKnowledgeTest, GreetingsDoNotBecomeEvidenceJustBecauseTheNameMatches)
+{
+    OwnerSnapshot owner;
+    Perception speech;
+    speech.source.name = "Humana";
+    speech.text = "Hello, Humanb. It is good to see you.";
+    owner.memories.push_back(FormFallback(speech, {}, 100));
+    speech.text = "Humana found work at the abbey.";
+    owner.memories.push_back(FormFallback(speech, {}, 100));
+    auto advice = RetrieveConversationKnowledge(owner, "What did Humana find?", 1, 1000);
+    ASSERT_EQ(advice.memories.size(), 1u);
+    EXPECT_EQ(advice.memories[0].as_string(), RenderMemory(owner.memories.back()));
+}
+
 TEST(AllesConversationKnowledgeTest, ContextBoundCountsEscapingAndKeepsTheActualQuestion)
 {
     boost::json::object context{{"message", "Where can I hunt?"}, {"localActions", false},
@@ -266,6 +280,25 @@ TEST(AllesConversationKnowledgeTest, ContextBoundCountsEscapingAndKeepsTheActual
     EXPECT_FALSE(context.at("knownPlaces").as_array().empty());
     boost::json::object impossible{{"message", std::string(9000, 'x')}};
     EXPECT_FALSE(BoundConversationContext(impossible));
+}
+
+TEST(AllesConversationPolicyTest, DeliveredGreetingAcknowledgementEndsThreadWithoutBlockingNewQuestions)
+{
+    ConversationPolicy policy;
+    auto thread = policy.Open(1, "nearby", "Hello, Humana. It is good to see you.", 1000);
+    ASSERT_TRUE(thread);
+    ASSERT_TRUE(policy.Reserve(*thread, 1, 2, 1001));
+    policy.Finish(*thread); // A failed delivery cannot complete the exchange.
+    EXPECT_TRUE(policy.CanReply(*thread, 1, 2, 1002));
+    policy.Delivered(*thread, "Hello, Humanb. It's good to see you too.", 1003);
+    EXPECT_FALSE(policy.CanReply(*thread, 2, 1, 1004));
+    auto question = policy.Open(2, "nearby", "Can you help me with these wolves?", 1005);
+    ASSERT_TRUE(question);
+    EXPECT_TRUE(policy.CanReply(*question, 2, 1, 1006));
+    auto substantive = policy.Open(3, "elsewhere", "Hello, Humana.", 1007);
+    ASSERT_TRUE(substantive);
+    policy.Delivered(*substantive, "Hello! Do you know a safe route to the village?", 1008);
+    EXPECT_TRUE(policy.CanReply(*substantive, 3, 4, 1009));
 }
 
 }

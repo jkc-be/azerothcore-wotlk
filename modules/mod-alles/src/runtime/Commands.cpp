@@ -13,6 +13,7 @@
 #include "CommandScript.h"
 #include "Player.h"
 #include "WorldSession.h"
+#include <sstream>
 
 namespace
 {
@@ -76,12 +77,94 @@ public:
         {
             {"recall", Recall, SEC_PLAYER, Console::No},
             {"status", Status, SEC_GAMEMASTER, Console::Yes},
-            {"flush", Flush, SEC_GAMEMASTER, Console::Yes}
+            {"flush", Flush, SEC_GAMEMASTER, Console::Yes},
+            {"motives", Motives, SEC_GAMEMASTER, Console::Yes},
+            {"motive", Motive, SEC_GAMEMASTER, Console::Yes},
+            {"ambition", Ambition, SEC_GAMEMASTER, Console::Yes},
+            {"effect", Effect, SEC_GAMEMASTER, Console::Yes}
         };
         return {{"alles", allesCommands}};
     }
 
 private:
+    static bool Motives(ChatHandler* handler, char const* args)
+    {
+        auto const parsed = Commands::ParseArguments(args);
+        auto const owner = parsed ? Commands::Owner(*parsed) : std::nullopt;
+        if (!IsDiagnosticCaller(handler) || !owner)
+            return Error(handler, "Usage: .alles motives player id");
+        auto* runtime = CommandRuntime(handler);
+        if (!runtime)
+            return false;
+        handler->SendSysMessage(runtime->SatisfactionStatus(*owner));
+        return true;
+    }
+
+    static bool Motive(ChatHandler* handler, char const* args)
+    {
+        if (!IsDiagnosticCaller(handler) || !args || std::string_view(args).size() > 256)
+            return false;
+        std::istringstream input(args);
+        std::string kind, rawId, motive, extra;
+        double weight = 0, depletion = 0, satiation = 0;
+        if (!(input >> kind >> rawId >> motive >> weight >> depletion >> satiation) || kind != "player")
+            return Error(handler,
+                "Usage: .alles motive player id motive weight depletion_per_hour satiation [urgency]");
+        std::optional<double> urgency;
+        input >> std::ws;
+        if (!input.eof())
+        {
+            double value = 0;
+            if (!(input >> value) || (input >> extra))
+                return Error(handler, "Urgency must be a finite number from 0 to 10.");
+            urgency = value;
+        }
+        auto const id = Commands::ParsePositiveId(rawId);
+        auto* runtime = CommandRuntime(handler);
+        if (!id || !runtime
+            || !runtime->SetMotive({ActorKind::Player, *id}, motive, weight, depletion, satiation, {}, urgency))
+            return Error(handler, "Motive rejected: use a ready brain owner, a named motive, weight/depletion 0-10 "
+                "and satiation 0-1. At least one motive must have positive weight.");
+        handler->SendSysMessage("Motive updated. Current fulfillment was preserved. "
+            "Use .alles flush for a save receipt.");
+        return true;
+    }
+
+    static bool Ambition(ChatHandler* handler, char const* args)
+    {
+        if (!IsDiagnosticCaller(handler) || !args || std::string_view(args).size() > 256)
+            return false;
+        std::istringstream input(args);
+        std::string kind, rawId, motive, extra;
+        double weight = 0, scale = 0;
+        if (!(input >> kind >> rawId >> motive >> weight >> scale) || (input >> extra) || kind != "player")
+            return Error(handler, "Usage: .alles ambition player id motive weight scale");
+        auto const id = Commands::ParsePositiveId(rawId);
+        auto* runtime = CommandRuntime(handler);
+        if (!id || !runtime || !runtime->SetMotive({ActorKind::Player, *id}, motive, weight, 0, 0, scale))
+            return Error(handler, "Ambition rejected: use a ready brain owner, weight 0-10 and positive scale.");
+        handler->SendSysMessage("Continuing ambition updated. Observed value preserved. Use .alles flush to save.");
+        return true;
+    }
+
+    static bool Effect(ChatHandler* handler, char const* args)
+    {
+        if (!IsDiagnosticCaller(handler) || !args || std::string_view(args).size() > 256)
+            return false;
+        std::istringstream input(args);
+        std::string kind, rawId, activity, motive, extra;
+        double effect = 0;
+        if (!(input >> kind >> rawId >> activity >> motive >> effect) || (input >> extra) || kind != "player")
+            return Error(handler, "Usage: .alles effect player id activity motive effect");
+        auto const id = Commands::ParsePositiveId(rawId);
+        auto* runtime = CommandRuntime(handler);
+        if (!id || !runtime || !runtime->SetEffect({ActorKind::Player, *id}, activity, motive, effect))
+            return Error(handler, "Effect rejected: use a ready brain owner, an installed activity, an existing "
+                "motive and a finite effect in its units (needs -1 to 1, ambitions up to 1e12).");
+        handler->SendSysMessage("Activity effect updated. Use .alles flush for a save receipt.");
+        return true;
+    }
+
     static bool Recall(ChatHandler* handler, char const* args)
     {
         auto const parsed = Commands::ParseArguments(args);

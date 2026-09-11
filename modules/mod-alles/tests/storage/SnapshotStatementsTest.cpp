@@ -53,7 +53,7 @@ TEST(AllesSnapshotStatementsTest, UnknownIdentityAndDepthRemainSqlNull)
     memory.source = {ActorKey{ActorKind::CreatureSpawn, LargeId}, "Innkeeper"};
     memory.confidence = 0.6;
     memory.salience = 0.2;
-    CharacterDatabasePreparedStatement statement(CHAR_INS_ALLES_MEMORY, 20);
+    CharacterDatabasePreparedStatement statement(CHAR_INS_ALLES_MEMORY, 23);
     BindMemory(statement, {ActorKind::Player, 1}, memory);
     auto const& parameters = statement.GetParameters();
     EXPECT_TRUE(std::holds_alternative<std::nullptr_t>(parameters[5].data));
@@ -97,7 +97,7 @@ TEST(AllesSnapshotStatementsTest, UnicodePreparedParametersOwnTheirBytes)
     for (std::size_t index = 0; index < 512; ++index)
         memory.claim += "\xF0\x9F\x90\xBA";
     auto const original = memory.claim;
-    CharacterDatabasePreparedStatement statement(CHAR_INS_ALLES_MEMORY, 20);
+    CharacterDatabasePreparedStatement statement(CHAR_INS_ALLES_MEMORY, 23);
     BindMemory(statement, {ActorKind::Player, 1}, memory);
     memory.claim.clear();
     EXPECT_EQ(std::get<std::string>(statement.GetParameters()[11].data), original);
@@ -125,4 +125,21 @@ TEST(AllesSnapshotStatementsTest, InvalidSnapshotsAreRejectedBeforeDatabaseAlloc
     EXPECT_EQ(dao.PendingLoads(), 0u);
 }
 }
+
+TEST(AllesSnapshotStatementsTest, FamiliarityBindsIdentityCountTimeAndPlaceWithoutChangingProvenance)
+{
+    Memory memory;
+    memory.kind = MemoryKind::Met;
+    memory.encounters = 45;
+    memory.lastSeenGameTimeMs = LargeId;
+    memory.lastSeenPlace = "A changed location";
+    CharacterDatabasePreparedStatement statement(CHAR_INS_ALLES_MEMORY, 23);
+    BindMemory(statement, {ActorKind::Player, 1}, memory);
+    auto const& parameters = statement.GetParameters();
+    EXPECT_EQ(std::get<uint32>(parameters[20].data), 45u);
+    EXPECT_EQ(std::get<uint64>(parameters[21].data), LargeId);
+    EXPECT_EQ(std::get<std::string>(parameters[22].data), memory.lastSeenPlace);
+    EXPECT_TRUE(std::holds_alternative<std::nullptr_t>(parameters[13].data));
+}
+
 }

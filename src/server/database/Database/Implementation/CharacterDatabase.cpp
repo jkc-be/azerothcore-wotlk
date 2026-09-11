@@ -666,7 +666,8 @@ void CharacterDatabaseConnection::DoPrepareStatements()
         "SELECT m.memory_id, m.content_revision, m.kind, m.subject_kind, m.subject_id, "
         "m.subject_name, m.source_kind, m.source_id, m.source_name, m.claim, m.attribution, "
         "m.reported_depth, m.confidence, m.salience, m.formed_game_time_ms, m.recalled_game_time_ms, "
-        "m.decay_game_time_ms, m.formation_mode FROM (SELECT 1) AS seed LEFT JOIN alles_memory AS m "
+        "m.decay_game_time_ms, m.formation_mode, m.encounters, m.last_seen_game_time_ms, m.last_seen_place "
+        "FROM (SELECT 1) AS seed LEFT JOIN alles_memory AS m "
         "ON m.owner_kind = ? AND m.owner_id = ? ORDER BY m.salience DESC, m.memory_id LIMIT ?", CONNECTION_BOTH);
     PrepareStatement(CHAR_SEL_ALLES_COMMITTED_REVISION,
         "SELECT `committed_revision` FROM `alles_actor` WHERE `owner_kind` = ? AND `owner_id` = ?", CONNECTION_BOTH);
@@ -687,8 +688,9 @@ void CharacterDatabaseConnection::DoPrepareStatements()
         "INSERT INTO `alles_memory` (`owner_kind`, `owner_id`, `memory_id`, `content_revision`, "
         "`kind`, `subject_kind`, `subject_id`, `subject_name`, `source_kind`, `source_id`, "
         "`source_name`, `claim`, `attribution`, `reported_depth`, `confidence`, `salience`, "
-        "`formed_game_time_ms`, `recalled_game_time_ms`, `decay_game_time_ms`, `formation_mode`) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
+        "`formed_game_time_ms`, `recalled_game_time_ms`, `decay_game_time_ms`, `formation_mode`, "
+        "`encounters`, `last_seen_game_time_ms`, `last_seen_place`) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
     PrepareStatement(CHAR_SEL_ALLES_PLANNING,
         "SELECT p.owner_id, p.payload FROM (SELECT 1) AS seed LEFT JOIN alles_planning AS p "
         "ON p.owner_kind = ? AND p.owner_id = ?", CONNECTION_BOTH);

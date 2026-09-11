@@ -29,6 +29,7 @@ import {
   filterMemories,
   relativeTime,
   currentObjective,
+  motivationDetails,
   objectiveTable,
   objectiveTally,
   worldTalk,
@@ -40,6 +41,23 @@ const bots = [
   { id: "a", map: 0, zone: 12, level: 2, earnedXp: 120, questCompletions: 2, deaths: 1, x: 100, y: 50 },
   { id: "b", map: 1, zone: 14, level: 3, earnedXp: 250, questCompletions: 3, deaths: 0, x: 200, y: 150 },
 ];
+test("current objective respects waiting, blocked work and the selected staying alternative", () => {
+  const proposed = { id: 9, state: "proposed" };
+  const waiting = { id: 2, state: "waiting" };
+  const blocked = { id: 3, state: "blocked" };
+  const completed = { id: 8, state: "completed" };
+  const bot = { planning: { objectives: [proposed, completed, waiting], satisfaction: { selectedObjective: 0 } } };
+  assert.equal(currentObjective(bot), waiting);
+  bot.planning.objectives = [proposed, completed, blocked];
+  assert.equal(currentObjective(bot), blocked);
+  bot.planning.objectives = [proposed, completed];
+  assert.equal(currentObjective(bot), null);
+  bot.planning.satisfaction.selectedObjective = 9;
+  assert.equal(currentObjective(bot), proposed);
+  bot.planning.satisfaction.selectedObjective = 404;
+  assert.equal(currentObjective(bot), null);
+});
+
 test("progression uses cumulative authoritative counters across level XP resets", () => {
   const result = summarize({ simMs: 80000, bots });
   assert.equal(result.xp, 370);
@@ -664,4 +682,29 @@ test("attention does not warn about a budget the world is not enforcing", () => 
   });
   assert.deepEqual(uncapped, []);
   assert.ok(capped.some((note) => note.text.includes("budget spent")));
+});
+
+test("motivation details distinguish continuing ambitions from bounded fulfillment", () => {
+  const details = motivationDetails({ staying: 1.7, horizonMs: 600000, stayingRisk: 0.3,
+    alternatives: [{ expected: 1.9 }, { expected: NaN }],
+    dimensions: [
+      { id: "rest", curve: "need", fulfillment: 0.8, weight: 1 },
+      { id: "wealth", curve: "growth", fulfillment: 50, weight: 4 },
+    ], experiences: { work: { samples: 3 } }, contexts: { work_here: {} } });
+  assert.ok(details.includes("Expected value: stay 1.700 · best activity 1.900"));
+  assert.ok(details.includes("Fulfillment: rest 80%"));
+  assert.ok(details.includes("Ambitions: wealth 50"));
+  assert.ok(details.includes("Priorities: wealth 4.0 · rest 1.0"));
+  assert.ok(details.includes("Learning: 3 retained attempts · 1 context"));
+  assert.deepEqual(motivationDetails(null), []);
+  assert.ok(motivationDetails({ staying: 0, dimensions: [{ id: "rest", fulfillment: 1 }] })
+    .includes("Fulfillment: rest 100%"));
+});
+
+test("urgent survival needs are visible without treating ambitions as deficits", () => {
+  const details = motivationDetails({ staying: -0.1, dimensions: [
+    { id: "security", curve: "need", urgency: 4, weight: 1.5, fulfillment: 0.2 },
+    { id: "wealth", curve: "growth", urgency: 0, weight: 4, fulfillment: 0 },
+  ] });
+  assert.ok(details.includes("Recovery needs: security"));
 });

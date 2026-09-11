@@ -149,7 +149,8 @@ bool ActorStore::FinishLoad(ActorKey owner, uint64_t generation, OwnerSnapshot s
 }
 
 std::optional<uint64_t> ActorStore::UpdatePlanning(ActorKey owner, uint64_t generation, uint64_t expectedRevision,
-    ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs)
+    ObjectiveSnapshot objectives, KnowledgeSnapshot knowledge, uint64_t realTimeMs,
+    std::optional<SatisfactionSnapshot> satisfaction)
 {
     auto found = _owners.find(owner);
     if (found == _owners.end() || found->second.state == ActorState::Loading
@@ -161,9 +162,12 @@ std::optional<uint64_t> ActorStore::UpdatePlanning(ActorKey owner, uint64_t gene
     if ((previous ? previous->revision : 0) != expectedRevision)
         return std::nullopt;
     PlanningSnapshot next{owner, expectedRevision + 1, std::move(objectives), std::move(knowledge)};
+    next.satisfaction = satisfaction ? std::move(*satisfaction)
+        : previous ? previous->satisfaction : DefaultSatisfaction();
     if (!IsValidPlanningSnapshot(next))
         return std::nullopt;
-    if (previous && previous->objectives == next.objectives && previous->knowledge == next.knowledge)
+    if (previous && previous->objectives == next.objectives && previous->knowledge == next.knowledge
+        && previous->satisfaction == next.satisfaction)
         return previous->revision;
     entry.snapshot.planning = std::move(next);
     MarkDirty(entry, realTimeMs, 1);
@@ -382,6 +386,45 @@ bool ActorStore::ApplyMutations(ActorKey owner, uint64_t generation, std::vector
         if (mutation.kind == MemoryMutationKind::Create)
         {
             auto memory = mutation.memory;
+            DecayMemory(memory, _policy, memory.decayGameTimeMs);
+            // Persistent identity, not a shared creature name, defines familiarity. Refresh only from
+            // consumed firsthand evidence; interpreter output cannot manufacture encounters or locations.
+            if (memory.kind == MemoryKind::Met && memory.subject.actor)
+            {
+                auto const seen = std::find_if(snapshot.perceptions.begin(),
+                    snapshot.perceptions.begin() + perceptionIds.size(), [&](Perception const& input)
+                    { return input.kind == PerceptionKind::Met && input.subject.actor == memory.subject.actor; });
+                if (seen == snapshot.perceptions.begin() + perceptionIds.size())
+                    return false;
+                memory = FormFallback(*seen, _policy, gameTimeMs);
+                auto familiar = std::find_if(updated.memories.begin(), updated.memories.end(),
+                    [&](Memory const& existing)
+                    { return existing.kind == MemoryKind::Met && existing.subject.actor == memory.subject.actor; });
+                if (familiar != updated.memories.end())
+                {
+                    if (familiar->contentRevision == MaxRevision)
+                        return false;
+                    familiar->encounters = std::min(uint64_t(std::numeric_limits<uint32_t>::max()),
+                        uint64_t(std::max(1u, familiar->encounters)) + 1);
+                    familiar->lastSeenGameTimeMs = memory.lastSeenGameTimeMs;
+                    familiar->lastSeenPlace = memory.lastSeenPlace;
+                    familiar->claim = memory.claim;
+                    familiar->salience = memory.salience;
+                    familiar->decayGameTimeMs = gameTimeMs;
+                    ++familiar->contentRevision;
+                    continue;
+                }
+            }
+            auto const duplicate = std::find_if(updated.memories.begin(), updated.memories.end(),
+                [&](Memory const& existing)
+                {
+                    return memory.kind == MemoryKind::HeardStatement && existing.kind == memory.kind
+                        && existing.claim == memory.claim && existing.source == memory.source
+                        && existing.subject == memory.subject && existing.attribution == memory.attribution
+                        && existing.reportedDepth == memory.reportedDepth;
+                });
+            if (duplicate != updated.memories.end())
+                continue; // Hearing the same claim again consumes input, not another slot or corroboration.
             memory.id = updated.nextMemoryId++;
             memory.contentRevision = 1;
             memory.formedGameTimeMs = gameTimeMs;
@@ -417,11 +460,30 @@ bool ActorStore::ApplyMutations(ActorKey owner, uint64_t generation, std::vector
     }
     updated.perceptions.erase(updated.perceptions.begin(), updated.perceptions.begin() + perceptionIds.size());
     std::size_t forgottenCount = 0;
+    // Familiarities have a separate half-capacity budget. Episodes may use remaining capacity;
+    // passing more routine creatures cannot evict a retained personal consequence.
+    auto familiarityCount = [&]()
+    {
+        return std::count_if(updated.memories.begin(), updated.memories.end(),
+            [](Memory const& memory) { return memory.kind == MemoryKind::Met; });
+    };
+    while (familiarityCount() > std::max(std::size_t(1), _limits.memories / 2))
+    {
+        auto oldest = updated.memories.end();
+        for (auto it = updated.memories.begin(); it != updated.memories.end(); ++it)
+            if (it->kind == MemoryKind::Met && (oldest == updated.memories.end()
+                || it->lastSeenGameTimeMs < oldest->lastSeenGameTimeMs))
+                oldest = it;
+        updated.memories.erase(oldest);
+        ++forgottenCount;
+    }
     while (updated.memories.size() > _limits.memories)
     {
         auto const forgotten = std::min_element(updated.memories.begin(), updated.memories.end(),
             [](Memory const& left, Memory const& right)
             {
+                if ((left.kind == MemoryKind::Met) != (right.kind == MemoryKind::Met))
+                    return left.kind == MemoryKind::Met;
                 return left.salience < right.salience || (left.salience == right.salience && left.id < right.id);
             });
         updated.memories.erase(forgotten);

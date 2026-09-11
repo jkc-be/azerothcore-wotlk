@@ -77,6 +77,45 @@ TEST_F(AllesObjectivePlanningTest, RepairOptionUsesOwnPreparationEvidenceAndPres
         book, knowledge, 5, false, 2003).status, "stale_option");
 }
 
+TEST_F(AllesObjectivePlanningTest, SatisfactionShortlistAndWorkerUseTheSameChoiceAndRejectAChangedPreference)
+{
+    SatisfactionModel model;
+    auto const low = SatisfactionForecast{true, {{1, {{300000, {}}, {60000, {{"achievement", 0.1}}}}}}};
+    auto const high = SatisfactionForecast{true, {{1, {{10000, {}}, {60000, {{"achievement", 0.3}}}}}}};
+    auto selected = model.Choose({{currentId, book.Find(currentId)->revision, low},
+        {nextId, book.Find(nextId)->revision, high}});
+    ASSERT_EQ(selected.selected, nextId);
+    auto job = PrepareObjectivePlanning(owner, 9, book, knowledge, 5, 9, 5, false, 2000, std::nullopt, &selected);
+    ASSERT_TRUE(job);
+    EXPECT_EQ(job->issued.objective, nextId);
+    EXPECT_EQ(job->context.at("satisfaction").as_object().at("selectedObjective").to_number<uint64_t>(), nextId);
+    EXPECT_EQ(ApplyObjectiveChoice(*job, Choose(*job, "pursue_quest", 7, 0, currentId), job->issued,
+        book, knowledge, 5, false, 2001, &selected).status, "satisfaction_preference_changed");
+    auto changed = model.Choose({{currentId, book.Find(currentId)->revision, high}});
+    EXPECT_EQ(ApplyObjectiveChoice(*job, Choose(*job, "pursue_quest", 8, 0, nextId), job->issued,
+        book, knowledge, 5, false, 2001, &changed).status, "satisfaction_preference_changed");
+    EXPECT_EQ(ApplyObjectiveChoice(*job, Choose(*job, "pursue_quest", 8, 0, nextId), job->issued,
+        book, knowledge, 5, false, 2001, &selected).status, "intention_preferred");
+}
+
+TEST_F(AllesObjectivePlanningTest, SocialOptionCarriesOnlyTheIssuedCompanionAndItsOwnPurpose)
+{
+    ActorKey const companion{ActorKind::Player, 43};
+    ASSERT_TRUE(knowledge.RememberContact({{companion, "Companion"}, 9, {0, 1, 0, 0, 0, 1000}}));
+    auto const* visit = book.ProposeActivity(9, PlacePurpose::Companionship, "Visit my companion", "Observed meeting",
+        companion);
+    ASSERT_NE(visit, nullptr);
+    auto job = Job();
+    ASSERT_TRUE(job.issued.people.contains(companion));
+    auto decision = Bridge::DecodePlanningDecision({{"version", 1}, {"capability", "visit_companion"},
+        {"quest", 0}, {"place", 9}, {"person", boost::json::object{{"kind", 0}, {"id", 43}}},
+        {"evidence", "objective-" + std::to_string(visit->id)}, {"reason", "Companionship matters to me"}}, job.issued);
+    EXPECT_EQ(ApplyObjectiveChoice(job, decision, job.issued, book, knowledge, 5, false, 2001).status,
+        "intention_preferred");
+    EXPECT_EQ(book.Find(visit->id)->purpose, PlacePurpose::Companionship);
+    EXPECT_EQ(book.Find(visit->id)->person, companion);
+}
+
 TEST_F(AllesObjectivePlanningTest, IncomePreferenceUsesActualDeficitWithoutInventingMoneyOrCredit)
 {
     ASSERT_TRUE(book.Block(currentId, Obstruction::Supplies, "Turn-in needs own money", 1500));
@@ -344,4 +383,29 @@ TEST_F(AllesObjectivePlanningTest, ContextBoundsPreservePrivateReportsAndExclude
     for (auto const& option : job.options)
         EXPECT_NE(book.Find(option.objective), nullptr);
 }
+
+TEST(AllesPlanningCadence, StableSamplesDoNotRetryExpiredWorkButMaterialChangesArePrompt)
+{
+    PlanningCadence cadence;
+    EXPECT_FALSE(cadence.Ready(1, 1000));
+    ASSERT_TRUE(cadence.Ready(1, 3000));
+    cadence.Submitted(1, 3000);
+    for (uint64_t now = 4000; now <= 600000; now += 1000)
+        EXPECT_FALSE(cadence.Ready(1, now));
+    EXPECT_FALSE(cadence.Ready(2, 601000));
+    EXPECT_TRUE(cadence.Ready(2, 603000));
+    cadence.Submitted(2, 603000);
+    EXPECT_FALSE(cadence.Ready(3, 604000));
+    EXPECT_TRUE(cadence.Ready(3, 613000));
+    auto state = DefaultSatisfaction();
+    state.dimensions.at("security").fulfillment = 0.75;
+    auto const signal = MotivationDecisionSignal(state);
+    state.observedMs += 5000;
+    ++state.revision;
+    state.dimensions.at("security").fulfillment = 0.74;
+    EXPECT_EQ(MotivationDecisionSignal(state), signal);
+    state.dimensions.at("security").fulfillment = 0.35;
+    EXPECT_NE(MotivationDecisionSignal(state), signal);
+}
+
 }

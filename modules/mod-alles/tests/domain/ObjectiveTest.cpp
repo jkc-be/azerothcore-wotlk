@@ -526,7 +526,10 @@ TEST(AllesResourcePreparation, RetainsQuestAndExcludesCompetingExecutionUntilEqu
     EXPECT_EQ(book.Find(id)->gainedCredit, 0u);
     EXPECT_FALSE(book.Find(id)->checkpoint.rewarded);
     ASSERT_TRUE(book.ResolveReadiness(id, {}, 5000));
-    EXPECT_TRUE(book.Activate(id, book.Find(id)->revision, Accepted(3), 5001, 1));
+    ASSERT_TRUE(book.Activate(id, book.Find(id)->revision, Accepted(3), 5001, 1));
+    EXPECT_TRUE(book.Replan(id, "A different activity now offers greater satisfaction", 6000));
+    EXPECT_EQ(book.Find(id)->preparation->state, PreparationState::Completed);
+    EXPECT_TRUE(IsValidObjectiveSnapshot(book.Capture()));
 }
 
 TEST(AllesResourcePreparation, TransactionChargeSurvivesReloadAndDoesNotProveRepairOrRefundRetries)

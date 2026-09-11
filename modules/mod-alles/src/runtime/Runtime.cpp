@@ -378,16 +378,15 @@ struct Runtime::Impl
                 && gameMs - runtime.questionTimeMs <= 30000;
             for (auto const& memory : snapshot->memories)
             {
-                if ((memory.kind != MemoryKind::WitnessedDeath && memory.kind != MemoryKind::HeardStatement)
-                    || memory.salience < settings.memory.provenanceFloor)
+                bool const relevant = questionActive && !memory.subject.name.empty()
+                    && runtime.question.find(memory.subject.name) != std::string::npos;
+                if (!CanShareMemory(memory, relevant) || memory.salience < settings.memory.provenanceFloor)
                     continue;
                 auto const text = RenderMemory(memory);
                 // Local player chat uses a 255-byte input limit. Never cut a quote/name halfway through a claim.
                 if (text.empty() || text.size() > 255 || std::any_of(runtime.spoken.begin(), runtime.spoken.end(),
                     [&](auto const& receipt) { return receipt.first == text; }))
                     continue;
-                bool const relevant = questionActive && !memory.subject.name.empty()
-                    && runtime.question.find(memory.subject.name) != std::string::npos;
                 if (!selected || (relevant && !selectedRelevant)
                     || (relevant == selectedRelevant && memory.salience > selected->salience))
                 {
@@ -411,7 +410,7 @@ struct Runtime::Impl
                 recorder->RecordSpeech(owner, line, speechDelivered, realMs);
             if (!speechDelivered)
                 continue;
-            store.Rehearse(owner, memoryId, gameMs, realMs, 0.05);
+            store.Rehearse(owner, memoryId, gameMs, realMs, 0);
             runtime.spoken.emplace_back(line, gameMs);
             if (runtime.spoken.size() > 32)
                 runtime.spoken.pop_front();
@@ -815,6 +814,30 @@ std::optional<OwnerStatus> Runtime::Status(ActorKey owner) const
     return Contains(owner) ? _impl->store.Status(owner) : std::nullopt;
 }
 
+bool Runtime::SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation,
+    std::optional<double> ambitionScale, std::optional<double> urgency)
+{
+    _impl->CheckThread();
+    return _impl->objectives
+        && _impl->objectives->SetMotive(owner, std::move(id), weight, depletion, satiation,
+            RealNow(), ambitionScale, urgency);
+}
+
+bool Runtime::SetEffect(ActorKey owner, std::string activity, std::string motive, double effect)
+{
+    _impl->CheckThread();
+    return _impl->objectives
+        && _impl->objectives->SetEffect(owner, std::move(activity), std::move(motive), effect, RealNow());
+}
+
+std::string Runtime::SatisfactionStatus(ActorKey owner) const
+{
+    _impl->CheckThread();
+    auto const status = _impl->objectives ? _impl->objectives->Status(owner) : boost::json::object{};
+    auto const* satisfaction = status.if_contains("satisfaction");
+    return satisfaction ? boost::json::serialize(*satisfaction) : "Satisfaction is unavailable for this owner.";
+}
+
 std::optional<uint64_t> Runtime::Flush(ActorKey owner)
 {
     _impl->CheckThread();
@@ -845,7 +868,12 @@ std::string Alles::Runtime::EnrichSnapshot(std::string const& snapshot) const
     for (auto& item : result.at("bots").as_array())
     {
         auto& bot = item.as_object();
-        bot["controlGroup"] = bot.at("race").to_number<uint32>() == RACE_TROLL;
+        bot["controlGroup"] = std::none_of(_impl->settings.owners.begin(), _impl->settings.owners.end(),
+            [&bot](ActorKey owner)
+            {
+                return owner.kind == ActorKind::Player
+                    && ObjectGuid(HighGuid::Player, uint32(owner.id)).ToString() == bot.at("id").as_string();
+            });
         if (!bots)
             continue;
         for (auto const& source : bots->as_array())

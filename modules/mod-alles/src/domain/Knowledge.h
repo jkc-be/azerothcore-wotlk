@@ -32,15 +32,26 @@ struct Association
     bool operator==(Association const&) const = default;
 };
 
-// A personally observed place to look again, never a live NPC handle or authority to repair remotely.
-struct RepairLocation
+// A personally observed position to look again, never a live handle or authority to interact remotely.
+struct ObservedLocation
 {
     uint32_t map = 0;
     uint32_t phase = 0;
     float x = 0, y = 0, z = 0;
     uint64_t observedMs = 0;
 
-    bool operator==(RepairLocation const&) const = default;
+    bool operator==(ObservedLocation const&) const = default;
+};
+
+using RepairLocation = ObservedLocation;
+
+struct KnownContact
+{
+    Reference person;
+    uint32_t place = 0;
+    ObservedLocation location;
+
+    bool operator==(KnownContact const&) const = default;
 };
 
 struct KnownPlace
@@ -81,6 +92,7 @@ struct KnowledgeSnapshot
     uint64_t nextReport = 1;
     std::map<uint32_t, KnownPlace> places;
     std::map<uint64_t, LearnedReport> reports;
+    std::map<ActorKey, KnownContact> contacts;
 
     bool operator==(KnowledgeSnapshot const&) const = default;
 };
@@ -107,6 +119,7 @@ public:
     bool RecordUsefulWork(uint32_t area, uint64_t now, uint8_t level = 0);
     bool Investigate(uint32_t area);
     bool RememberRepair(uint32_t area, RepairLocation location);
+    bool RememberContact(KnownContact contact);
     KnownPlace const* NearestRepair(uint32_t map, uint32_t phase, float x, float y, float z, uint64_t now) const;
     std::optional<uint64_t> Hear(Reference source, Association topic, std::string text,
         uint64_t now, double confidence);
@@ -115,6 +128,7 @@ public:
     std::vector<KnownPlace const*> Alternatives(uint32_t currentArea, uint8_t level) const;
     std::map<uint32_t, KnownPlace> const& Places() const { return _places; }
     std::map<uint64_t, LearnedReport> const& Reports() const { return _reports; }
+    std::map<ActorKey, KnownContact> const& Contacts() const { return _contacts; }
     uint32_t SeedVersion() const { return _seedVersion; }
     KnowledgeSnapshot Capture() const;
     bool Restore(KnowledgeSnapshot snapshot);
@@ -124,6 +138,7 @@ private:
     uint64_t _nextReport = 1;
     std::map<uint32_t, KnownPlace> _places;
     std::map<uint64_t, LearnedReport> _reports;
+    std::map<ActorKey, KnownContact> _contacts;
 };
 }
 #endif

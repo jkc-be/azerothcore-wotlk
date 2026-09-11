@@ -289,7 +289,12 @@
       <div class="memory-row">
         <div>
           <div class="panel-head">
-            <h3>Committed memories <span class="region-note" id="memory-count"></span></h3>
+            <h3>Memories and familiarity <span class="region-note" id="memory-count"></span></h3>
+            <label>Show <select id="memory-kind">
+              <option value="all">All</option>
+              <option value="episodes">Episodes</option>
+              <option value="familiarity">Familiarity</option>
+            </select></label>
             <label>Filter <input id="memory-filter" type="search" placeholder="word, name or kind" /></label>
             <label
               >Sort
@@ -310,7 +315,7 @@
                   <th class="text">Source</th>
                   <th>Confidence</th>
                   <th>Salience</th>
-                  <th class="text">Formed</th>
+                  <th class="text">Formed / last seen</th>
                   <th class="text">Recalled</th>
                   <th class="text">Formed by</th>
                 </tr>

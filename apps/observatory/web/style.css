@@ -1134,7 +1134,7 @@ summary {
 
 .memory-row {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   margin-top: 8px;
 }
@@ -1159,6 +1159,7 @@ table.memory td {
 }
 /* Only the memory text is long enough to need breaking inside a word; a kind broken as "stateme nt" is a bug. */
 table.memory td:first-child {
+  min-width: 20rem;
   overflow-wrap: anywhere;
 }
 table.memory th:nth-child(2),

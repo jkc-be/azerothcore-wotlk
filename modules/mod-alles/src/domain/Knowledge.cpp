@@ -103,7 +103,7 @@ bool IsValidKnowledgeSnapshot(KnowledgeSnapshot const& snapshot)
 {
     if (snapshot.seedVersion > 1 || !snapshot.nextReport
         || snapshot.nextReport == std::numeric_limits<uint64_t>::max()
-        || snapshot.places.size() > 64 || snapshot.reports.size() > 64)
+        || snapshot.places.size() > 64 || snapshot.reports.size() > 64 || snapshot.contacts.size() > 32)
         return false;
     for (auto const& [id, place] : snapshot.places)
         if (!id || id != place.area || place.name.empty() || !IsBoundedText(place.name, 100)
@@ -120,12 +120,17 @@ bool IsValidKnowledgeSnapshot(KnowledgeSnapshot const& snapshot)
             || (report.topic.person && !IsValidActor(*report.topic.person)) || report.topic.activity > Activity::Travel
             || !std::isfinite(report.confidence) || report.confidence < 0 || report.confidence > 0.6)
             return false;
+    for (auto const& [actor, contact] : snapshot.contacts)
+        if (!IsValidActor(actor) || actor.kind != ActorKind::Player || contact.person.actor != actor
+            || contact.person.name.empty() || !IsBoundedText(contact.person.name, 100)
+            || !snapshot.places.contains(contact.place) || !ValidRepairLocation(contact.location))
+            return false;
     return true;
 }
 
 KnowledgeSnapshot PrivateKnowledge::Capture() const
 {
-    return {_seedVersion, _nextReport, _places, _reports};
+    return {_seedVersion, _nextReport, _places, _reports, _contacts};
 }
 
 bool PrivateKnowledge::Restore(KnowledgeSnapshot snapshot)
@@ -136,6 +141,28 @@ bool PrivateKnowledge::Restore(KnowledgeSnapshot snapshot)
     _nextReport = snapshot.nextReport;
     _places = std::move(snapshot.places);
     _reports = std::move(snapshot.reports);
+    _contacts = std::move(snapshot.contacts);
+    return true;
+}
+
+bool PrivateKnowledge::RememberContact(KnownContact contact)
+{
+    if (!contact.person.actor || !IsValidActor(*contact.person.actor)
+        || contact.person.actor->kind != ActorKind::Player || contact.person.name.empty()
+        || !IsBoundedText(contact.person.name, 100) || !_places.contains(contact.place)
+        || !ValidRepairLocation(contact.location))
+        return false;
+    auto const actor = *contact.person.actor;
+    auto const found = _contacts.find(actor);
+    if (found != _contacts.end() && found->second.location.observedMs >= contact.location.observedMs)
+        return false;
+    if (found == _contacts.end() && _contacts.size() == 32)
+    {
+        auto oldest = std::min_element(_contacts.begin(), _contacts.end(), [](auto const& left, auto const& right)
+            { return left.second.location.observedMs < right.second.location.observedMs; });
+        _contacts.erase(oldest);
+    }
+    _contacts[actor] = std::move(contact);
     return true;
 }
 

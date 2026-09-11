@@ -35,6 +35,9 @@ public:
     void Detach(ActorKey owner, uint64_t gameMs, uint64_t realMs);
     void Stop(uint64_t gameMs, uint64_t realMs);
     boost::json::object Status(ActorKey owner) const;
+    bool SetMotive(ActorKey owner, std::string id, double weight, double depletion, double satiation, uint64_t realMs,
+        std::optional<double> ambitionScale = {}, std::optional<double> urgency = {});
+    bool SetEffect(ActorKey owner, std::string activity, std::string motive, double effect, uint64_t realMs);
     boost::json::object HelpOfferContext(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,
         uint64_t gameMs, uint64_t realMs) const;
     bool OfferHelp(ActorKey owner, uint64_t generation, RecruitmentNotice const& notice,
@@ -46,6 +49,7 @@ public:
         std::string const& statement, std::string const& action, ObjectGuid const& threat,
         uint64_t gameMs, uint64_t realMs);
     void RequestPacket(Player& receiver, WorldPacket const& packet);
+    void CompanionReply(ActorKey owner, ActorKey speaker, uint64_t gameMs);
     void RequesterLeft(ActorKey person, uint64_t realMs);
     std::size_t FollowingCount() const;
 

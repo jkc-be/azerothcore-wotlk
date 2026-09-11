@@ -204,7 +204,7 @@ TEST(AllesMemoryTest, HiddenKillerDoesNotAppearInWitnessMemoryOrRetelling)
     EXPECT_TRUE(UsesReflexFormation(death));
 }
 
-TEST(AllesMemoryTest, OnlyEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
+TEST(AllesMemoryTest, PersonalDeathsAndEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
 {
     Perception death;
     death.kind = PerceptionKind::WitnessedDeath;
@@ -218,7 +218,7 @@ TEST(AllesMemoryTest, OnlyEvidencedPlayerOnPlayerDeathsReceiveHighSalience)
     EXPECT_EQ(FormFallback(death, {}, 100).claim, "I died after being attacked by Attacker.");
     death.source = death.subject;
     EXPECT_TRUE(UsesReflexFormation(death));
-    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 0.05);
+    EXPECT_DOUBLE_EQ(FormFallback(death, {}, 100).salience, 1);
     death.source = {ActorKey{ActorKind::Player, 19}, "Attacker"};
     death.subject = {ActorKey{ActorKind::CreatureSpawn, 20}, "Wolf"};
     death.kind = PerceptionKind::WitnessedDeath;
@@ -326,6 +326,72 @@ TEST(AllesMemoryTest, AlreadyErodedLoadedClaimStillClearsResidualSubject)
     ASSERT_TRUE(DecayMemory(memory, policy, 2100));
     EXPECT_EQ(memory.subject, Reference{});
     EXPECT_EQ(memory.contentRevision, 2u);
+}
+
+TEST(AllesMemoryTest, NestedReportsKeepOneClaimAndDeepestAudibleAttribution)
+{
+    auto memory = FormFallback(Heard(
+        "Humana told me Humand reported that Humanb reported that the bridge collapsed."), {}, 100);
+    EXPECT_EQ(memory.claim, "the bridge collapsed.");
+    EXPECT_EQ(memory.attribution, "Humanb");
+    EXPECT_EQ(memory.reportedDepth, 4u);
+    EXPECT_EQ(RenderMemory(memory), "Humanc told me Humanb reported that the bridge collapsed.");
+    EXPECT_FALSE(DecayMemory(memory, {}, 100));
+    auto const mixed = FormFallback(Heard("Humana reported that Humanb told me the bridge collapsed."), {}, 100);
+    EXPECT_EQ(mixed.claim, "the bridge collapsed.");
+    EXPECT_EQ(mixed.attribution, "Humanb");
+    EXPECT_EQ(mixed.reportedDepth, 3u);
+    EXPECT_FALSE(CanShareMemory(memory, false));
+    EXPECT_TRUE(CanShareMemory(memory, true));
+
+    memory.claim = "Humana reported that Hello, Humana. It is good to see you.";
+    memory.reportedDepth = 2;
+    memory.salience = 1;
+    EXPECT_TRUE(DecayMemory(memory, {}, 100));
+    EXPECT_EQ(memory.claim, "Hello, Humana. It is good to see you.");
+    EXPECT_EQ(memory.reportedDepth, 3u);
+    EXPECT_DOUBLE_EQ(memory.salience, 0.05);
+    EXPECT_EQ(memory.contentRevision, 2u);
+    EXPECT_FALSE(DecayMemory(memory, {}, 100));
+}
+
+TEST(AllesMemoryTest, GreetingsRemainBriefSocialMemoriesWithoutBecomingNews)
+{
+    for (auto const* text : {"Hello, Humana. It is good to see you.", "It's good to see you too, Humanc.",
+        "Hello, Humana. It's good to see you too.", "Hi, Humana!"})
+    {
+        auto input = Heard(text);
+        EXPECT_TRUE(UsesReflexFormation(input));
+        auto memory = FormFallback(input, {}, 100);
+        EXPECT_EQ(memory.formation, FormationMode::Reflex);
+        EXPECT_TRUE(IsRoutineMemory(memory));
+        EXPECT_FALSE(CanShareMemory(memory, true));
+        RehearseMemory(memory, {}, 100, 1);
+        EXPECT_DOUBLE_EQ(memory.salience, 0.05);
+        EXPECT_DOUBLE_EQ(memory.confidence, 0.5);
+        DecayMemory(memory, {}, 1800100);
+        EXPECT_LT(memory.salience, MemoryPolicy{}.forgetBelow);
+        EXPECT_EQ(memory.claim, text);
+    }
+    for (auto const* text : {"Hello, Humana. The bridge collapsed.", "It is good to see you. I need help.",
+        "Meet me at the abbey.", "The wolves attacked Humana."})
+    {
+        auto memory = FormFallback(Heard(text), {}, 100);
+        EXPECT_FALSE(IsRoutineMemory(memory));
+        EXPECT_FALSE(UsesReflexFormation(Heard(text)));
+        EXPECT_TRUE(CanShareMemory(memory, true));
+    }
+}
+
+TEST(AllesMemoryTest, MerelySpeakingDoesNotIncreaseImportance)
+{
+    auto memory = FormFallback(Heard("The bridge collapsed."), {}, 100);
+    RehearseMemory(memory, {}, 100, 0);
+    EXPECT_DOUBLE_EQ(memory.salience, 0.7);
+    EXPECT_EQ(memory.recalledGameTimeMs, 100u);
+    EXPECT_FALSE(CanShareMemory(memory, false));
+    memory.kind = MemoryKind::WitnessedDeath;
+    EXPECT_TRUE(CanShareMemory(memory, false));
 }
 
 TEST(AllesMemoryTest, InvalidPolicyAndNonFiniteMemoryValuesAreRejected)

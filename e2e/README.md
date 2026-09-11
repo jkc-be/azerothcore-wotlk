@@ -462,3 +462,40 @@ P2, conversation telemetry: `suites/alles/TestAlles_ConversationJournal` drives 
 matching delivered replies and action results in the live journal, including actual wave packets to the human.
 The revised wave oracle awaits a fresh live run. It reuses `E2E_ALLES_AUDIENCE_FIXTURE` and
 moves only the disposable human; see the suite guide for conversation and journal prerequisites.
+
+P1, satisfaction activity keeper: `suites/observatory/TestObservatory_SatisfactionProducesObservedRest` requires
+a fresh exclusive Observatory realm with a managed bot and native GM POV enabled. The offline fixture seeds
+that owner with rest fulfillment 0.1, rest weight 10, other weights zero, default effects and no previous activity
+receipts. Set `E2E_OBSERVATORY_SATISFACTION_FIXTURE` to a private JSON file containing `disposable: true`, `name`
+and `guid`, plus the standard Observatory URL/token and `E2E_*` database settings. Start within 30 simulated
+seconds of boot. The client observes stationary rest, telemetry verifies 60 seconds of observed recovery, and
+the database oracle waits for its durable anti-replay receipt. Run alone with `-timeout=3m`; compilation alone
+does not establish a live pass.
+
+The companion variant `TestObservatory_SatisfactionSocialTravelAndReload` uses two fresh Human bots. Seed a
+recent personally observed `Humanb` meeting site 65 yards from `Humana`, keep the companion's rest-focused
+profile, and add `companion` and `companionGUID` to the fixture JSON. Run after the rest keeper on the same
+exclusive realm with `-run '^TestObservatory_Satisfaction' -timeout=7m`. GM setup changes only the source's
+motive weights. The client must observe travel and an ordinary greeting; population logout/rejoin must preserve
+the source's social receipt and fulfillment. The test restores observer permissions afterward.
+
+
+### Individual motivations and outcome learning
+
+`TestObservatory_IndividualMotivationsLearnObservedOutcomes` requires an exclusive fresh Observatory cohort
+with at least two newly initialized Alles owners and GM observers enabled in locked mode. Set
+`E2E_OBSERVATORY_MOTIVATIONS_FIXTURE` to private JSON containing
+`{"Disposable":true,"Name":"<watched bot>","GUID":123}` and the normal `E2E_*` DB/Observatory settings.
+Run `go test -tags=e2e ./suites/observatory -run TestObservatory_IndividualMotivationsLearnObservedOutcomes
+-count=1 -v -timeout 8m` on one line. The oracle requires native movement, distinct ambitions, actual carried
+money, mastery increasing by actual earned XP, positive starter gear value, a successful XP-bearing practice attempt and committed
+version 15 learning data. The observer never changes preferences or grants XP/money/equipment. Run this separately from throughput comparisons.
+
+### Conversational memory quality
+
+`TestObservatory_GreetingsDoNotBecomeRecursiveNews` reuses the exclusive disposable motivation fixture and
+Observatory environment above. It temporarily enables full GM observation, moves only its disposable human
+to the target, sends an ordinary greeting twice beyond the ingress deduplication window, and requires one
+committed low-salience reflex memory with the same identity and no recursive greeting SAY over 75 game seconds.
+It restores observer mode and revokes its test GM access. Run separately from timing comparisons with
+`-run TestObservatory_GreetingsDoNotBecomeRecursiveNews -count=1 -v -timeout=4m`.

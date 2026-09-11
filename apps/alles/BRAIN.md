@@ -4,9 +4,12 @@
 `Alles.Objectives.Enable = 1` and the existing autonomous `new rpg` eligibility checks. It defaults to off.
 The worker protocol, personal memories, private geography and durable objective book remain compatible.
 
-The brain selects and retains intentions through the objective book, model decisions, information requests,
-readiness policies and cooperation. The body executes typed skills: travel, investigation, quest work, follow,
-repair, supplies and rendezvous. Follow, preparation and cooperation continue using their existing Alles
+The brain selects and retains intentions using expected multi-dimensional satisfaction, shared by model-assisted
+planning and fallback. See [Satisfaction and activity choice](SATISFACTION.md) for motive definitions, navigation
+valuation, observed outcomes and configuration. Readiness policies and cooperation constrain execution.
+The body executes typed skills: travel, investigation, quest work, follow,
+repair, supplies, rendezvous and purpose-specific activities. Follow, preparation and cooperation continue using
+their existing Alles
 adapters. Travel, investigation and quest work use Playerbots physical actions through a separate noncombat
 executor. That executor never ticks the ordinary roaming/grinding/quest-selection strategy engine.
 
@@ -45,8 +48,9 @@ path and ordinary gameplay interactions; an anchor does not prove that a target 
 
 Thirty seconds of active motion without route progress retires a leg. Three failed route attempts report a
 navigation obstruction. A place intention can then try at most three distinct destination anchors before the
-brain defers it through its existing retry policy. Travel never uses teleport recovery or random nudges after
-a failed route. Current support is ordinary same-map navigation; transport/portal planning is not implemented.
+brain defers it through its existing retry policy. At most two local recovery probes can use ordinary walkable
+paths; they never teleport. Current support is ordinary same-map navigation; transport/portal planning
+is not implemented.
 
 Arriving in the requested area transitions travel into investigation. It does not complete a discover-work
 objective: accepting actual new work in that area still supplies the completion evidence. Repeated empty searches
@@ -67,7 +71,7 @@ It requires real client-observed movement and a saved newly acquired quest, with
 evidence for the same intention. Unit coverage does not establish live acceptance.
 
 This is the first implementation of the body boundary, not a replacement for every Playerbots subsystem.
-Cross-map travel, new motives/personality models, long-term route learning, dungeon planning and a redesigned
+Cross-map travel, emergent personality, long-term route graphs, dungeon planning and a redesigned
 combat planner are outside this implementation. Existing cooperation, resource and human-handoff e2e remain
 necessary regression checks before enabling the controller for a shared cohort.
 

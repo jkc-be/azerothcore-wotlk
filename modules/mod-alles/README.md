@@ -112,3 +112,52 @@ self recall, committed revision acknowledgment, distant non-reception and reload
 The persistence fixture has been compiled but not executed. The separate online-human audience fixture passed
 on 2026-09-07, including privileged local SAY/YELL and autonomous speech to an unmanaged client. Neither replaces
 the six-actor watched first-light scene.
+
+## Learning from consequences and keeping useful memories
+
+Personal injury retained when an activity is abandoned, and death during an intention, teach that actor's
+activity/context estimates. Death also records failure of the observed route. Recovery restores current health
+without erasing the lesson. Contextual probability and consequence estimates lose half their influence after six
+game hours without new evidence; later successful attempts can revise them. Successful capabilities still transfer
+between contexts, while a harmful destination does not teach that every destination is dangerous. Planning payload
+version 14 retains evidence timestamps and reads earlier versions without discarding their learned outcomes.
+
+Direct sightings occupy at most half the memory capacity. Repeated sightings of one persistent identity refresh
+its encounter count, last-seen time and place; creatures sharing a name remain distinct. These familiarity records
+cannot evict retained personal episodes. Sightings say “I saw”, and personal deaths retain high initial salience.
+The dashboard separates episodes and familiarity through the Show filter. Apply the character migration
+`data/sql/updates/pending_db_characters/rev_1789063646525460671.sql` when upgrading the memory schema.
+
+A delivered greeting acknowledgement closes a greeting-only thread. A new question or a reply containing useful
+additional content can continue conversation. Visiting a companion completes only after a nearby reply is heard;
+merely delivering the greeting does not award companionship. Help and quest progress retain their ordinary
+execution, cooperation and observed-progress guards.
+
+The planner skips requests that merely endorse a valid ongoing activity. Meaningful need bands, new outcome
+knowledge and objective changes can trigger reconsideration. A finished or expired request is not retried solely
+because the same observation is sampled again. Rejections distinguish expiration, missing/changed objectives and
+ownership changes; option, evidence and generation checks still apply.
+
+### Progress and comfort
+
+The WoW adapter values mastery (accumulated XP across levels), carried wealth and equipped item levels as
+individual growth ambitions. Rest, safety and social needs remain bounded needs. Accepted quest forecasts use
+the owner's known XP/money rewards and usable equipment upgrades; unknown work retains an uncertain prior.
+Actual player state alone updates these measured ambitions. Starter items, shields and ranged weapons count;
+shirts and tabards do not. Item level is a progress proxy, not a simulation of combat effectiveness.
+
+Living health changes include both wounds and recovery, so a healed fight does not teach permanent health loss.
+Observed death records a separate failed outcome; resurrection is excluded from learned healing. Route travel,
+perceived danger and prior outcomes still affect the choice, and staying remains valid when useful work does not
+justify its costs. These game measurements live in the adapter; the satisfaction evaluator accepts arbitrary
+need and growth dimensions for other scenarios.
+
+The WoW recovery need is measured from current health and mana, without passive fatigue or a walking penalty.
+Rest becomes eligible below 60% and ends after recovery to 90%, while the ordinary body handles food/drink.
+Routine companionship starts mostly fulfilled, drains slowly, and has a small default weight; ordinary replies
+and cooperation can satisfy it during play. Individual preferences remain configurable.
+
+When quests are unavailable, `develop_skills` offers practice against visible, untapped, ordinary creatures no
+higher level than the actor, within its current area. It uses assessed routes and normal combat, loot and recovery.
+Observed XP completes an attempt; movement or choosing a target does not. The planner retains human/party control
+boundaries. Planning storage version 15 retains these activities and early observed recovery completions.

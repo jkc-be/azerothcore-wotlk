@@ -67,6 +67,22 @@ MemoryMutation Target(MemoryMutationKind kind, uint64_t id, Memory memory,
     return {kind, MemoryTarget{owner, {id, revision}}, std::move(memory)};
 }
 
+TEST(AllesMemoryMutationTest, RepeatedCreateConsumesEvidenceWithoutDuplicatingOrPromotingAClaim)
+{
+    Fixture fixture;
+    ASSERT_TRUE(fixture.Load());
+    ASSERT_TRUE(fixture.Observe("first belief"));
+    auto const before = fixture.Snapshot();
+    ASSERT_TRUE(fixture.store.Apply(Owner, fixture.generation, {before.perceptions.front().id}, {},
+        {Belief(0, "first belief", 1)}, 0, 0));
+    auto const after = fixture.Snapshot();
+    EXPECT_TRUE(after.perceptions.empty());
+    ASSERT_EQ(after.memories.size(), before.memories.size());
+    EXPECT_EQ(after.nextMemoryId, before.nextMemoryId);
+    EXPECT_DOUBLE_EQ(after.memories.front().salience, before.memories.front().salience);
+    EXPECT_DOUBLE_EQ(after.memories.front().confidence, before.memories.front().confidence);
+}
+
 void ExpectUnchanged(OwnerSnapshot const& before, OwnerSnapshot const& after)
 {
     EXPECT_EQ(after.owner, before.owner);
@@ -328,4 +344,60 @@ TEST(AllesMemoryMutationTest, RewritingReinforcementAndSnapshotRevisionExhaustio
     ExpectUnchanged(full, exhausted.Snapshot());
 }
 }
+
+TEST(AllesMemoryMutationTest, SightingsConsolidateByIdentityAndCannotDisplacePersonalConsequences)
+{
+    ActorStore store;
+    auto generation = store.Activate(Owner, 1);
+    ASSERT_TRUE(generation);
+    OwnerSnapshot snapshot;
+    snapshot.owner = Owner;
+    ASSERT_TRUE(store.FinishLoad(Owner, *generation, snapshot, 0, 0));
+    auto form = [&](Perception input, uint64_t now)
+    {
+        input.gameTimeMs = now;
+        EXPECT_TRUE(store.Observe(Owner, input, now));
+        auto const* state = store.FindReady(Owner);
+        EXPECT_TRUE(store.Apply(Owner, *generation, {state->perceptions.front().id}, {},
+            {FormFallback(input, {}, now)}, now, now));
+    };
+    Perception death;
+    death.kind = PerceptionKind::OwnDeath;
+    death.subject = {Owner, "Me"};
+    death.source = {ActorKey{ActorKind::CreatureSpawn, 1}, "Wolf"};
+    form(death, 1000);
+    Perception sight;
+    sight.kind = PerceptionKind::Met;
+    sight.subject = death.source;
+    sight.place = "Valley";
+    for (unsigned i = 0; i < 20; ++i)
+        form(sight, 2000 + 1000 * i);
+    snapshot = *store.FindReady(Owner);
+    ASSERT_EQ(snapshot.memories.size(), 2u);
+    EXPECT_EQ(snapshot.memories[1].encounters, 20u);
+    EXPECT_EQ(snapshot.memories[1].claim, "I saw Wolf.");
+    EXPECT_DOUBLE_EQ(snapshot.memories[1].confidence, 0.9);
+    auto const identity = snapshot.memories[1].id;
+    sight.place = "Road";
+    form(sight, 25000);
+    EXPECT_EQ(store.FindReady(Owner)->memories[1].id, identity);
+    EXPECT_EQ(store.FindReady(Owner)->memories[1].lastSeenPlace, "Road");
+    EXPECT_EQ(store.FindReady(Owner)->memories[1].lastSeenGameTimeMs, 25000u);
+    for (unsigned i = 2; i < 400; ++i)
+    {
+        sight.subject.actor->id = i; // Different wolves sharing one name are not the same actor.
+        form(sight, 25000 + i * 1000);
+    }
+    snapshot = *store.FindReady(Owner);
+    ASSERT_EQ(snapshot.memories.size(), 129u);
+    EXPECT_EQ(snapshot.memories.front().kind, MemoryKind::OwnDeath);
+    EXPECT_GT(snapshot.memories.front().salience, 0.9);
+    ActorStore restored;
+    auto loaded = restored.Activate(Owner, 2);
+    ASSERT_TRUE(loaded);
+    ASSERT_TRUE(restored.FinishLoad(Owner, *loaded, snapshot, 425000, 425000));
+    EXPECT_EQ(restored.FindReady(Owner)->memories.back().lastSeenPlace, "Road");
+    EXPECT_EQ(restored.FindReady(Owner)->memories.front().kind, MemoryKind::OwnDeath);
+}
+
 }

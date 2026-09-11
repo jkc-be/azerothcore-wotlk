@@ -40,6 +40,8 @@ struct DialogueThread
     std::string scope;
     std::string topic;
     bool initiated = false;
+    bool greeting = false;
+    bool closed = false;
     uint8_t recruitmentLimit = 0;
     std::set<uint64_t> recruitmentRespondents;
 };

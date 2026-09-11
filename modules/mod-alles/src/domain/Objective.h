@@ -27,6 +27,24 @@ enum class ObjectiveStep : uint8_t
     Select, Travel, Attempt, TurnIn, Recover, Wait
 };
 
+enum class PlacePurpose : uint8_t
+{
+    Work, Discovery, Rest, Companionship, Practice
+};
+
+struct ActivityObservation
+{
+    uint32_t area = 0;
+    bool available = false; // Alive, autonomous, out of combat and at the activity's actual location.
+    bool resting = false; // Observed stationary rest, not merely an issued idle command.
+    bool discovered = false; // A new personal observation, not arrival or distance traveled.
+    bool interaction = false; // Actual comprehended delivery/interaction with the intended companion.
+    std::optional<ActorKey> person;
+    bool atDestination = false; // Physically reached the route endpoint; does not establish activity success.
+    bool recovered = false; // Observed recovery can finish rest before its time bound.
+    bool progressed = false; // Actual progress in the practiced skill, never just issuing an action.
+};
+
 enum class InformationStatus : uint8_t
 {
     None, Pending, Undelivered, Awaiting, Unanswered, Lead
@@ -168,6 +186,12 @@ struct Objective
     Cooperation cooperation;
     std::optional<HumanRequest> request;
     std::optional<ResourcePreparation> preparation;
+    PlacePurpose purpose = PlacePurpose::Work;
+    uint64_t activityMs = 0;
+    uint64_t creditedActivityMs = 0;
+    uint64_t completedMs = 0;
+    std::optional<QuestProgress> satisfactionReceipt;
+    uint32_t assessedAttempts = 0;
 
     bool operator==(Objective const&) const = default;
 };
@@ -198,6 +222,14 @@ public:
     Objective const* ProposeQuest(uint32_t quest, std::string outcome, std::string reason,
         std::optional<QuestProgress> initial = {});
     Objective const* ProposePlace(uint32_t place, std::string outcome, std::string reason);
+    Objective const* ProposeActivity(uint32_t place, PlacePurpose purpose, std::string outcome,
+        std::string reason, std::optional<ActorKey> companion = std::nullopt);
+    bool ObserveActivity(uint64_t id, ActivityObservation const& observation, uint64_t now);
+    bool ReconsiderActivity(uint64_t id, uint64_t now, bool urgentRecovery = false);
+    bool Replan(uint64_t id, std::string reason, uint64_t now);
+    std::pair<uint32_t, bool> AccountQuestProgress(uint64_t id, QuestProgress const& observed);
+    bool AssessAttempt(uint64_t id);
+    uint64_t AccountRest(uint64_t id);
     std::optional<uint64_t> Request(HumanRequest request);
     bool ObserveRequest(uint64_t id, RequestObservation const& observation, uint64_t now);
     Objective const* Following() const;
@@ -251,7 +283,8 @@ public:
     bool Reconcile(uint64_t id, QuestProgress const& observed, uint64_t now);
 
 private:
-    Objective const* Propose(uint32_t quest, uint32_t place, std::string outcome, std::string reason);
+    Objective const* Propose(uint32_t quest, uint32_t place, std::string outcome, std::string reason,
+        PlacePurpose purpose = PlacePurpose::Work, std::optional<ActorKey> companion = std::nullopt);
     bool Start(Objective& objective, uint64_t revision, uint64_t now, uint64_t circumstances);
     ObjectivePolicy _policy;
     std::map<uint64_t, Objective> _objectives;
@@ -263,5 +296,7 @@ char const* Name(ObjectiveStep value);
 char const* Name(Obstruction value);
 char const* Name(InformationStatus value);
 char const* Name(PreparationState value);
+char const* Name(PlacePurpose value);
+char const* ActivityCapability(PlacePurpose value);
 }
 #endif

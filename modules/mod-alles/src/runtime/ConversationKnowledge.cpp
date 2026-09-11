@@ -105,6 +105,8 @@ ConversationKnowledge RetrieveConversationKnowledge(OwnerSnapshot const& owner, 
     auto const words = ConversationFingerprint(message);
     for (auto const& memory : owner.memories)
     {
+        if (IsRoutineMemory(memory))
+            continue;
         auto text = RenderMemory(memory);
         if (text.size() > 512)
             continue;

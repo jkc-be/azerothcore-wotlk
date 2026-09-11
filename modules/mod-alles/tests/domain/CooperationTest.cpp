@@ -227,6 +227,7 @@ TEST(AllesCooperation, PersistenceBindsAgreementToOwnerAndObjectiveAndDoesNotRes
     EXPECT_FALSE(IsValidPlanningSnapshot(snapshot));
     auto previous = Bridge::Parse(encoded).as_object();
     previous["version"] = 3;
+    previous.erase("satisfaction");
     for (auto& value : previous.at("objectives").as_array())
     {
         value.as_object().erase("cooperation");
@@ -334,6 +335,7 @@ TEST(AllesCooperation, RelayedAgreementsRoundTripAndOlderDirectAgreementsUpgrade
     snapshot.objectives.objectives.begin()->second.cooperation.agreements.erase({ActorKind::Player, 3});
     auto old = Bridge::Parse(Storage::EncodePlanning(snapshot)).as_object();
     old["version"] = 4;
+    old.erase("satisfaction");
     old.at("objectives").as_array()[0].as_object().erase("request");
     old.at("objectives").as_array()[0].as_object().erase("preparation");
     for (auto& item : old.at("objectives").as_array()[0].as_object().at("cooperation")

@@ -5,6 +5,7 @@ import {
   attention,
   budgetState,
   currentObjective,
+  motivationDetails,
   objectiveTable,
   objectiveTally,
   runStatistics,
@@ -1527,9 +1528,24 @@ function shortGuid(id) {
 // sentence about the decision. A world build without planning simply leaves the block hidden.
 function renderBotObjective(bot) {
   const objective = currentObjective(bot);
+  const satisfaction = bot.planning?.satisfaction;
+  const assessed = satisfaction && Number.isFinite(satisfaction.staying);
   const block = $("bot-objective");
-  block.hidden = !objective;
-  if (!objective) return;
+  block.hidden = !objective && !assessed;
+  if (block.hidden) return;
+  const details = [];
+  for (const text of motivationDetails(satisfaction)) {
+    const detail = document.createElement("span");
+    detail.className = "objective-reason";
+    detail.textContent = text;
+    details.push(detail);
+  }
+  if (!objective) {
+    const head = document.createElement("b");
+    head.textContent = satisfaction.alternatives?.length ? "Staying nearby" : "No activity selected";
+    block.replaceChildren(head, ...details);
+    return;
+  }
   const head = document.createElement("b");
   head.textContent = objective.outcome || `Objective ${objective.id}`;
   const line = document.createElement("span");
@@ -1548,7 +1564,7 @@ function renderBotObjective(bot) {
   const rest = document.createElement("span");
   rest.className = "objective-reason";
   rest.textContent = `${held} objective${held === 1 ? "" : "s"} held; engine ${bot.planning?.engine || "unknown"}.`;
-  block.replaceChildren(head, line, reason, rest);
+  block.replaceChildren(head, line, reason, ...details, rest);
 }
 
 function renderDetails() {
@@ -1568,7 +1584,7 @@ function renderDetails() {
   const unmeasured = state?.source === "alles-simulation"
     ? "not reported by this simulation feed"
     : "not measured by this world build";
-  $("bot-name").textContent = `${bot.name}, level ${bot.level}${bot.controlGroup ? " · Troll control group" : ""}`;
+  $("bot-name").textContent = `${bot.name}, level ${bot.level}${bot.controlGroup ? " · control group" : ""}`;
   renderBotObjective(bot);
   const health = healthPercent(bot);
   $("bot-bars").replaceChildren(
@@ -2759,7 +2775,10 @@ function renderMemory() {
     return;
   }
   const now = Date.now();
-  const shown = filterMemories(detail.memories, $("memory-filter").value, $("memory-sort").value);
+  const category = $("memory-kind").value;
+  const records = detail.memories.filter((memory) => category === "all"
+    || (category === "familiarity") === (memory.kind === "familiarity"));
+  const shown = filterMemories(records, $("memory-filter").value, $("memory-sort").value);
   memoryBody.replaceChildren(
     ...shown.map((memory) => {
       const tr = document.createElement("tr");
@@ -2768,12 +2787,13 @@ function renderMemory() {
       const via = memory.attribution && memory.attribution !== memory.source.name ? ` via ${memory.attribution}` : "";
       const depth = memory.reportedDepth == null ? "" : `, depth ${memory.reportedDepth}`;
       tr.append(
-        cell(memory.text, "text"),
+        cell(memory.encounters ? `${memory.text} Seen ${memory.encounters} time${memory.encounters === 1 ? "" : "s"}.`
+          + (memory.lastSeenPlace ? ` Last seen in ${memory.lastSeenPlace}.` : "") : memory.text, "text"),
         cell(memory.kind, "text"),
         cell(memory.source.name ? `${memory.source.name}${via}${depth}` : memory.subject.name || "", "text"),
         cell((memory.confidence ?? 0).toFixed(2)),
         salience,
-        cell(relativeTime(memory.formedUnixMs, now), "text"),
+        cell(relativeTime(memory.lastSeenUnixMs || memory.formedUnixMs, now), "text"),
         cell(memory.recalledUnixMs ? relativeTime(memory.recalledUnixMs, now) : "never", "text"),
         cell(memory.formation, "text"),
       );
@@ -2913,6 +2933,7 @@ $("memory-refresh").onclick = () => {
 };
 $("memory-filter").oninput = renderMemory;
 $("memory-sort").onchange = renderMemory;
+$("memory-kind").onchange = renderMemory;
 $("talk-form").onsubmit = askMemory;
 $("talk-clear").onclick = () => {
   talkLogs.delete(memoryOwner());
